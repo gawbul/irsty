@@ -9,11 +9,14 @@
 #![forbid(unsafe_code)]
 
 pub mod casemap;
+pub mod ctcp;
+pub mod decode;
 pub mod format;
 pub mod isupport;
 pub mod mask;
 pub mod message;
 pub mod source;
+pub mod split;
 pub mod tags;
 
 pub use casemap::CaseMapping;
