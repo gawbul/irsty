@@ -1,0 +1,6 @@
+# Developer tools for the quality gate. The Rust toolchain itself is pinned in
+# rust-toolchain.toml.
+[tools]
+"cargo:cargo-nextest" = "0.9.150"
+"cargo:cargo-deny" = "0.20.2"
+"cargo:cargo-audit" = "0.22.2"
