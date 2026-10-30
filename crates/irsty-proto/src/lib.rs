@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod casemap;
+pub mod format;
 pub mod isupport;
 pub mod mask;
 pub mod message;
