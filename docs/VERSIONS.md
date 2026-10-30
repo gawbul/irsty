@@ -58,9 +58,21 @@ All versions were checked live on **2026-10-30** using `rustup`, `cargo info` an
 
 | Crate | Version | Why |
 |---|---|---|
-| insta | 1.49.0 | Snapshot tests for the UI and the parser. |
-| proptest | 1.12.0 | Round-trip properties. |
-| criterion | 0.8.2 | Benchmarks for the parser and scrollback. |
+| insta | 1.49.0 | Snapshot tests for the UI (arrives in M3). |
+| proptest | 1.12.0 | Round-trip and no-panic properties. |
+| criterion | 0.8.2 | Benchmarks for the parser and formatter. Uses `std::hint::black_box`. |
+| serde-saphyr | 2.0.0 (2026-10-13) | Loads the parser-tests YAML. `serde_yaml` is deprecated, and `serde_yaml_ng` and `serde_norway` haven't released since 2024. This one is designed to be panic-free. Test-only. |
+| libfuzzer-sys | 0.4.13 | Fuzz targets in `fuzz/`, which sit outside the workspace because they need nightly. |
+
+### Developer tools (pinned in `mise.toml`)
+
+| Tool | Version | Notes |
+|---|---|---|
+| cargo-nextest | 0.9.150 | |
+| cargo-deny | 0.20.2 | |
+| cargo-audit | 0.22.2 | |
+| cargo-llvm-cov | 0.9.1 | Needs the `llvm-tools` rustup component. |
+| cargo-fuzz | 0.13.2 | Needs nightly (1.101.0-nightly 2026-10-29 when checked). On networks where nightly cargo stalls fetching the index, set `CARGO_HTTP_MULTIPLEXING=false`. |
 
 ### Test data
 

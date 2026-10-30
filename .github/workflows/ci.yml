@@ -69,6 +69,44 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo "+$MSRV" check --workspace --all-targets --all-features
 
+  coverage:
+    name: coverage (irsty-proto >= 90%)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup show active-toolchain || rustup toolchain install
+      - run: rustup component add llvm-tools
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - run: cargo llvm-cov -p irsty-proto --fail-under-lines 90 --summary-only
+
+  fuzz:
+    name: fuzz smoke test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [parse_message, styled_text, negotiation]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install nightly --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: fuzz
+      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2.88.1
+        with:
+          tool: cargo-fuzz@0.13.2
+      # cargo-fuzz defaults to the triple it was built for, which is musl for the
+      # prebuilt binary; ASan needs glibc.
+      - run: cargo +nightly fuzz run -O --target x86_64-unknown-linux-gnu ${{ matrix.target }} -- -max_total_time=60
+        working-directory: fuzz
+
   supply-chain:
     name: deny and audit
     runs-on: ubuntu-latest
