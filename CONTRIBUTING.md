@@ -31,6 +31,7 @@ Documented exceptions to pedantic:
 |---|---|
 | `module_name_repetitions` | `proto::message::MessageRef` and similar names read better than the alternatives. |
 | `must_use_candidate` | Too noisy on simple getters; we add `#[must_use]` where ignoring the result is a real bug. |
+| `assert_is_empty` | Its suggested rewrite (`assert_eq!(v, [] as [T; 0])`) is noisier than `assert!(v.is_empty())`, and a failure still names the line. |
 | `missing_errors_doc` | Our error enums document themselves. We'll reconsider before 1.0. |
 
 Use a local `#[allow(...)]` with a comment explaining why when a lint is wrong in one specific place.

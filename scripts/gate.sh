@@ -11,6 +11,8 @@ step "fmt";      cargo fmt --all --check
 step "clippy";   cargo clippy --workspace --all-targets --all-features -- -D warnings
 step "nextest";  cargo nextest run --workspace --all-features --no-tests=pass
 step "doctests"; cargo test --workspace --all-features --doc
+step "coverage (irsty-proto >= 90% lines)"
+cargo llvm-cov -p irsty-proto --fail-under-lines 90 --summary-only 2>&1 | tail -3
 step "deny";     cargo deny check
 step "audit";    cargo audit --deny warnings
 step "msrv ($msrv)"
