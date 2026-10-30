@@ -31,6 +31,21 @@ irsty  ──►  irsty-tui  ──►  irsty-core  ──►  irsty-proto
 
 One task owns `State`. Each event becomes an `Action`. `update` mutates state and returns `Effects` without doing any I/O. Pending events are drained before each render, so bursts collapse into one frame ([ADR 0002](adr/0002-unidirectional-state.md)).
 
+## Connections
+
+Each network has one connection task (`irsty_core::net::connection`). It:
+
+- opens TCP, then TLS with `rustls` and the OS trust store (`rustls-platform-verifier`), optionally presenting a client certificate;
+- registers (`PASS`, `CAP LS 302`, `NICK`, `USER`), walking the nick list on 433 and friends;
+- drives `irsty-proto`'s CAP and SASL state machines, holding `CAP END` until SASL finishes;
+- answers `PING` at once, ahead of the queue, and sends its own after 90 s of silence, giving up 60 s later;
+- sends everything else through a token bucket (a burst of 5, then one every 2 s) so servers don't disconnect us for flooding;
+- on failure, rotates to the next server and backs off exponentially with equal jitter (2 s doubling to 5 min, never immediate); a connection that stays registered for a minute resets the backoff.
+
+Joining channels is not its job: on `Registered`, `State::apply` returns `Send` effects for autojoin plus every channel that was joined when the link dropped.
+
+`irsty_core::Client` owns `State`, the event receiver and the per-network command senders. `Client::next` waits for one event, then drains up to 512 more without waiting, applies them, runs the effects, and returns the buffers that changed. It is cancel-safe, so a frontend can `select!` on it alongside terminal input.
+
 ## Back-pressure
 
 | Edge | Mechanism | When full |

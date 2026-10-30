@@ -4,7 +4,7 @@
 
 A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](https://ratatui.rs). It is a spiritual successor to irssi and WeeChat: fast, readable out of the box, scriptable, with first-class IRCv3 support and good support for bouncers (soju, ZNC).
 
-> **Status:** early development (milestone M0, the skeleton). Nothing is usable yet. See [`PLAN.md`](PLAN.md) for the roadmap.
+> **Status:** early development. The protocol and connection layers work (M1 and M2) and `irsty --headless` connects, joins and logs; the terminal UI arrives in M3. See [`PLAN.md`](PLAN.md) for the roadmap.
 
 ## Goals
 
