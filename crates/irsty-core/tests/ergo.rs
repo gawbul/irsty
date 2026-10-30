@@ -162,7 +162,7 @@ async fn sasl_plain_against_ergo() {
         ),
         dir.path(),
     );
-    let mut client = Client::start(&cfg, None, None).await;
+    let mut client = Client::start(&cfg, None, None);
     until(&mut client, "registration", |c| {
         network(c, "ergo").status == Status::Registered
     })
@@ -193,7 +193,7 @@ async fn sasl_plain_against_ergo() {
         ),
         dir.path(),
     );
-    let mut client = Client::start(&wrong, None, None).await;
+    let mut client = Client::start(&wrong, None, None);
     until(&mut client, "registration", |c| {
         network(c, "ergo").status == Status::Registered
     })
@@ -232,7 +232,7 @@ async fn two_clients_join_talk_and_part() {
         &(net("alice", &alice) + &net("bob", &bob)),
         dir.path(),
     );
-    let mut client = Client::start(&cfg, None, None).await;
+    let mut client = Client::start(&cfg, None, None);
 
     until(&mut client, "both joined and see each other", |c| {
         ["alice", "bob"].iter().all(|n| {
@@ -334,7 +334,7 @@ async fn tls_verification_is_on_by_default() {
         ),
         dir.path(),
     );
-    let mut client = Client::start(&verified, None, None).await;
+    let mut client = Client::start(&verified, None, None);
     until(&mut client, "certificate rejection", |c| {
         texts(c, "ergo", None)
             .iter()
@@ -352,7 +352,7 @@ async fn tls_verification_is_on_by_default() {
         ),
         dir.path(),
     );
-    let mut client = Client::start(&insecure, None, None).await;
+    let mut client = Client::start(&insecure, None, None);
     until(&mut client, "registration over TLS", |c| {
         network(c, "ergo").status == Status::Registered
     })

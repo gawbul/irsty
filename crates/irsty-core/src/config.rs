@@ -297,6 +297,36 @@ impl Default for LoggingConfig {
     }
 }
 
+fn default_timestamp() -> String {
+    "%H:%M".into()
+}
+
+/// Terminal UI settings.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UiConfig {
+    /// Capture the mouse (wheel scrolling, clicking buffers). Off by default so
+    /// the terminal's own selection keeps working.
+    #[serde(default)]
+    pub mouse: bool,
+    /// Show the nick list in channels. Defaults to true.
+    #[serde(default = "default_true")]
+    pub nicklist: bool,
+    /// `strftime` format for timestamps. Defaults to `%H:%M`.
+    #[serde(default = "default_timestamp")]
+    pub timestamp_format: String,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            mouse: false,
+            nicklist: true,
+            timestamp_format: default_timestamp(),
+        }
+    }
+}
+
 fn default_scrollback() -> usize {
     10_000
 }
@@ -314,6 +344,9 @@ pub struct Config {
     /// Logging.
     #[serde(default)]
     pub logging: LoggingConfig,
+    /// Terminal UI.
+    #[serde(default)]
+    pub ui: UiConfig,
 }
 
 impl Config {
@@ -501,6 +534,12 @@ mod tests {
         );
         assert!(config.logging.enabled);
         assert!(config.plaintext_secrets().is_empty());
+        assert_eq!(config.ui, UiConfig::default());
+        let ui = parse("[ui]\nmouse = true\ntimestamp_format = \"%H:%M:%S\"")
+            .unwrap()
+            .ui;
+        assert!(ui.mouse && ui.nicklist);
+        assert_eq!(ui.timestamp_format, "%H:%M:%S");
     }
 
     #[test]

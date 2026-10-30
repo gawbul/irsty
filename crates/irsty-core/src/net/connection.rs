@@ -435,6 +435,13 @@ impl<'a> Session<'a> {
                         if let Some(reason) = reason {
                             quit = quit.param(reason);
                         }
+                        // Flush what the user already sent before saying goodbye;
+                        // the rate limit no longer matters once we are leaving.
+                        for line in self.queue.drain(..) {
+                            if framed.feed(line).await.is_err() {
+                                break;
+                            }
+                        }
                         if let Ok(line) = quit.to_wire() {
                             let _ = framed.send(line).await;
                         }

@@ -10,6 +10,7 @@
 )]
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use irsty_core::client::SettingsHook;
@@ -139,7 +140,7 @@ fn config(port: u16, extra: &str, log_dir: &Path) -> Config {
 }
 
 fn fast(ping_interval: Duration) -> SettingsHook {
-    Box::new(move |s| {
+    Arc::new(move |s| {
         s.timeouts.registration = Duration::from_secs(5);
         s.timeouts.ping_interval = ping_interval;
         s.timeouts.ping_timeout = Duration::from_millis(300);
@@ -223,7 +224,7 @@ async fn registers_with_cap_and_sasl_plain() {
         c
     });
 
-    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30)))).await;
+    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30))));
     until(&mut client, |c| {
         c.state()
             .networks()
@@ -287,7 +288,7 @@ async fn sasl_failure_still_registers() {
         c.send(":srv 001 me :Welcome").await;
         c
     });
-    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30)))).await;
+    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30))));
     until(&mut client, |c| status(c) == Status::Registered).await;
     assert!(
         server_text(&client)
@@ -317,7 +318,7 @@ async fn falls_back_through_nicks() {
         c.expect("JOIN #test").await;
         c
     });
-    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30)))).await;
+    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30))));
     until(&mut client, |c| status(c) == Status::Registered).await;
     assert_eq!(client.state().networks().next().unwrap().nick, "me1");
     let _conn = server.await.unwrap();
@@ -346,7 +347,7 @@ async fn answers_pings_and_reconnects_after_ping_timeout() {
         c.expect("JOIN #test").await;
         c
     });
-    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_millis(300)))).await;
+    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_millis(300))));
     until(&mut client, |c| {
         server_text(c).iter().any(|l| l.contains("ping timeout"))
     })
@@ -375,7 +376,7 @@ async fn reconnects_after_abrupt_disconnect_and_rejoins() {
         c.expect("JOIN #test,#extra").await;
         c
     });
-    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30)))).await;
+    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30))));
     until(&mut client, |c| {
         server_text(c)
             .iter()
@@ -412,7 +413,7 @@ async fn survives_hostile_input() {
             .unwrap();
         c
     });
-    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30)))).await;
+    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30))));
     until(&mut client, |c| {
         c.state()
             .networks()
@@ -440,7 +441,7 @@ async fn rate_limits_output_in_order() {
     let mock = Mock::bind().await;
     let dir = tempfile::tempdir().unwrap();
     let cfg = config(mock.port(), "autoconnect = true", dir.path());
-    let hook: SettingsHook = Box::new(|s| {
+    let hook: SettingsHook = Arc::new(|s| {
         s.rate.burst = 2;
         s.rate.interval = Duration::from_millis(150);
         s.backoff_base = Duration::from_millis(50);
@@ -455,7 +456,7 @@ async fn rate_limits_output_in_order() {
         }
         start.elapsed()
     });
-    let mut client = Client::start(&cfg, None, Some(hook)).await;
+    let mut client = Client::start(&cfg, None, Some(hook));
     until(&mut client, |c| status(c) == Status::Registered).await;
     let id = client.state().networks().next().unwrap().id;
     for i in 0..5 {
@@ -486,7 +487,7 @@ async fn reports_missing_sasl_and_bad_secrets() {
         c.register("me", "server-time").await;
         c
     });
-    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30)))).await;
+    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30))));
     until(&mut client, |c| status(c) == Status::Registered).await;
     assert!(
         server_text(&client)
@@ -501,7 +502,11 @@ async fn reports_missing_sasl_and_bad_secrets() {
         "[network.sasl]\nmechanism = \"plain\"\naccount = \"a\"\npassword = { command = [\"false\"] }",
         dir.path(),
     );
-    let client = Client::start(&bad, None, None).await;
+    let mut client = Client::start(&bad, None, None);
+    until(&mut client, |c| {
+        !c.is_running(c.state().networks().next().unwrap().id)
+    })
+    .await;
     let text = server_text(&client);
     assert!(
         text.iter()
@@ -524,7 +529,7 @@ async fn connection_refused_backs_off_and_quit_stops_it() {
     };
     let dir = tempfile::tempdir().unwrap();
     let cfg = config(port, "", dir.path());
-    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30)))).await;
+    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30))));
     until(&mut client, |c| {
         server_text(c)
             .iter()
@@ -536,4 +541,71 @@ async fn connection_refused_backs_off_and_quit_stops_it() {
     assert_eq!(status(&client), Status::Waiting);
     client.quit(None).await;
     assert!(client.next().await.is_none(), "no connections remain");
+}
+
+#[tokio::test]
+async fn says_split_text_and_reconnects_after_disconnect() {
+    let mock = Mock::bind().await;
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = config(mock.port(), "", dir.path());
+    let server = tokio::spawn(async move {
+        let mut c = mock.accept().await;
+        c.register("me", "").await;
+        c.expect("JOIN #test").await;
+        let mut received = Vec::new();
+        loop {
+            let line = c.recv().await;
+            if line.starts_with("QUIT") {
+                assert_eq!(line, "QUIT :see you");
+                break;
+            }
+            received.push(line);
+        }
+        drop(c);
+        let mut c = mock.accept().await;
+        c.register("me", "").await;
+        c.expect("JOIN #test").await;
+        received
+    });
+    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30))));
+    let id = client.state().networks().next().unwrap().id;
+    assert_eq!(
+        client.say(id, "#test", "too early", false),
+        Err(irsty_core::client::SendError::NotConnected)
+    );
+    until(&mut client, |c| status(c) == Status::Registered).await;
+
+    let long = "word ".repeat(200);
+    let buffer = client
+        .say(id, "#test", long.trim_end(), false)
+        .unwrap()
+        .unwrap();
+    client.say(id, "#test", "waves", true).unwrap();
+    let lines = client.state().buffer(buffer).unwrap().lines().len();
+    assert!(lines >= 4, "split into several recorded lines, got {lines}");
+
+    client.disconnect(id, Some("see you")).unwrap();
+    until(&mut client, |c| !c.is_running(id)).await;
+    assert_eq!(status(&client), Status::Disconnected);
+    assert_eq!(client.connect(id), Ok(()));
+    assert_eq!(
+        client.connect(id),
+        Err(irsty_core::client::SendError::AlreadyConnected)
+    );
+    let received = drive(&mut client, server).await;
+
+    let privmsgs: Vec<&String> = received
+        .iter()
+        .filter(|l| l.starts_with("PRIVMSG #test :word"))
+        .collect();
+    assert!(privmsgs.len() >= 3, "{received:?}");
+    assert!(privmsgs.iter().all(|l| l.len() <= 510));
+    let rejoined: String = privmsgs
+        .iter()
+        .map(|l| l.trim_start_matches("PRIVMSG #test :"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert_eq!(rejoined, long.trim_end());
+    assert!(received.contains(&"PRIVMSG #test :\x01ACTION waves\x01".to_owned()));
+    client.quit(None).await;
 }
