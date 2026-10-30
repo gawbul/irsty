@@ -1,0 +1,21 @@
+[package]
+name = "irsty"
+description = "A modern, keyboard-driven terminal IRC client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive", "cargo", "wrap_help"] }
+color-eyre = "0.6.5"
+irsty-core.workspace = true
+irsty-tui.workspace = true
+
+[lints]
+workspace = true

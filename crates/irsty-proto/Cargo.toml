@@ -1,0 +1,17 @@
+[package]
+name = "irsty-proto"
+description = "IRC and IRCv3 protocol primitives for Irsty: parsing, serialisation, CAP and SASL (sans-IO)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
