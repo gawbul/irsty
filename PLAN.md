@@ -103,7 +103,7 @@ Every milestone ends with the full gate passing locally and in CI: `fmt --check`
 **M0. Skeleton.** `git init`, workspace, toolchain file, lints, `deny.toml`, GitHub Actions (gate matrix on Linux and macOS, MSRV job, audit on a schedule), `CLAUDE.md`, ADRs 0001 to 0007, stub docs, `forbid(unsafe_code)` in every crate.
 *Accept:* CI is green on an empty build, and `cargo run -- --version` works.
 
-**M1. irsty-proto.** Message parse and serialise (zero-copy and owned), tags, ISUPPORT, casemapping, mIRC formatting and sanitiser, CTCP framing, message splitting, CAP LS 302 machine, SASL PLAIN.
+**M1. irsty-proto.** *(Done 2026-10-30.)* Message parse and serialise (zero-copy and owned), tags, ISUPPORT, casemapping, mIRC formatting and sanitiser, CTCP framing, message splitting, CAP LS 302 machine, SASL PLAIN.
 *Accept:* every case in the parser-tests `msg-split`, `msg-join`, `userhost-split` and `mask-match` files passes. A proptest round-trip (`serialise(parse(x)) ≡ x` for canonical messages) passes. A fuzz target runs for 10 minutes with no panics. Escape-injection tests pass. There is a criterion baseline for parsing. Coverage of the crate is ≥ 90%.
 
 **M2. irsty-core connection.** TCP and TLS (platform verifier, optional client cert), registration with nick fallbacks, PING/PONG and lag, CAP negotiation, SASL PLAIN, reconnect with backoff, rate-limited send queue, state model (networks, buffers, channels, users, modes from NAMES, JOIN, PART, QUIT, NICK, KICK, MODE, TOPIC), a minimal config with secrets, and log files per buffer.
