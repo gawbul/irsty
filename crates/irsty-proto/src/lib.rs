@@ -8,6 +8,7 @@
 //! a terminal; see ADR 0005.
 #![forbid(unsafe_code)]
 
+pub mod cap;
 pub mod casemap;
 pub mod ctcp;
 pub mod decode;
@@ -15,6 +16,8 @@ pub mod format;
 pub mod isupport;
 pub mod mask;
 pub mod message;
+pub mod sasl;
+pub mod secret;
 pub mod source;
 pub mod split;
 pub mod tags;
@@ -22,6 +25,7 @@ pub mod tags;
 pub use casemap::CaseMapping;
 pub use isupport::ISupport;
 pub use message::{Message, MessageRef, ParseError, SerialiseError};
+pub use secret::Secret;
 pub use source::Source;
 pub use tags::Tags;
 
