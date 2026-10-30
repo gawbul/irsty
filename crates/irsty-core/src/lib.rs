@@ -8,6 +8,7 @@
 pub mod config;
 pub mod event;
 pub mod net;
+pub mod state;
 
 pub use config::Config;
 
