@@ -54,6 +54,26 @@ All versions were checked live on **2026-10-30** using `rustup`, `cargo info` an
 | rusqlite | 0.41.1 | 2026-10-28 | SQLite search index (Phase 3), `bundled`. Synchronous calls on a dedicated thread; `sqlx` is unnecessary weight. |
 | mlua | 0.12.2 | 2026-10-03 | Scripting (Phase 4). |
 
+### Added in M2 (checked 2026-10-30)
+
+| Crate | Version | Why |
+|---|---|---|
+| tokio | 1.54.1 | Runtime. `irsty-core` enables only `rt`, `net`, `time`, `sync`, `macros`, `io-util` and `process`; the binary adds `rt-multi-thread` and `signal`. |
+| tokio-util | 0.7.20 | `Framed` codec and `Either` for plain-or-TLS streams. |
+| tokio-rustls | 0.26.6 | TLS. rustls is used through its re-export so the versions can't drift. |
+| rustls-platform-verifier | 0.7.1 | OS trust store via `BuilderVerifierExt::with_platform_verifier`. |
+| rustls-pki-types | 1.15.1 | PEM loading for client certificates (`PemObject`). Replaces `rustls-pemfile`, which has had no release since 2024-09 and whose parser moved here. |
+| keyring | 4.2.0 | Secrets. 4.x is a restructure around `keyring-core`; the default `v1` feature picks Keychain, Credential Manager or Secret Service automatically, and `Entry::new(service, user)?.get_password()` is all we need. On Linux it pulls in zbus 5; see the deny exceptions below. |
+| toml | 1.1.8 | Config (TOML 1.1). |
+| directories | 6.0.0 | Platform paths. |
+| jiff | 0.2.38 | Timestamps and `server-time` parsing. |
+| futures | 0.3.34 | `SinkExt` and `StreamExt` on the framed stream. |
+| bytes | 1.12.1 | Codec buffers. |
+| tracing-subscriber | 0.3.23 | `env-filter` and `fmt`, writing to a file. |
+| tempfile | 3.27.0 | Test-only. |
+
+Ergo v2.19.1 (2026-08-05) for integration tests: the container `ghcr.io/ergochat/ergo:v2.19.1` in CI, or the checksum-verified release binary locally.
+
 ### Dev dependencies
 
 | Crate | Version | Why |
@@ -92,4 +112,6 @@ All versions were checked live on **2026-10-30** using `rustup`, `cargo info` an
 | scram 0.6.0 | Unmaintained (2021). | Write our own on top of RustCrypto. |
 | notify 8.2.1 | Fine. | Deferred. Use explicit `/reload` first and add file watching only if it is wanted. |
 | sqlx 0.9.0 | MSRV 1.94, async, heavy. | Use `rusqlite` instead. |
-| webpki-roots 1.0.11 | CDLA licence, bundled roots. | Use the platform verifier. Keep this only as a fallback feature for exotic platforms. |
+| webpki-roots 1.0.11 | CDLA licence, bundled roots. | Use the platform verifier. It brings `webpki-root-certs` (CDLA-Permissive-2.0, Mozilla's root data) as its Linux fallback; `deny.toml` allows that licence for that crate only. |
+| rustls-pemfile 2.2.0 | No release since 2024-09; its PEM parser now lives in `rustls-pki-types`. | Not used. |
+| zbus 5 internals (`zvariant`, `zvariant_derive`, `zbus_names`) | Flagged unmaintained (RUSTSEC-2026-0370, -0371, -0372): folded into zbus 6. Reached only through keyring's Linux Secret Service store, and `secret-service` 5.2.0 still requires zbus 5. | Ignored in `deny.toml` and `.cargo/audit.toml` with reasons. Revisit when `secret-service` moves to zbus 6. The alternative (the libdbus-based store) would add a C dependency. |

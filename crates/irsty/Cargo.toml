@@ -14,7 +14,13 @@ categories.workspace = true
 clap = { version = "4.6.7", features = ["derive", "cargo", "wrap_help"] }
 color-eyre = "0.6.5"
 irsty-core.workspace = true
+irsty-proto.workspace = true
 irsty-tui.workspace = true
+jiff = "0.2.38"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "signal"] }
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 
 [lints]
 workspace = true

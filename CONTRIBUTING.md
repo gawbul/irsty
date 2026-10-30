@@ -6,6 +6,19 @@
 - Gate tools: `mise install` (versions in `mise.toml`), or install `cargo-nextest`, `cargo-deny` and `cargo-audit` yourself.
 - MSRV toolchain: `rustup toolchain install 1.97 --profile minimal`.
 
+## Integration tests against Ergo
+
+`crates/irsty-core/tests/ergo.rs` runs against a real [Ergo](https://ergo.chat) server and is skipped unless `IRSTY_ERGO_PORT` is set. CI uses the official container. Locally, either:
+
+```sh
+docker run --rm -d --name irsty-ergo -p 127.0.0.1:16667:6667 -p 127.0.0.1:16697:6697 ghcr.io/ergochat/ergo:v2.19.1
+IRSTY_ERGO_PORT=16667 IRSTY_ERGO_TLS_PORT=16697 cargo nextest run -p irsty-core --test ergo
+```
+
+or run the release binary: download `ergo-<version>-<platform>.tar.gz` and the checksums file from the [releases page](https://github.com/ergochat/ergo/releases), verify the checksum, then in a scratch directory copy `default.yaml` to `ircd.yaml`, change the listeners to `127.0.0.1:16667` and `127.0.0.1:16697`, and run `ergo mkcerts --conf ircd.yaml && ergo run --conf ircd.yaml`.
+
+The suite registers its own accounts and uses unique nicks and channels, so it can run repeatedly against the same server. Ergo's default limit of 32 connections per IP per 10 minutes is ample.
+
 ## Before you push
 
 ```sh

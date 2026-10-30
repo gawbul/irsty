@@ -6,7 +6,15 @@ all-features = true
 [advisories]
 # Unmaintained and unsound crates fail the build; ignores must carry a reason.
 unmaintained = "all"
-ignore = []
+ignore = [
+    # zbus 5 internals that were folded into zbus 6. Reached only through
+    # keyring's Linux Secret Service store (keyring -> secret-service -> zbus 5);
+    # no release of that stack uses zbus 6 yet (checked 2026-10-30). Maintenance
+    # notices, not vulnerabilities. Revisit when secret-service moves to zbus 6.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant: merged into zbus 6; awaiting keyring stack upgrade" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names: merged into zbus 6; awaiting keyring stack upgrade" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: merged into zbus 6; awaiting keyring stack upgrade" },
+]
 
 [licenses]
 confidence-threshold = 0.9
@@ -24,7 +32,11 @@ allow = [
     # File-level copyleft; acceptable as a dependency (nucleo-matcher, Phase 2).
     "MPL-2.0",
 ]
-exceptions = []
+exceptions = [
+    # Mozilla's root certificate data, used by rustls-platform-verifier as the
+    # fallback trust store on Linux. A permissive data licence.
+    { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
+]
 
 [bans]
 multiple-versions = "warn"

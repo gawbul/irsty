@@ -1,7 +1,125 @@
 # Configuration
 
-Irsty reads a single `config.toml` from the platform config directory (`$XDG_CONFIG_HOME/irsty/` on Linux, `~/Library/Application Support/irsty/` on macOS).
+Irsty reads a single `config.toml`:
 
-Every option will be documented here, with examples, as it lands. Configuration arrives in milestone M2.
+| Platform | Default location |
+|---|---|
+| Linux | `$XDG_CONFIG_HOME/irsty/config.toml` (usually `~/.config/irsty/config.toml`) |
+| macOS | `~/Library/Application Support/irsty/config.toml` |
 
-Secrets never appear as bare strings; see [ADR 0004](adr/0004-secrets.md).
+Use `irsty --config <PATH>` to read another file. Unknown keys are errors, so typos never pass silently. Error messages give a line and column but never quote the file, which may contain secrets.
+
+## A complete example
+
+```toml
+scrollback = 10000
+
+[logging]
+enabled = true
+# dir = "~/irclogs"
+
+[[network]]
+name = "libera"
+nicks = ["gawbul", "gawbul_"]
+username = "gawbul"
+realname = "Steve"
+autojoin = ["#irsty", "#rust"]
+
+[[network.servers]]
+host = "irc.libera.chat"
+port = 6697
+
+[[network.servers]]
+host = "irc.eu.libera.chat"
+
+[network.sasl]
+mechanism = "plain"
+account = "gawbul"
+password = { keyring = "libera" }
+
+[[network]]
+name = "bouncer"
+nicks = ["gawbul"]
+
+[[network.servers]]
+host = "bnc.example.net"
+port = 6697
+password = { command = ["pass", "irc/bouncer"] }
+```
+
+## Top level
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `scrollback` | integer | `10000` | Lines kept in memory per buffer. Older lines are dropped from memory but stay in the logs. |
+
+## `[logging]`
+
+Plain-text logs, one file per buffer, at `<dir>/<network>/<buffer>.log` (the server buffer is `-server.log`). Names are lowercased and made safe for the file system, and files are created with mode `0600`. Each line is an ISO 8601 UTC timestamp followed by irssi-style text. mIRC formatting codes are kept; every other control character is replaced with a visible symbol, so viewing a log with `cat` is safe.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `enabled` | boolean | `true` | Write logs. |
+| `dir` | path | platform data directory + `/logs` | Where logs go. Linux: `~/.local/share/irsty/logs`; macOS: `~/Library/Application Support/irsty/logs`. |
+
+Irsty's own diagnostic log is `irsty.log` in the platform data directory. Set `IRSTY_LOG` to change its filter, for example `IRSTY_LOG=irsty_core=debug`. It never contains passwords.
+
+## `[[network]]`
+
+Repeat for each network.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `name` | string | required | Display name; also the log directory name. Must be unique (case-insensitively). |
+| `nicks` | list of strings | required | Nicks to try in order. If all are taken, Irsty appends a number to the first. |
+| `username` | string | first nick | Username (ident). |
+| `realname` | string | first nick | Real name (gecos). |
+| `autojoin` | list of strings | `[]` | Channels to join after every registration. Channels you were in when a connection dropped are rejoined too. |
+| `autoconnect` | boolean | `true` | Connect at startup. |
+| `sasl` | table | none | See below. |
+| `client_cert` | table | none | See below. |
+
+### `[[network.servers]]`
+
+At least one per network. On failure, Irsty moves to the next server and backs off exponentially (2 s, then doubling up to 5 minutes, with jitter); a connection that stays up for a minute resets the backoff.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `host` | string | required | Hostname or IP address. |
+| `port` | integer | `6697` | Port. |
+| `tls` | boolean | `true` | Use TLS. |
+| `tls_verify` | boolean | `true` | Verify the server's certificate against the operating system's trust store. Setting this to `false` makes the connection open to interception; Irsty warns in red every time it connects. Only use it for servers you control with self-signed certificates. |
+| `password` | secret | none | Server password (`PASS`), typically for bouncers. |
+
+### `[network.sasl]`
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `mechanism` | `"plain"` or `"external"` | required | `plain` uses an account and password. `external` uses the TLS client certificate (CertFP) and needs `client_cert`. |
+| `account` | string | none | Account name; required for `plain`. |
+| `password` | secret | none | Required for `plain`. |
+
+If SASL fails or the server doesn't offer it, Irsty says so in the server buffer and carries on connecting without authentication.
+
+### `[network.client_cert]`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `cert` | path | PEM certificate chain. |
+| `key` | path | PEM private key (PKCS #8, PKCS #1 or SEC1). May be the same file as `cert`. |
+
+## Secrets
+
+Passwords are never bare strings ([ADR 0004](adr/0004-secrets.md)). A secret is one of:
+
+```toml
+password = { keyring = "libera" }               # the OS keyring, recommended
+password = { command = ["pass", "irc/libera"] } # the first line a command prints
+password = { plain = "hunter2" }                # plaintext: allowed, with a warning
+```
+
+- **`keyring`**: the macOS Keychain, or the Secret Service (GNOME Keyring, KWallet) on Linux, under service `irsty` and the name given. On macOS, add one with `security add-generic-password -s irsty -a libera -w`. On Linux, use `secret-tool store --label "irsty libera" service irsty username libera`.
+- **`command`**: runs the program directly (not through a shell) with standard input closed, and uses the first line of its output. It has two minutes to finish, so GPG can prompt for a passphrase. Works with `pass`, `gopass`, `op read`, `security find-generic-password -w` and so on.
+- **`plain`**: kept for convenience. Irsty prints a warning in the network's server buffer at every start.
+
+Secrets are resolved once at startup. If one can't be read, that network doesn't connect and the reason appears in its server buffer; other networks are unaffected.

@@ -5,4 +5,14 @@
 //! a headless mode or another frontend can sit on top of it.
 #![forbid(unsafe_code)]
 
+pub mod client;
+pub mod config;
+pub mod event;
+pub mod log;
+pub mod net;
+pub mod state;
+
+pub use client::Client;
+pub use config::Config;
+
 pub use irsty_proto as proto;

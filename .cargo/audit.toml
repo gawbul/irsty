@@ -1,0 +1,7 @@
+# Mirrors the advisory ignores in deny.toml; see the reasons there.
+[advisories]
+ignore = [
+    "RUSTSEC-2026-0370", # zvariant: merged into zbus 6; awaiting keyring stack upgrade
+    "RUSTSEC-2026-0371", # zbus_names: merged into zbus 6; awaiting keyring stack upgrade
+    "RUSTSEC-2026-0372", # zvariant_derive: merged into zbus 6; awaiting keyring stack upgrade
+]
