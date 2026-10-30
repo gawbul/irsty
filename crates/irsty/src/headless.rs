@@ -16,7 +16,7 @@ use jiff::tz::TimeZone;
 
 /// Runs until interrupted, then quits every network cleanly.
 pub(crate) async fn run(config: &Config, paths: Option<&Paths>) -> Result<()> {
-    let mut client = Client::start(config, paths, None).await;
+    let mut client = Client::start(config, paths, None);
     let mut printed: HashMap<BufferId, u64> = HashMap::new();
     let all: Vec<BufferId> = client.state().buffers().map(|b| b.id).collect();
     print_new(client.state(), &all, &mut printed)?;

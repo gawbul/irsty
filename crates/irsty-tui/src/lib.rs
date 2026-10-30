@@ -4,4 +4,7 @@
 //! actions. It never touches sockets.
 #![forbid(unsafe_code)]
 
+pub mod input;
+pub mod theme;
+
 pub use irsty_core as core;
