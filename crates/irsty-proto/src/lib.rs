@@ -8,10 +8,15 @@
 //! a terminal; see ADR 0005.
 #![forbid(unsafe_code)]
 
+pub mod casemap;
+pub mod isupport;
+pub mod mask;
 pub mod message;
 pub mod source;
 pub mod tags;
 
+pub use casemap::CaseMapping;
+pub use isupport::ISupport;
 pub use message::{Message, MessageRef, ParseError, SerialiseError};
 pub use source::Source;
 pub use tags::Tags;
