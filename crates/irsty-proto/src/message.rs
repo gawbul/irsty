@@ -260,6 +260,25 @@ impl Message {
         self
     }
 
+    /// Borrows as a [`MessageRef`] without serialising, so server messages of any
+    /// size can be fed to the state machines. Tags are not carried over (their
+    /// owned form is unescaped), and parameters beyond [`MAX_PARAMS`] are dropped.
+    pub fn as_ref(&self) -> MessageRef<'_> {
+        let mut params = [""; MAX_PARAMS];
+        let mut len = 0;
+        for (slot, param) in params.iter_mut().zip(&self.params) {
+            *slot = param;
+            len += 1;
+        }
+        MessageRef {
+            tags: None,
+            source: self.source.as_deref(),
+            command: &self.command,
+            params,
+            len,
+        }
+    }
+
     /// Parses an owned message from a line.
     pub fn parse(line: &str) -> Result<Self, ParseError> {
         MessageRef::parse(line).map(|m| m.to_owned())
@@ -490,6 +509,26 @@ mod tests {
                 len: MAX_CLIENT_TAGS_LEN + 2
             })
         );
+    }
+
+    #[test]
+    fn as_ref_borrows_without_limits() {
+        let long = "x".repeat(MAX_BODY_LEN * 2);
+        let msg = Message::new("CAP")
+            .source("srv")
+            .param("*")
+            .param("LS")
+            .param(long.clone())
+            .tag("a", "b");
+        let r = msg.as_ref();
+        assert_eq!(
+            (r.command(), r.source_raw(), r.raw_tags()),
+            ("CAP", Some("srv"), None)
+        );
+        assert_eq!(r.params(), ["*", "LS", long.as_str()]);
+        let mut many = Message::new("X");
+        many.params = vec!["p".into(); MAX_PARAMS + 3];
+        assert_eq!(many.as_ref().params().len(), MAX_PARAMS);
     }
 
     #[test]
