@@ -12,6 +12,6 @@ done
 fail=0
 for job in $(jobs -p); do wait "$job" || fail=1; done
 for t in $targets; do
-    printf '%-16s %s\n' "$t" "$(grep -Eo '#[0-9]+ +DONE.*' "fuzz-$t.log" | head -1 || echo 'see log')"
+    printf '%-16s %s\n' "$t" "$(grep -Eo 'Done [0-9]+ runs in [0-9]+ second\(s\)' "fuzz-$t.log" | tail -1 || echo 'see log')"
 done
 exit $fail
