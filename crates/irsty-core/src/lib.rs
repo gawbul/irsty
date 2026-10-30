@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+pub mod event;
 pub mod net;
 
 pub use config::Config;
