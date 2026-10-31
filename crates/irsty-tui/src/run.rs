@@ -84,8 +84,18 @@ pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -
     let guard = TerminalGuard::enter(config.ui.mouse)?;
     let mut terminal = fresh_terminal()?;
     let mut ui = Ui::new(&config.ui, client.state());
+    let (keymap, problems) = crate::keymap::Keymap::new(&config.ui.keymap, &config.keys);
+    ui.keymap = keymap;
     ui.config = config;
     ui.config_file = file;
+    for problem in problems {
+        app::feedback(
+            &mut client,
+            &mut ui,
+            irsty_core::state::LineKind::Error,
+            &problem,
+        );
+    }
     let mut events = EventStream::new();
     let mut signals = Signals::new()?;
     let mut clock = interval(Duration::from_secs(1));

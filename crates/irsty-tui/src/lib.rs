@@ -6,7 +6,9 @@
 
 pub mod app;
 pub mod command;
+pub mod complete;
 pub mod input;
+pub mod keymap;
 pub mod run;
 pub mod scrollback;
 pub mod terminal;
