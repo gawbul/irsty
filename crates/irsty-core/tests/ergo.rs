@@ -749,3 +749,192 @@ async fn older_history_against_ergo() {
     first.quit(None).await;
     second.quit(None).await;
 }
+
+/// M10's acceptance: typing, a reply, a reaction and a multi-line message
+/// from one Irsty to another through Ergo.
+#[tokio::test]
+async fn typing_replies_reactions_and_multiline_against_ergo() {
+    let Some(ergo) = ergo() else { return };
+    let channel = format!("#{}", unique("tags"));
+    let (alice, bob) = (unique("a"), unique("b"));
+    let dir = tempfile::tempdir().unwrap();
+    let net = |name: &str, nick: &str| {
+        format!(
+            r#"
+            [[network]]
+            name = "{name}"
+            nicks = ["{nick}"]
+            autojoin = ["{channel}"]
+            [[network.servers]]
+            host = "{{host}}"
+            port = {{port}}
+            tls = false
+            "#
+        )
+    };
+    let cfg = config(
+        &ergo,
+        &(String::from("[typing]\nsend = true\n") + &net("alice", &alice) + &net("bob", &bob)),
+        dir.path(),
+    );
+    let mut client = Client::start(&cfg, None, None);
+    until(&mut client, "both joined and see each other", |c| {
+        ["alice", "bob"].iter().all(|n| {
+            network(c, n)
+                .channel(&channel)
+                .is_some_and(|ch| ch.joined && ch.members().count() == 2)
+        })
+    })
+    .await;
+    assert!(
+        network(&client, "alice").multiline().is_some(),
+        "Ergo offers draft/multiline"
+    );
+    let (alice_id, bob_id) = (network(&client, "alice").id, network(&client, "bob").id);
+    let buffer_of = |c: &Client, n: &str| channel_buffer(c, n, &channel);
+    let lines_of = |c: &Client, n: &str| channel_lines(c, n, &channel);
+
+    // Bob asks; alice has its msgid.
+    client
+        .say(bob_id, &channel, "release today?", false)
+        .unwrap();
+    until(&mut client, "alice sees the question with an id", |c| {
+        c.state()
+            .last_message_from(buffer_of(c, "alice"), &bob)
+            .is_some()
+    })
+    .await;
+    let msgid = client
+        .state()
+        .last_message_from(buffer_of(&client, "alice"), &bob)
+        .and_then(|l| l.msgid.clone())
+        .unwrap();
+
+    // Alice types: bob sees it.
+    client.typing(alice_id, &channel, true);
+    until(&mut client, "bob sees alice typing", |c| {
+        c.state()
+            .buffer(buffer_of(c, "bob"))
+            .unwrap()
+            .typing(jiff::Timestamp::now())
+            .any(|t| t.nick == alice)
+    })
+    .await;
+
+    // Alice replies; bob sees what it answers, and alice stops typing.
+    client
+        .reply(alice_id, &channel, &msgid, "yes, after lunch")
+        .unwrap();
+    until(&mut client, "bob sees the reply", |c| {
+        lines_of(c, "bob").iter().any(|l| {
+            l.text.to_plain() == "yes, after lunch"
+                && l.reply
+                    .as_ref()
+                    .and_then(|r| r.parent.as_ref())
+                    .is_some_and(|(sender, _)| *sender == bob)
+        })
+    })
+    .await;
+    assert_eq!(
+        client
+            .state()
+            .buffer(buffer_of(&client, "bob"))
+            .unwrap()
+            .typing(jiff::Timestamp::now())
+            .count(),
+        0,
+        "a message ends typing"
+    );
+
+    reaction_through_ergo(&mut client, &channel, &msgid, &alice).await;
+    multiline_through_ergo(&mut client, alice_id, &channel).await;
+    client.quit(Some("done")).await;
+}
+
+fn channel_buffer(
+    client: &Client,
+    network_name: &str,
+    channel: &str,
+) -> irsty_core::state::BufferId {
+    network(client, network_name)
+        .channel(channel)
+        .unwrap()
+        .buffer
+}
+
+fn channel_lines(
+    client: &Client,
+    network_name: &str,
+    channel: &str,
+) -> Vec<irsty_core::state::Line> {
+    client
+        .state()
+        .buffer(channel_buffer(client, network_name, channel))
+        .unwrap()
+        .lines()
+        .iter()
+        .cloned()
+        .collect()
+}
+
+/// Alice's multi-line message reaches bob as one, in order, and alice's own
+/// copy is confirmed by the echo rather than shown twice.
+async fn multiline_through_ergo(
+    client: &mut Client,
+    alice_id: irsty_core::event::NetworkId,
+    channel: &str,
+) {
+    let lines_of = |c: &Client, n: &str| channel_lines(c, n, channel);
+    client
+        .say(alice_id, channel, "checklist:\n- docs\n- changelog", false)
+        .unwrap();
+    until(client, "bob sees the multi-line message", |c| {
+        lines_of(c, "bob")
+            .iter()
+            .any(|l| l.text.to_plain() == "- changelog")
+    })
+    .await;
+    let lines = lines_of(client, "bob");
+    let first = lines
+        .iter()
+        .position(|l| l.text.to_plain() == "checklist:")
+        .unwrap();
+    let texts: Vec<String> = lines[first..first + 3]
+        .iter()
+        .map(|l| l.text.to_plain())
+        .collect();
+    assert_eq!(texts, ["checklist:", "- docs", "- changelog"]);
+    assert!(!lines[first].continued && lines[first].msgid.is_some());
+    assert!(lines[first + 1].continued && lines[first + 2].continued);
+    // Alice's own copy was confirmed by the echo, not shown twice.
+    until(client, "alice's lines confirmed", |c| {
+        let own = lines_of(c, "alice");
+        own.iter().filter(|l| l.text.to_plain() == "- docs").count() == 1
+            && own
+                .iter()
+                .all(|l| !matches!(l.delivery, irsty_core::state::Delivery::Pending { .. }))
+    })
+    .await;
+}
+
+/// Alice reacts to bob's message `msgid`; both see it, alice through its
+/// echo.
+async fn reaction_through_ergo(client: &mut Client, channel: &str, msgid: &str, alice: &str) {
+    client
+        .react(channel_buffer(client, "alice", channel), msgid, "👍", false)
+        .unwrap();
+    let reacted = |c: &Client, n: &str| {
+        channel_lines(c, n, channel)
+            .iter()
+            .find(|l| l.msgid.as_deref() == Some(msgid))
+            .is_some_and(|l| {
+                l.reactions
+                    .iter()
+                    .any(|r| r.text == "👍" && r.nicks == [alice])
+            })
+    };
+    until(client, "both see the reaction", |c| {
+        reacted(c, "bob") && reacted(c, "alice")
+    })
+    .await;
+}
