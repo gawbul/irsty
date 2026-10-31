@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- On macOS the config file now lives at `~/.config/irsty/config.toml` (or under `$XDG_CONFIG_HOME`), the same as on Linux, instead of `~/Library/Application Support/irsty/`. Logs stay in the platform data directory.
 - Irsty is now licensed under Apache-2.0 only, instead of `MIT OR Apache-2.0` (ADR 0009).
 
 ### Added

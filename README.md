@@ -35,7 +35,7 @@ Build it (rustup installs the toolchain pinned in `rust-toolchain.toml` automati
 cargo build --release
 ```
 
-Create `~/.config/irsty/config.toml` on Linux, or `~/Library/Application Support/irsty/config.toml` on macOS:
+Create `~/.config/irsty/config.toml` (or `$XDG_CONFIG_HOME/irsty/config.toml`) on Linux and macOS:
 
 ```toml
 [[network]]

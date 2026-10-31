@@ -455,11 +455,20 @@ pub struct Paths {
 }
 
 impl Paths {
-    /// Platform defaults: XDG on Linux, `~/Library/Application Support` on macOS.
+    /// Platform defaults. Config lives in `$XDG_CONFIG_HOME/irsty` (or
+    /// `~/.config/irsty`) on every Unix, macOS included, as terminal users
+    /// expect. Data uses the platform directory: XDG on Linux,
+    /// `~/Library/Application Support` on macOS.
     pub fn platform() -> Option<Self> {
         let dirs = directories::ProjectDirs::from("", "", "irsty")?;
+        let config_dir = if cfg!(unix) {
+            let home = directories::BaseDirs::new()?.home_dir().to_owned();
+            xdg_config_dir(std::env::var_os("XDG_CONFIG_HOME"), &home)
+        } else {
+            dirs.config_dir().to_owned()
+        };
         Some(Self {
-            config_dir: dirs.config_dir().to_owned(),
+            config_dir,
             data_dir: dirs.data_dir().to_owned(),
         })
     }
@@ -473,6 +482,16 @@ impl Paths {
     pub fn log_dir(&self) -> PathBuf {
         self.data_dir.join("logs")
     }
+}
+
+/// `$XDG_CONFIG_HOME/irsty`, falling back to `~/.config/irsty`. The XDG spec
+/// says relative values are invalid and must be ignored.
+fn xdg_config_dir(xdg_config_home: Option<std::ffi::OsString>, home: &Path) -> PathBuf {
+    xdg_config_home
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| home.join(".config"))
+        .join("irsty")
 }
 
 #[cfg(test)]
@@ -647,6 +666,30 @@ mod tests {
         if let Some(paths) = Paths::platform() {
             assert!(paths.config_file().ends_with("config.toml"));
             assert!(paths.log_dir().ends_with("logs"));
+            #[cfg(unix)]
+            assert!(paths.config_dir.ends_with("irsty"));
         }
+    }
+
+    #[test]
+    fn xdg_config_dir_rules() {
+        let home = Path::new("/home/u");
+        assert_eq!(
+            xdg_config_dir(None, home),
+            Path::new("/home/u/.config/irsty")
+        );
+        assert_eq!(
+            xdg_config_dir(Some("/xdg".into()), home),
+            Path::new("/xdg/irsty")
+        );
+        // Relative and empty values are ignored, per the spec.
+        assert_eq!(
+            xdg_config_dir(Some("rel/dir".into()), home),
+            Path::new("/home/u/.config/irsty")
+        );
+        assert_eq!(
+            xdg_config_dir(Some("".into()), home),
+            Path::new("/home/u/.config/irsty")
+        );
     }
 }
