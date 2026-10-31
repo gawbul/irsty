@@ -21,6 +21,7 @@
 | `deny`, `audit`, `msrv`, `gate` (`g`) | Supply-chain checks, the MSRV build and the full gate. |
 | `fuzz`, `fuzz:smoke`, `bench` | Fuzz every target (default 600 seconds, or 30 for the smoke run), or run the benchmarks. |
 | `ergo` | A local Ergo server (see below). |
+| `soju`, `soju:install`, `run:soju`, `test:soju` | A local soju bouncer in front of Ergo, Irsty connected to it, and its integration tests (see below). |
 | `doc`, `update`, `duplicates`, `setup` | API docs, `cargo update` followed by deny and audit, list iCloud sync duplicates, and setup. |
 
 ## Integration tests against Ergo
@@ -42,6 +43,27 @@ IRSTY_ERGO_PORT=16667 IRSTY_ERGO_TLS_PORT=16697 cargo nextest run -p irsty-core 
 or run the release binary: download `ergo-<version>-<platform>.tar.gz` and the checksums file from the [releases page](https://github.com/ergochat/ergo/releases), verify the checksum, then in a scratch directory copy `default.yaml` to `ircd.yaml`, change the listeners to `127.0.0.1:16667` and `127.0.0.1:16697`, and run `ergo mkcerts --conf ircd.yaml && ergo run --conf ircd.yaml`.
 
 The suite registers its own accounts and uses unique nicks and channels, so it can run repeatedly against the same server. Ergo's default limit of 32 connections per IP per 10 minutes is ample.
+
+## Integration tests against soju
+
+`crates/irsty-core/tests/soju.rs` checks Irsty against a real [soju](https://soju.im) bouncer: its networks open as networks of their own and follow the bouncer as networks are added and deleted, and a message sent while Irsty is away comes back from soju's history on the next connection. It is skipped unless `IRSTY_SOJU_PORT` is set, and doesn't run in CI yet.
+
+soju ships source only (signed tarballs, no binaries or checksums), so build it once with Go:
+
+```sh
+mise run soju:install   # go install ...soju@v0.11.1 and sojuctl; Go checks every module against its checksum database
+```
+
+That puts `soju` and `sojuctl` in `$(go env GOPATH)/bin` (usually `~/go/bin`); `scripts/soju.sh` looks on your `PATH` and there. Then, each in its own terminal:
+
+```sh
+mise run ergo        # soju's upstream network
+mise run soju        # soju on 127.0.0.1:16670; add --fresh to start over
+mise run test:soju   # the tests
+mise run run:soju    # or Irsty itself, connected to it
+```
+
+The first run creates the user `irsty` (password `irsty-test`) with two networks on the local Ergo, `ergo` and `ergo2`; later runs keep soju's database in `target/soju/run`. A test that fails part-way can leave a `tmp…` network behind on the bouncer; `--fresh` clears it. Repeated runs open many connections to Ergo, whose per-IP throttle then slows them down; restarting Ergo with `--fresh` resets it.
 
 ## Before you push
 

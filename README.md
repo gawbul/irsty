@@ -89,6 +89,8 @@ mise run gate       # the full gate: fmt, clippy, tests, coverage, deny, audit, 
 mise run ergo       # a local Ergo server on 16667/16697 (in another terminal)
 mise run test:ergo  # integration tests against it
 mise run run:ergo   # Irsty itself, connected to it
+mise run soju       # a local soju bouncer in front of Ergo (build it once with mise run soju:install)
+mise run test:soju  # integration tests against it
 mise run fuzz       # all fuzz targets for 10 minutes (needs nightly)
 ```
 
