@@ -247,6 +247,7 @@ mod tests {
             raw: raw.to_owned(),
             delivery: Delivery::Delivered,
             highlight: false,
+            msgid: None,
         }
     }
 
