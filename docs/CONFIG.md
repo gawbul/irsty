@@ -169,6 +169,16 @@ Highlights and private messages from others raise a desktop notification through
 | `when_focused` | boolean | `false` | Notify even while the terminal has focus. |
 | `show_text` | boolean | `true` | Include the message; off shows only who and where. |
 
+## `[history]`
+
+Chat history from servers and bouncers that keep it (IRCv3 `draft/chathistory`, as Ergo and soju do, or ZNC's playback module). Joining a channel fetches its recent messages, or after a reconnect what you missed; private conversations you missed are opened and filled when you connect; and scrolling back past the oldest line fetches older messages. History never raises notifications, isn't answered as CTCP, and isn't shown twice. Older history is not written to the logs, which only ever grow forwards.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `lines` | integer | `100` | Messages to fetch at a time (servers may allow fewer); `0` turns history off. |
+
+With `draft/read-marker`, the server also remembers how far you have read: a buffer you read on another device stops counting as unread here, and reading here tells the server (at most every 15 seconds per buffer, or when you switch buffers).
+
 ## `[ctcp]`
 
 Irsty answers CTCP `VERSION`, `PING`, `TIME`, `CLIENTINFO` and `SOURCE` requests, at most three every ten seconds per network so a flood of requests can't get you disconnected. Requests and whether they were answered show in the server buffer.
@@ -203,6 +213,7 @@ Repeat for each network.
 | `monitor` | list of strings | `[]` | Nicks to watch. Irsty says in the server buffer (and their query, if open) when they come online or leave. Needs a server with `MONITOR`; Irsty tells you if it has none. |
 | `perform` | list of strings | `[]` | Raw IRC lines (as with `/raw`) sent after every registration, before autojoin. `$nick` becomes your current nick, for example `"MODE $nick +i"` or `"PRIVMSG ChanServ :OP #channel $nick"`. Lines are checked when the config loads. Prefer SASL to identifying here: a line holding a password gets the plaintext warning, though it is redacted from logs and debug output. |
 | `autoconnect` | boolean | `true` | Connect at startup. |
+| `bouncer_networks` | boolean | `true` | On a soju bouncer, open each network the bouncer has as its own network here, named `<this network>/<its name>` and connected with `BOUNCER BIND`. They aren't saved in the config: the bouncer is the source of truth, and networks added or removed there come and go here. Turn this off if you bind to one network in your soju username (`user/network`). |
 | `sasl` | table | none | See below. |
 | `client_cert` | table | none | See below. |
 | `proxy` | table | none | A SOCKS5 proxy; see below. |

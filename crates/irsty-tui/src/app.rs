@@ -1211,6 +1211,7 @@ fn run_set(
             "ctcp.replies" => config.ctcp.replies.to_string(),
             "ctcp.version" => config.ctcp.version.clone(),
             "ctcp.time" => config.ctcp.time.to_string(),
+            "history.lines" => config.history.lines.to_string(),
             _ => String::new(),
         }
     };

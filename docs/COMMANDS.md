@@ -115,7 +115,7 @@ In an alias, `$*` is everything typed after it, `$1` to `$9` single words, and `
 
 ### Settings
 
-`/set` changes `scrollback`, `logging.enabled`, `logging.dir`, `logging.rotate`, `ui.mouse`, `ui.nicklist`, `ui.timestamp_format`, `ui.keymap`, `ui.nick_colours`, `notifications.method`, `notifications.when_focused`, `notifications.show_text`, `ctcp.replies`, `ctcp.version` and `ctcp.time` (see [CONFIG.md](CONFIG.md)). `/set` with no arguments lists them with their values. Booleans accept `on`/`off`, `true`/`false` and `yes`/`no`. Logging and mouse changes take effect when Irsty restarts; the rest apply at once.
+`/set` changes `scrollback`, `logging.enabled`, `logging.dir`, `logging.rotate`, `ui.mouse`, `ui.nicklist`, `ui.timestamp_format`, `ui.keymap`, `ui.nick_colours`, `notifications.method`, `notifications.when_focused`, `notifications.show_text`, `ctcp.replies`, `ctcp.version`, `ctcp.time` and `history.lines` (see [CONFIG.md](CONFIG.md)). `/set` with no arguments lists them with their values. Booleans accept `on`/`off`, `true`/`false` and `yes`/`no`. Logging and mouse changes take effect when Irsty restarts; the rest apply at once.
 
 ## Leaving
 
