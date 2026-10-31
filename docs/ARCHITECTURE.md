@@ -35,7 +35,7 @@ One task owns `State`. Each event becomes an `Action`. `update` mutates state an
 
 Each network has one connection task (`irsty_core::net::connection`). It:
 
-- opens TCP, then TLS with `rustls` and the OS trust store (`rustls-platform-verifier`), optionally presenting a client certificate;
+- opens TCP, then TLS with `rustls` and the OS trust store (`rustls-platform-verifier`, wrapped so rejected certificates can be explained in plain words), optionally presenting a client certificate;
 - registers (`PASS`, `CAP LS 302`, `NICK`, `USER`), walking the nick list on 433 and friends;
 - drives `irsty-proto`'s CAP and SASL state machines, holding `CAP END` until SASL finishes;
 - answers `PING` at once, ahead of the queue, and sends its own after 90 s of silence, giving up 60 s later;

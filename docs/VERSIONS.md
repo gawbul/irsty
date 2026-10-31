@@ -62,6 +62,7 @@ All versions were checked live on **2026-10-30** using `rustup`, `cargo info` an
 | tokio-util | 0.7.20 | `Framed` codec and `Either` for plain-or-TLS streams. |
 | tokio-rustls | 0.26.6 | TLS. rustls is used through its re-export so the versions can't drift. |
 | rustls-platform-verifier | 0.7.1 | OS trust store via `BuilderVerifierExt::with_platform_verifier`. |
+| rustls-webpki | 0.103.16 | Added 2026-10-31. Reads the names a certificate covers when the macOS or Windows verifier reports a bare name mismatch. Already in the tree through rustls; `alloc` feature only. |
 | rustls-pki-types | 1.15.1 | PEM loading for client certificates (`PemObject`). Replaces `rustls-pemfile`, which has had no release since 2024-09 and whose parser moved here. |
 | keyring | 4.2.0 | Secrets. 4.x is a restructure around `keyring-core`; the default `v1` feature picks Keychain, Credential Manager or Secret Service automatically, and `Entry::new(service, user)?.get_password()` is all we need. On Linux it pulls in zbus 5; see the deny exceptions below. |
 | toml | 1.1.8 | Config (TOML 1.1). |
@@ -79,6 +80,7 @@ Ergo v2.19.1 (2026-08-05) for integration tests: the container `ghcr.io/ergochat
 | Crate | Version | Why |
 |---|---|---|
 | insta | 1.49.0 | Snapshot tests for the UI (arrives in M3). |
+| rcgen | 0.14.10 | Added 2026-10-31. Generates fresh certificates in TLS tests, so no fixture can expire. Maintained by the rustls project. `aws_lc_rs` and `pem` features only. Test-only. |
 | proptest | 1.12.0 | Round-trip and no-panic properties. |
 | criterion | 0.8.2 | Benchmarks for the parser and formatter. Uses `std::hint::black_box`. |
 | serde-saphyr | 2.0.0 (2026-10-13) | Loads the parser-tests YAML. `serde_yaml` is deprecated, and `serde_yaml_ng` and `serde_norway` haven't released since 2024. This one is designed to be panic-free. Test-only. |

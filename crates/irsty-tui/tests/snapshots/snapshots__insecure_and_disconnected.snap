@@ -3,8 +3,8 @@ source: crates/irsty-tui/tests/snapshots.rs
 expression: "render(&s, &mut ui, 80, 10).backend()"
 ---
 "libera: waiting to reconnect                                                    "
-" 1.libera        │08:59         -- │ Connected to irc.libera.chat:+6697         "
-" 2.  #irsty      │08:59         -- │ Connected to bnc.example:+6697             "
+" 1.libera        │08:59         -- │ Connected to irc.libera.chat:6697 (TLS)    "
+" 2.  #irsty      │08:59         -- │ Connected to bnc.example:6697 (TLS)        "
 " 3.  frank       │08:59         !! │ WARNING: TLS certificate verification is   "
 "                 │                 │ disabled for this server. The connection   "
 "                 │                 │ can be intercepted.                        "

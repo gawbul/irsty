@@ -214,8 +214,11 @@ pub struct ServerConfig {
 
 impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let tls = if self.tls { "+" } else { "" };
-        write!(f, "{}:{tls}{}", self.host, self.port)
+        write!(f, "{}:{}", self.host, self.port)?;
+        if self.tls {
+            f.write_str(" (TLS)")?;
+        }
+        Ok(())
     }
 }
 
@@ -541,7 +544,7 @@ mod tests {
         assert_eq!(libera.servers[0].port, 6697);
         assert!(libera.servers[0].tls && libera.servers[0].tls_verify);
         assert_eq!(libera.servers[1].to_string(), "irc.eu.libera.chat:6667");
-        assert_eq!(libera.servers[0].to_string(), "irc.libera.chat:+6697");
+        assert_eq!(libera.servers[0].to_string(), "irc.libera.chat:6697 (TLS)");
         let sasl = libera.sasl.as_ref().unwrap();
         assert_eq!(sasl.password, Some(SecretSource::Keyring("libera".into())));
         assert!(libera.autoconnect);

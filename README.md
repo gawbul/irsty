@@ -17,7 +17,7 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 
 - **Protocol** (`irsty-proto`): a zero-copy message parser and validating serialiser, IRCv3 message tags, `RPL_ISUPPORT`, casemapping, mIRC formatting, CTCP, and message splitting. It is checked against the ircdocs parser-tests corpus, property-tested and fuzzed.
 - **Untrusted text:** escape sequences, control characters and bidi tricks from the network are neutralised before anything is displayed or logged.
-- **Connections** (`irsty-core`): TLS with OS certificate verification, client certificates, `CAP LS 302`, SASL PLAIN and EXTERNAL, nick fallback, keepalive with lag measurement, rate-limited output, and reconnection with backoff, server rotation and automatic rejoin.
+- **Connections** (`irsty-core`): TLS with OS certificate verification and plain-English certificate errors, client certificates, `CAP LS 302`, SASL PLAIN and EXTERNAL, nick fallback, keepalive with lag measurement, rate-limited output, and reconnection with backoff, server rotation and automatic rejoin.
 - **State:** networks, channels, members and their modes, topics, queries and per-buffer scrollback.
 - **Secrets:** read from the OS keyring or a command such as `pass`. Plaintext works but triggers a warning at every start.
 - **Logs:** one plain-text file per buffer, safe to `cat`.

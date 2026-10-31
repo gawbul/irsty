@@ -1448,14 +1448,14 @@ mod tests {
         s.apply(
             NET,
             NetEvent::Connecting {
-                server: "h:+6697".into(),
+                server: "h:6697 (TLS)".into(),
             },
         );
         assert_eq!(s.network(NET).unwrap().status, Status::Connecting);
         s.apply(
             NET,
             NetEvent::Connected {
-                server: "h:+6697".into(),
+                server: "h:6697 (TLS)".into(),
                 insecure: true,
             },
         );
