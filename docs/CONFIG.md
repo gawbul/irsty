@@ -101,6 +101,14 @@ At least one per network. On failure, Irsty moves to the next server and backs o
 | `tls_verify` | boolean | `true` | Verify the server's certificate against the operating system's trust store. Setting this to `false` makes the connection open to interception; Irsty warns in red every time it connects. Only use it for servers you control with self-signed certificates. |
 | `password` | secret | none | Server password (`PASS`), typically for bouncers. |
 
+When a certificate is rejected, the server buffer says why in plain words and what to do. For example, if the certificate doesn't cover the host you configured, Irsty lists the names it does cover, so you can switch to one of them:
+
+```
+Disconnected (cannot connect to irc.example.net:6697 (TLS): the certificate is for irc.example.com, not irc.example.net. If one of those is the same server, use it as the host); reconnecting in 1s
+```
+
+The full explanation appears once per server; retries show `same certificate problem as before` and keep backing off, so Irsty reconnects by itself if the operators fix their certificate.
+
 ### `[network.sasl]`
 
 | Key | Type | Default | Meaning |
