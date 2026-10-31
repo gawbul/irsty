@@ -77,6 +77,9 @@ enum Scram {
     },
     /// The server proved it knows the password.
     Verified,
+    /// Something went wrong. Final: a hostile server can't restart the
+    /// exchange to make us run PBKDF2 again.
+    Failed,
 }
 
 impl std::fmt::Debug for Scram {
@@ -86,6 +89,7 @@ impl std::fmt::Debug for Scram {
             Self::SentFirst { .. } => "SentFirst",
             Self::SentFinal { .. } => "SentFinal",
             Self::Verified => "Verified",
+            Self::Failed => "Failed",
         })
     }
 }
@@ -287,7 +291,11 @@ impl Authenticator {
             Mechanism::External => Ok(Vec::new()),
             Mechanism::ScramSha256 { account, password } => {
                 let (account, password) = (account.clone(), password.clone());
-                self.scram_step(&account, &password, challenge)
+                let result = self.scram_step(&account, &password, challenge);
+                if result.is_err() {
+                    self.scram = Scram::Failed;
+                }
+                result
             }
         }
     }
@@ -302,6 +310,9 @@ impl Authenticator {
             .map_err(|_| "malformed SCRAM message from the server".to_owned())?;
         match std::mem::take(&mut self.scram) {
             Scram::Start => {
+                if !challenge.is_empty() {
+                    return Err("malformed SCRAM message from the server".into());
+                }
                 let Some(nonce) = &self.nonce else {
                     return Err("not enough randomness for a SCRAM nonce".into());
                 };
@@ -367,7 +378,9 @@ impl Authenticator {
                 self.scram = Scram::Verified;
                 Ok(Vec::new())
             }
-            Scram::Verified => Err("unexpected SCRAM message after authentication".into()),
+            Scram::Verified | Scram::Failed => {
+                Err("unexpected SCRAM message after authentication".into())
+            }
         }
     }
 }
@@ -541,6 +554,22 @@ mod tests {
                 "the server rejected SCRAM: invalid-proof".into()
             ))
         );
+    }
+
+    /// Errors are final: a hostile server can't restart the exchange to make
+    /// us run PBKDF2 again.
+    #[test]
+    fn scram_errors_are_final() {
+        let mut a = scram("user", "pencil", RFC_NONCE);
+        exchange(&mut a, "");
+        assert_eq!(exchange(&mut a, "garbage"), ["*"]);
+        assert_eq!(exchange(&mut a, ""), ["*"]);
+        assert_eq!(exchange(&mut a, RFC_SERVER_FIRST), ["*"]);
+        assert!(format!("{a:?}").contains("Failed"));
+
+        // The first challenge must be empty.
+        let mut b = scram("user", "pencil", RFC_NONCE);
+        assert_eq!(exchange(&mut b, RFC_SERVER_FIRST), ["*"]);
     }
 
     #[test]
