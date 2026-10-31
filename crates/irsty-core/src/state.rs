@@ -137,6 +137,13 @@ impl Buffer {
     pub fn lines(&self) -> &VecDeque<Line> {
         &self.lines
     }
+
+    /// The line numbered `seq` (see [`Effect::Line`]), if it is still held.
+    pub fn line(&self, seq: u64) -> Option<&Line> {
+        let back = usize::try_from(self.total.checked_sub(seq)?).ok()?;
+        let index = self.lines.len().checked_sub(back + 1)?;
+        self.lines.get(index)
+    }
 }
 
 /// What we know about a user, from IRCv3 extensions and their messages.
@@ -328,8 +335,11 @@ impl Network {
 pub enum Effect {
     /// Send a message on a network.
     Send(NetworkId, Message),
-    /// A line was added to a buffer (log it, show it).
-    Line(BufferId),
+    /// A line was added to a buffer (log it, show it). The number is the
+    /// line's position among every line the buffer has had
+    /// ([`Buffer::total`] just after it was added), so the right line is
+    /// logged even when more follow in the same update.
+    Line(BufferId, u64),
     /// A buffer changed without gaining a loggable line (show it).
     Updated(BufferId),
     /// Log this line, which is already in the buffer (a confirmed echo).
@@ -694,7 +704,7 @@ impl State {
         if echo {
             // Logged when the echo confirms it, not now.
             for effect in &mut own.effects {
-                if *effect == Effect::Line(buffer) {
+                if matches!(effect, Effect::Line(b, _) if *b == buffer) {
                     *effect = Effect::Updated(buffer);
                 }
             }
@@ -855,7 +865,7 @@ impl State {
             buf.total += 1;
             buf.unread += 1;
             buf.activity = buf.activity.max(activity);
-            effects.push(Effect::Line(buffer));
+            effects.push(Effect::Line(buffer, buf.total));
         }
     }
 
@@ -2476,7 +2486,7 @@ mod tests {
         assert_eq!(last_text(&s, chan), "ops only");
 
         let effects = feed(&mut s, ":bob!b@h PRIVMSG me :\x01ACTION waves\x01");
-        let Effect::Line(query) = effects[0] else {
+        let Effect::Line(query, _) = effects[0] else {
             panic!()
         };
         assert_eq!(s.buffer(query).unwrap().kind, BufferKind::Query);
@@ -2665,7 +2675,7 @@ mod tests {
         let mut s = state();
         let own = s.own_message(NET, "#c", LineKind::Message, "hi \x02there");
         let buffer = own.buffer.unwrap();
-        assert_eq!(own.effects, [Effect::Line(buffer)]);
+        assert_eq!(own.effects, [Effect::Line(buffer, 1)]);
         assert_eq!(own.label, None, "no labels without echo-message");
         let b = s.buffer(buffer).unwrap();
         assert_eq!((b.unread, b.activity), (0, Activity::None));
@@ -2851,6 +2861,29 @@ mod tests {
             activity(&mut s, ":a!a@h PRIVMSG #c :me: hi"),
             Activity::Highlight
         );
+    }
+
+    /// Two lines added to one buffer by one event are each logged: the effect
+    /// names the line, not just the buffer.
+    #[test]
+    fn effects_name_the_line_they_added() {
+        let mut s = state();
+        feed(&mut s, ":me!u@h JOIN #c");
+        let channel = channel_buffer(&s, "#c");
+        s.expect_reply(NET, Awaiting::Names("#c".into()), channel);
+        feed(&mut s, ":srv 353 me = #c :me");
+        let effects = feed(&mut s, ":srv 366 me #c :End");
+        let logged: Vec<String> = effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Line(b, seq) => s.buffer(*b).unwrap().line(*seq),
+                _ => None,
+            })
+            .map(|l| l.text.to_plain())
+            .collect();
+        assert_eq!(logged, ["#c: 1 users", "Names on #c: me"]);
+        assert!(s.buffer(channel).unwrap().line(0).is_none());
+        assert!(s.buffer(channel).unwrap().line(999).is_none());
     }
 
     #[test]

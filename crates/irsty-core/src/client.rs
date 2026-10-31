@@ -308,7 +308,7 @@ impl Client {
                 // Show it as not sent, and keep it out of the log.
                 self.state.fail_newest(recorded, &error.to_string());
                 for effect in &mut effects {
-                    if *effect == Effect::Line(recorded) {
+                    if matches!(effect, Effect::Line(b, _) if *b == recorded) {
                         *effect = Effect::Updated(recorded);
                     }
                 }
@@ -440,8 +440,8 @@ impl Client {
                         tracing::warn!(?id, %error, "cannot send");
                     }
                 }
-                Effect::Line(buffer) => {
-                    if let Some(line) = self.state.buffer(buffer).and_then(|b| b.lines().back()) {
+                Effect::Line(buffer, seq) => {
+                    if let Some(line) = self.state.buffer(buffer).and_then(|b| b.line(seq)) {
                         self.log(buffer, line);
                     }
                     changed.push(buffer);
