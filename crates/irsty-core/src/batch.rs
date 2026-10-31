@@ -1,9 +1,10 @@
 //! IRCv3 batches: messages tagged with an open batch are held until it ends,
 //! then handled together (so a netsplit becomes one line, not hundreds).
 //!
-//! A hostile server could open batches and never close them, so both the
-//! number of open batches and the messages each may hold are capped. Past the
-//! caps, messages are handled at once as if unbatched.
+//! A hostile server could open batches and never close them, so the number of
+//! open batches, the messages each may hold and the bytes held across all of
+//! them are capped. Past the caps, messages are handled at once as if
+//! unbatched.
 
 use std::collections::HashMap;
 
@@ -14,6 +15,22 @@ pub const MAX_OPEN: usize = 32;
 
 /// Most messages held by one batch.
 pub const MAX_MESSAGES: usize = 4096;
+
+/// Most bytes held across every open batch. A message can be about 8.7 KB
+/// with tags, so the per-batch caps alone would allow over a gigabyte.
+pub const MAX_BYTES: usize = 4 * 1024 * 1024;
+
+/// Roughly what a message costs to hold.
+fn size(msg: &Message) -> usize {
+    msg.command.len()
+        + msg.source.as_ref().map_or(0, String::len)
+        + msg.params.iter().map(String::len).sum::<usize>()
+        + msg
+            .tags
+            .iter()
+            .map(|(k, v)| k.len() + v.len())
+            .sum::<usize>()
+}
 
 /// A batch that has ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,6 +60,8 @@ pub enum Routed {
 #[derive(Clone, Debug, Default)]
 pub struct Batches {
     open: HashMap<String, Batch>,
+    /// Bytes held across all open batches.
+    held: usize,
 }
 
 impl Batches {
@@ -68,13 +87,20 @@ impl Batches {
                 return Routed::Held;
             }
             if let Some(id) = reference.strip_prefix('-') {
-                return self.open.remove(id).map_or(Routed::Held, Routed::Ended);
+                let Some(batch) = self.open.remove(id) else {
+                    return Routed::Held;
+                };
+                let freed: usize = batch.messages.iter().map(size).sum();
+                self.held = self.held.saturating_sub(freed);
+                return Routed::Ended(batch);
             }
             return Routed::Held;
         }
         let batch = msg.tags.get("batch").and_then(|id| self.open.get_mut(id));
+        let cost = size(&msg);
         match batch {
-            Some(batch) if batch.messages.len() < MAX_MESSAGES => {
+            Some(batch) if batch.messages.len() < MAX_MESSAGES && self.held + cost <= MAX_BYTES => {
+                self.held += cost;
                 batch.messages.push(msg);
                 Routed::Held
             }
@@ -85,6 +111,7 @@ impl Batches {
     /// Forgets every open batch, for a new connection.
     pub fn clear(&mut self) {
         self.open.clear();
+        self.held = 0;
     }
 }
 
@@ -149,10 +176,35 @@ mod tests {
             assert_eq!(b.route(msg("@batch=b0 PING x")), Routed::Held);
         }
         assert!(matches!(b.route(msg("@batch=b0 PING x")), Routed::Now(_)));
+        // Ending a batch frees its bytes.
+        let before = b.held;
+        b.route(msg("BATCH -b0"));
+        assert!(b.held < before);
         // Malformed references are ignored.
         assert_eq!(b.route(msg("BATCH")), Routed::Held);
         assert_eq!(b.route(msg("BATCH +")), Routed::Held);
         b.clear();
         assert!(matches!(b.route(msg("@batch=b1 PING x")), Routed::Now(_)));
+    }
+
+    /// Big messages across many batches hit the byte budget long before the
+    /// per-batch message cap.
+    #[test]
+    fn caps_bytes_held_across_batches() {
+        let mut b = Batches::default();
+        let big = "x".repeat(400);
+        let mut held = 0;
+        'fill: for i in 0..MAX_OPEN {
+            b.route(msg(&format!("BATCH +b{i} x")));
+            for _ in 0..MAX_MESSAGES {
+                match b.route(msg(&format!("@batch=b{i} PRIVMSG #c :{big}"))) {
+                    Routed::Held => held += 1,
+                    _ => break 'fill,
+                }
+            }
+        }
+        assert!(b.held <= MAX_BYTES);
+        assert!(held < MAX_OPEN * MAX_MESSAGES);
+        assert!(held * 400 >= MAX_BYTES * 9 / 10, "held only {held}");
     }
 }
