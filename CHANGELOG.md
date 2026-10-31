@@ -22,6 +22,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- M7, input polish:
+  - Tab completion of nicks (recent speakers first, `: ` after a nick at the start of a line), channels, commands, aliases and command arguments; Shift+Tab cycles back.
+  - Ctrl+G opens a fuzzy buffer switcher; Alt+< and Alt+> go back and forward through the buffers you have shown.
+  - Pasting several lines asks first: send them as separate messages, join them into one line, or cancel. Pasted lines are never run as commands.
+  - Key bindings are configurable: `keymap = "weechat"` for WeeChat's buffer keys (Alt+J and two digits, F5 and F6, Alt+Up and Alt+Down), `[keys]` overrides, and `/bind` and `/unbind`.
+  - Ctrl+T swaps characters.
 - M6, the full command set: `/whois /whowas /who /names /topic /mode /op /deop /voice /devoice /kick /ban /unban /invite /away /list /notice /ctcp /clear /window`, with replies gathered in the buffer you typed in.
   - `/server add|del|update|list`, `/set`, `/alias`, `/ignore` and `/highlight` change `config.toml` at once, keeping its comments, and apply live where they can.
   - Irsty starts without a config file and `/server add` creates one.

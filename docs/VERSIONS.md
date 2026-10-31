@@ -47,7 +47,7 @@ All versions were checked live on **2026-10-30** using `rustup`, `cargo info` an
 | signal-hook | 0.4.5 | 2026-10-04 | Handles SIGTSTP and SIGCONT correctly (suspend and resume). Tokio covers INT, TERM and WINCH. |
 | sha2 / hmac / pbkdf2 | 0.11.1 / 0.13.0 / 0.13.0 | 2026-10-12 / 2026-03-29 / 2026-04-21 | Our own SCRAM-SHA-256 (added in M4). Replaces the stale `scram` crate. |
 | base64 | 0.23.1 | | SASL payloads. |
-| nucleo-matcher | 0.3.1 | 2024-02-20 | Fuzzy buffer switcher (Phase 2). Used by Helix and stable. Licence is MPL-2.0 (file-level copyleft, fine as a dependency). |
+| nucleo-matcher | 0.3.1 | 2024-02-20 | Not used: the switcher matches a few hundred buffer names at most, so a 40-line subsequence scorer (`complete::fuzzy_score`) does the job without a dependency. |
 | open | 5.4.5 | 2026-10-22 | Open URLs. More active than `opener`. |
 | notify-rust | 4.18.2 | 2026-10-07 | Desktop notifications (Phase 2). OSC 777 and OSC 9 are the primary path. |
 | arboard | 3.7.0 | 2026-10-15 | Clipboard fallback behind a feature flag. OSC 52 is the default because it works over SSH. |

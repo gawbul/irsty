@@ -19,7 +19,7 @@ A modern terminal IRC client in Rust (ratatui). Spiritual successor to irssi and
 
 - `crates/irsty-proto`: sans-IO IRC/IRCv3 parsing, serialisation, CAP and SASL. No async, no I/O.
 - `crates/irsty-core`: connections, state, actions and effects, logging, the config model and `config_file` (editing `config.toml` in place), and `replies` (formatting numeric replies). No UI dependencies.
-- `crates/irsty-tui`: the terminal UI. `run.rs` is the event loop, `app.rs` maps keys and commands to actions, `command.rs` parses slash commands (its `COMMANDS` table drives parsing, `/help` and a test against `docs/COMMANDS.md`, so add every new command there), `view.rs` draws everything from `&State` and `&mut Ui` (pure, snapshot-tested), `scrollback.rs` is the bottom-up scrollback widget, `terminal.rs` sets up and restores the terminal.
+- `crates/irsty-tui`: the terminal UI. `run.rs` is the event loop, `app.rs` maps keys and commands to actions, `command.rs` parses slash commands (its `COMMANDS` table drives parsing, `/help` and a test against `docs/COMMANDS.md`, so add every new command there), `view.rs` draws everything from `&State` and `&mut Ui` (pure, snapshot-tested), `scrollback.rs` is the bottom-up scrollback widget, `terminal.rs` sets up and restores the terminal, `keymap.rs` maps keys to actions (presets and `/bind`), and `complete.rs` does Tab completion and fuzzy matching. UI integration tests in `crates/irsty-tui/tests/` drive real key presses against a mock server (`tests/support`).
 - `crates/irsty`: the binary (CLI, wiring, tracing setup).
 
 The dependency direction is strictly `irsty → irsty-tui → irsty-core → irsty-proto`.

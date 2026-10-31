@@ -24,6 +24,9 @@ hi = ["/msg $channel Hello from $nick!", "/me waves"]
 words = ["irsty"]
 regex = ['\bsteve\b']
 
+[keys]
+"alt-x" = "switcher"
+
 [[ignore]]
 mask = "*!*@spam.example"
 
@@ -140,6 +143,17 @@ Irsty's own diagnostic log is `irsty.log` in the platform data directory. Set `I
 | `mouse` | boolean | `false` | Capture the mouse: the wheel scrolls and clicking the buffer list switches buffers. Off by default so your terminal's own text selection keeps working. |
 | `nicklist` | boolean | `true` | Show the nick list in channels when the terminal is at least 100 columns wide. |
 | `timestamp_format` | string | `"%H:%M"` | [`strftime`](https://docs.rs/jiff/latest/jiff/fmt/strftime/index.html) format for timestamps, in your local time zone. |
+| `keymap` | `"irssi"` or `"weechat"` | `"irssi"` | Key binding preset. They differ in buffer switching; see [KEYBINDINGS.md](KEYBINDINGS.md). |
+
+## `[keys]`
+
+Key bindings on top of the preset, as `"key" = "action"`. `"none"` frees a preset key. Keys and actions are listed in [KEYBINDINGS.md](KEYBINDINGS.md#customising); `/bind` and `/unbind` change them from inside Irsty. A binding Irsty doesn't understand is reported at startup and skipped.
+
+```toml
+[keys]
+"ctrl-g" = "none"
+"alt-x" = "switcher"
+```
 
 ## `[[network]]`
 
