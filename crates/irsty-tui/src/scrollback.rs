@@ -5,7 +5,7 @@
 //! Each line has a timestamp, a right-aligned nick column and a separator;
 //! wrapped text hangs under the text column.
 
-use irsty_core::state::{Buffer, Line, LineKind};
+use irsty_core::state::{Buffer, Delivery, Line, LineKind};
 use jiff::tz::TimeZone;
 use ratatui::buffer::Buffer as Cells;
 use ratatui::layout::Rect;
@@ -87,9 +87,13 @@ fn fit_right(text: &str, width: usize) -> String {
     format!("{}{out}+", " ".repeat(width.saturating_sub(used + 1)))
 }
 
-/// The styled pieces of a line's text.
+/// The styled pieces of a line's text. Our messages still waiting for the
+/// server's echo are dimmed; ones that never made it say why.
 fn pieces(line: &Line) -> Vec<Piece<'_>> {
-    let base = theme::line_style(line.kind);
+    let mut base = theme::line_style(line.kind);
+    if matches!(line.delivery, Delivery::Pending { .. }) {
+        base = base.patch(theme::dim());
+    }
     let mut out = Vec::new();
     if line.kind == LineKind::Action
         && let Some(nick) = &line.sender
@@ -103,6 +107,10 @@ fn pieces(line: &Line) -> Vec<Piece<'_>> {
             .iter()
             .map(|s| (s.text(), base.patch(theme::span_style(s.style())))),
     );
+    if let Delivery::Failed { reason } = &line.delivery {
+        let red = Style::default().fg(Color::LightRed);
+        out.extend([(" [not sent: ", red), (reason.as_str(), red), ("]", red)]);
+    }
     out
 }
 

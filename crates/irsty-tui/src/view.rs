@@ -209,13 +209,16 @@ fn render_nicks(
                 .and_then(|c| net.isupport.symbol_for_mode(c))
                 .map_or(" ".to_owned(), String::from);
             let nick = sanitise_identifier(&m.nick);
+            // Away users (away-notify) are dimmed.
+            let style = if net.user(&m.nick).is_some_and(|u| u.away.is_some()) {
+                theme::dim()
+            } else {
+                Style::default().fg(theme::nick_color(&nick))
+            };
             Line::from(vec![
                 Span::raw(" "),
                 Span::styled(symbol, Style::default().fg(Color::LightGreen)),
-                Span::styled(
-                    truncate(&nick, width.saturating_sub(2)),
-                    Style::default().fg(theme::nick_color(&nick)),
-                ),
+                Span::styled(truncate(&nick, width.saturating_sub(2)), style),
             ])
         })
         .collect();
