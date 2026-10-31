@@ -8,10 +8,12 @@
 pub mod batch;
 pub mod client;
 pub mod config;
+pub mod config_file;
 pub mod event;
 pub mod log;
 pub mod net;
 pub mod redact;
+pub mod replies;
 pub mod state;
 
 pub use client::Client;
