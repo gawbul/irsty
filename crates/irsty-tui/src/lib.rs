@@ -4,6 +4,7 @@
 //! actions. It never touches sockets.
 #![forbid(unsafe_code)]
 
+pub mod command;
 pub mod input;
 pub mod theme;
 
