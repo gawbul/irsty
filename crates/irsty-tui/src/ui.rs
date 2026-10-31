@@ -305,6 +305,14 @@ impl Ui {
         }
     }
 
+    /// Whether the oldest line of the active buffer is on screen, so scrolling
+    /// further back should fetch older history.
+    pub fn at_oldest(&self, state: &State) -> bool {
+        self.active
+            .and_then(|id| state.buffer(id))
+            .is_some_and(|b| self.offset() + self.page >= b.lines().len())
+    }
+
     /// Scrolls one page back or forward.
     pub fn page(&mut self, state: &State, back: bool) {
         let page = isize::try_from(self.page.saturating_sub(2).max(1)).unwrap_or(1);
@@ -370,6 +378,33 @@ mod tests {
             NetEvent::Message(Message::parse(":me!u@h JOIN #a").unwrap()),
         );
         s
+    }
+
+    /// Scrolling back fetches older history only once the oldest line is on
+    /// screen.
+    #[test]
+    fn knows_when_the_oldest_line_is_on_screen() {
+        let mut s = State::new(1000);
+        s.add_network(NetworkId(0), "one", "me", Vec::new());
+        s.apply(
+            NetworkId(0),
+            NetEvent::Message(Message::parse(":me!u@h JOIN #a").unwrap()),
+        );
+        for i in 0..50 {
+            let line = format!(":x!u@h PRIVMSG #a :{i}");
+            s.apply(
+                NetworkId(0),
+                NetEvent::Message(Message::parse(&line).unwrap()),
+            );
+        }
+        let mut ui = Ui::new(&UiConfig::default(), &s);
+        ui.switch_to_number(&s, 2);
+        ui.page = 20;
+        assert!(!ui.at_oldest(&s), "52 lines don't fit a 20-line page");
+        ui.scroll_by(&s, 20);
+        assert!(!ui.at_oldest(&s));
+        ui.scroll_by(&s, 20);
+        assert!(ui.at_oldest(&s));
     }
 
     #[test]

@@ -384,6 +384,9 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
             Style::default().add_modifier(Modifier::BOLD),
         ));
     }
+    if buffer.is_some_and(|b| b.history_pending) {
+        spans.push(Span::raw(" -- fetching history --"));
+    }
     frame.render_widget(Paragraph::new(Line::from(spans)).style(theme::bar()), area);
 }
 
