@@ -400,6 +400,108 @@ impl Default for UiConfig {
     }
 }
 
+/// What an alias runs: one command, or several in order.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum Alias {
+    /// One command, such as `"/join $*"`.
+    One(String),
+    /// Several commands, run in order.
+    Many(Vec<String>),
+}
+
+impl Alias {
+    /// The commands it runs.
+    pub fn commands(&self) -> &[String] {
+        match self {
+            Self::One(command) => std::slice::from_ref(command),
+            Self::Many(commands) => commands,
+        }
+    }
+}
+
+/// Kinds of activity an ignore rule can hide.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IgnoreKind {
+    /// Messages and actions.
+    Messages,
+    /// Notices.
+    Notices,
+    /// CTCP requests and replies.
+    Ctcps,
+    /// Joins, parts, quits, nick changes and kicks.
+    Events,
+    /// Invites.
+    Invites,
+}
+
+impl IgnoreKind {
+    /// Every kind, the default for a rule.
+    pub const ALL: [Self; 5] = [
+        Self::Messages,
+        Self::Notices,
+        Self::Ctcps,
+        Self::Events,
+        Self::Invites,
+    ];
+
+    /// The name used in config and commands.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Messages => "messages",
+            Self::Notices => "notices",
+            Self::Ctcps => "ctcps",
+            Self::Events => "events",
+            Self::Invites => "invites",
+        }
+    }
+}
+
+fn all_ignore_kinds() -> Vec<IgnoreKind> {
+    IgnoreKind::ALL.to_vec()
+}
+
+/// Hides activity from matching users.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IgnoreRule {
+    /// `nick!user@host` with `*` and `?` wildcards; a bare nick means `nick!*@*`.
+    pub mask: String,
+    /// What to hide. Defaults to everything.
+    #[serde(default = "all_ignore_kinds")]
+    pub what: Vec<IgnoreKind>,
+    /// Networks it applies to; empty means all.
+    #[serde(default)]
+    pub networks: Vec<String>,
+    /// Channels it applies to; empty means everywhere, private messages too.
+    #[serde(default)]
+    pub channels: Vec<String>,
+}
+
+impl IgnoreRule {
+    /// The mask as a full `nick!user@host` pattern.
+    pub fn full_mask(&self) -> String {
+        if self.mask.contains(['!', '@']) {
+            self.mask.clone()
+        } else {
+            format!("{}!*@*", self.mask)
+        }
+    }
+}
+
+/// Words and patterns that make a line a highlight, besides your nick.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HighlightConfig {
+    /// Whole words, matched without regard to case.
+    #[serde(default)]
+    pub words: Vec<String>,
+    /// Regular expressions (Rust `regex` syntax), for anything else.
+    #[serde(default)]
+    pub regex: Vec<String>,
+}
+
 fn default_scrollback() -> usize {
     10_000
 }
@@ -420,6 +522,30 @@ pub struct Config {
     /// Terminal UI.
     #[serde(default)]
     pub ui: UiConfig,
+    /// Command aliases: `name = "/command $*"`.
+    #[serde(default)]
+    pub aliases: std::collections::BTreeMap<String, Alias>,
+    /// Ignore rules.
+    #[serde(default)]
+    pub ignore: Vec<IgnoreRule>,
+    /// Highlight words and patterns.
+    #[serde(default)]
+    pub highlight: HighlightConfig,
+}
+
+impl Default for Config {
+    /// The same as an empty `config.toml`.
+    fn default() -> Self {
+        Self {
+            networks: Vec::new(),
+            scrollback: default_scrollback(),
+            logging: LoggingConfig::default(),
+            ui: UiConfig::default(),
+            aliases: std::collections::BTreeMap::new(),
+            ignore: Vec::new(),
+            highlight: HighlightConfig::default(),
+        }
+    }
 }
 
 impl Config {
@@ -460,11 +586,49 @@ impl Config {
         Self::parse(&text, path)
     }
 
+    /// Checks aliases, ignore rules and highlights.
+    fn validate_extras(&self) -> Result<(), ConfigError> {
+        let invalid = |msg: String| Err(ConfigError::Invalid(msg));
+        for (name, alias) in &self.aliases {
+            if name.is_empty()
+                || !name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            {
+                return invalid(format!(
+                    "alias {name:?}: names may use letters, digits, - and _"
+                ));
+            }
+            if alias.commands().is_empty() || alias.commands().iter().any(|c| !c.starts_with('/')) {
+                return invalid(format!("alias {name:?}: every command must start with /"));
+            }
+        }
+        for rule in &self.ignore {
+            if rule.mask.trim().is_empty() || rule.mask.contains(' ') {
+                return invalid("an ignore rule has an empty or invalid mask".into());
+            }
+        }
+        for word in &self.highlight.words {
+            if word.trim().is_empty() || word.contains(char::is_whitespace) {
+                return invalid(format!(
+                    "highlight word {word:?} must be one word; use highlight.regex for phrases"
+                ));
+            }
+        }
+        for pattern in &self.highlight.regex {
+            if let Err(error) = regex::Regex::new(pattern) {
+                return invalid(format!("highlight regex {pattern:?}: {error}"));
+            }
+        }
+        Ok(())
+    }
+
     fn validate(&self) -> Result<(), ConfigError> {
         let invalid = |msg: String| Err(ConfigError::Invalid(msg));
         if self.scrollback == 0 {
             return invalid("scrollback must be at least 1".into());
         }
+        self.validate_extras()?;
         let mut names = std::collections::HashSet::new();
         for net in &self.networks {
             if net.name.trim().is_empty() {
@@ -819,6 +983,11 @@ mod tests {
         assert_eq!(servers[0].host, "2001:db8::1");
         assert_eq!(servers[0].to_string(), "[2001:db8::1]:6697 (TLS)");
         assert_eq!(servers[1].to_string(), "[::1]:6667");
+    }
+
+    #[test]
+    fn default_matches_an_empty_file() {
+        assert_eq!(parse("").unwrap(), Config::default());
     }
 
     #[test]

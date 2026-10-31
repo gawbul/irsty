@@ -53,6 +53,14 @@ Joining channels is not its job: on `Registered`, `State::apply` returns `Send` 
 
 `irsty_core::Client` owns `State`, the event receiver and the per-network command senders. `Client::next` waits for one event, then drains up to 512 more without waiting, applies them, runs the effects, and returns the buffers that changed. It is cancel-safe, so a frontend can `select!` on it alongside terminal input.
 
+## Changing the config
+
+`irsty_core::config_file::ConfigFile` holds `config.toml` as a `toml_edit` document, so commands can change it without losing comments or layout. Every change is made to a copy, parsed as a full `Config` (so validation is the same as at startup), and only then written, through a temporary file and a rename with mode `0600`. The UI then applies what can change live: `Client::apply_config` updates scrollback, ignores and highlights, and `Client::add_network`, `update_network` (which reconnects) and `remove_network` follow `/server`. Network ids come from a counter that never goes backwards, so a removed network's late events can't land on a new one.
+
+## Replies to commands
+
+`/whois`, `/who`, `/names` and `/list` register what they are waiting for with `State::expect_reply`, naming the buffer they were typed in. Replies are formatted by `irsty_core::replies` (pure functions) and routed there; a WHOIS's details also fill in the user table. Labelled replies (`labeled-response`) route the same way.
+
 ## Terminal UI
 
 `irsty-tui` has one async loop (`run.rs`) that selects over `Client::next`, crossterm's `EventStream`, SIGTERM, SIGHUP and SIGTSTP, and a one-second clock. Each wake-up marks the screen dirty; drawing happens at most every 16 ms, so a burst of events costs one frame.

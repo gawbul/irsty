@@ -596,3 +596,49 @@ async fn registration_skips_the_rate_limit() {
     );
     client.quit(None).await;
 }
+
+/// Networks added, updated and removed while running. Ids are never reused,
+/// so a removed network's late events can't land on a new one, and an update
+/// reconnects with the new settings.
+#[tokio::test]
+async fn networks_change_while_running() {
+    let mock = Mock::bind().await;
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = config(mock.port(), "", dir.path());
+    let net = cfg.networks[0].clone();
+    let server = tokio::spawn(async move {
+        let mut first = mock.accept().await;
+        first.register("me", "").await;
+        first.expect("JOIN #test").await;
+        // The update quits this connection and opens another with new nicks.
+        first.expect("QUIT :Reconnecting with new settings").await;
+        let mut second = mock.accept().await;
+        second.register("other", "").await;
+        (first, second)
+    });
+    let mut client = Client::start(
+        &Config::default(),
+        None,
+        Some(fast(Duration::from_secs(30))),
+    );
+    let id = client.add_network(&net);
+    until(&mut client, |c| status(c) == Status::Registered).await;
+
+    let mut updated = net.clone();
+    updated.nicks = vec!["other".into()];
+    updated.autojoin = Vec::new();
+    client.update_network(id, &updated);
+    let _conns = drive(&mut client, server).await;
+    until(&mut client, |c| {
+        c.state()
+            .network(id)
+            .is_some_and(|n| n.status == Status::Registered && n.nick == "other")
+    })
+    .await;
+
+    client.remove_network(id, None);
+    assert!(client.state().network(id).is_none());
+    let again = client.add_network(&updated);
+    assert_ne!(again, id, "ids are never reused");
+    client.quit(None).await;
+}

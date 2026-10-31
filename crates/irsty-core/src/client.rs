@@ -65,6 +65,12 @@ pub struct Client {
     logger: Option<LogWriter>,
     configs: BTreeMap<NetworkId, NetworkConfig>,
     hook: Option<SettingsHook>,
+    /// Networks to connect again once their old connection has closed, to
+    /// pick up new settings.
+    restarting: std::collections::BTreeSet<NetworkId>,
+    /// The next network id. Ids are never reused, so late events from a
+    /// removed network's connection can't land on a new one.
+    next_network: u32,
 }
 
 impl std::fmt::Debug for Client {
@@ -93,7 +99,12 @@ impl Client {
             logger: None,
             configs: BTreeMap::new(),
             hook,
+            restarting: std::collections::BTreeSet::new(),
+            next_network: 0,
         };
+        client
+            .state
+            .set_rules(config.ignore.clone(), &config.highlight);
 
         if config.logging.enabled {
             let dir = config
@@ -110,16 +121,10 @@ impl Client {
             }
         }
 
-        for (index, net) in config.networks.iter().enumerate() {
-            let id = NetworkId(u32::try_from(index).unwrap_or(u32::MAX));
-            let nick = net.nicks.first().map_or("irsty", String::as_str);
-            client
-                .state
-                .add_network(id, &net.name, nick, net.autojoin.clone());
-            client.state.set_perform(id, net.perform.clone());
-            client.state.set_monitor(id, net.monitor.clone());
-            for warning in config
-                .plaintext_secrets()
+        let warnings = config.plaintext_secrets();
+        for net in &config.networks {
+            let id = client.add_network(net);
+            for warning in warnings
                 .iter()
                 .filter(|w| w.starts_with(&format!("{}:", net.name)))
             {
@@ -129,12 +134,77 @@ impl Client {
                     &format!("Plaintext secret in config ({warning}); prefer keyring or command"),
                 );
             }
-            client.configs.insert(id, net.clone());
-            if net.autoconnect {
-                let _ = client.connect(id);
-            }
         }
         client
+    }
+
+    /// Adds a network, connecting it if `autoconnect` is set. Returns its id.
+    pub fn add_network(&mut self, net: &NetworkConfig) -> NetworkId {
+        let id = NetworkId(self.next_network);
+        self.next_network = self.next_network.saturating_add(1);
+        let nick = net.nicks.first().map_or("irsty", String::as_str);
+        self.state
+            .add_network(id, &net.name, nick, net.autojoin.clone());
+        self.state.set_perform(id, net.perform.clone());
+        self.state.set_monitor(id, net.monitor.clone());
+        self.configs.insert(id, net.clone());
+        if net.autoconnect {
+            let _ = self.connect(id);
+        }
+        id
+    }
+
+    /// Disconnects a network and removes it and its buffers.
+    pub fn remove_network(&mut self, id: NetworkId, reason: Option<&str>) {
+        let _ = self.disconnect(id, reason);
+        // The task finishes on its own; we stop listening for it.
+        self.commands.remove(&id);
+        self.configs.remove(&id);
+        self.restarting.remove(&id);
+        self.state.remove_network(id);
+    }
+
+    /// Replaces a network's settings. If it is running, it quits and connects
+    /// again with them.
+    pub fn update_network(&mut self, id: NetworkId, net: &NetworkConfig) {
+        self.configs.insert(id, net.clone());
+        self.state.set_autojoin(id, net.autojoin.clone());
+        self.state.set_perform(id, net.perform.clone());
+        self.state.set_monitor(id, net.monitor.clone());
+        if self
+            .disconnect(id, Some("Reconnecting with new settings"))
+            .is_ok()
+        {
+            self.restarting.insert(id);
+        }
+    }
+
+    /// Applies settings that can change while running: scrollback, ignores
+    /// and highlights. (The UI applies its own.)
+    pub fn apply_config(&mut self, config: &Config) {
+        self.state.set_scrollback(config.scrollback);
+        self.state
+            .set_rules(config.ignore.clone(), &config.highlight);
+    }
+
+    /// Notes that replies to a command typed in `buffer` belong there.
+    pub fn expect_reply(
+        &mut self,
+        id: NetworkId,
+        awaiting: crate::state::Awaiting,
+        buffer: BufferId,
+    ) {
+        self.state.expect_reply(id, awaiting, buffer);
+    }
+
+    /// Empties a buffer's scrollback.
+    pub fn clear_buffer(&mut self, id: BufferId) {
+        self.state.clear_buffer(id);
+    }
+
+    /// The config a network was started with.
+    pub fn network_config(&self, id: NetworkId) -> Option<&NetworkConfig> {
+        self.configs.get(&id)
     }
 
     /// Connects a network that is not running (at startup, or after
@@ -238,7 +308,7 @@ impl Client {
                 // Show it as not sent, and keep it out of the log.
                 self.state.fail_newest(recorded, &error.to_string());
                 for effect in &mut effects {
-                    if *effect == Effect::Line(recorded) {
+                    if matches!(effect, Effect::Line(b, _) if *b == recorded) {
                         *effect = Effect::Updated(recorded);
                     }
                 }
@@ -335,14 +405,21 @@ impl Client {
         let mut event = Some(first);
         let mut applied = 0;
         while let Some((id, ev)) = event.take() {
-            if let NetEvent::Disconnected {
-                reconnect_in: None, ..
-            } = ev
-            {
+            let stopped = matches!(
+                ev,
+                NetEvent::Disconnected {
+                    reconnect_in: None,
+                    ..
+                }
+            );
+            if stopped {
                 self.commands.remove(&id);
             }
             let effects = self.state.apply(id, ev);
             changed.extend(self.run_effects(effects));
+            if stopped && self.restarting.remove(&id) {
+                let _ = self.connect(id);
+            }
             applied += 1;
             if applied < MAX_BATCH {
                 event = self.events.try_recv().ok();
@@ -363,8 +440,8 @@ impl Client {
                         tracing::warn!(?id, %error, "cannot send");
                     }
                 }
-                Effect::Line(buffer) => {
-                    if let Some(line) = self.state.buffer(buffer).and_then(|b| b.lines().back()) {
+                Effect::Line(buffer, seq) => {
+                    if let Some(line) = self.state.buffer(buffer).and_then(|b| b.line(seq)) {
                         self.log(buffer, line);
                     }
                     changed.push(buffer);

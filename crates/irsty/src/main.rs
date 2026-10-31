@@ -7,8 +7,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use color_eyre::eyre::{Result, WrapErr, eyre};
-use irsty_core::Config;
 use irsty_core::config::Paths;
+use irsty_core::config_file::ConfigFile;
 use tracing_subscriber::EnvFilter;
 
 /// A modern, keyboard-driven terminal IRC client.
@@ -33,8 +33,9 @@ fn main() -> Result<()> {
         .config
         .or_else(|| paths.as_ref().map(Paths::config_file))
         .ok_or_else(|| eyre!("cannot determine the configuration directory; pass --config"))?;
-    let config =
-        Config::load(&config_path).wrap_err("see docs/CONFIG.md for the configuration format")?;
+    // A missing file is fine: the UI starts empty and /server add creates it.
+    let (file, config) = ConfigFile::open(&config_path)
+        .wrap_err("see docs/CONFIG.md for the configuration format")?;
 
     let log_dir = paths.as_ref().map(|p| p.data_dir.clone());
     let _guard = init_tracing(log_dir)?;
@@ -44,11 +45,17 @@ fn main() -> Result<()> {
         .enable_all()
         .build()?;
     if cli.headless {
+        if config.networks.is_empty() {
+            return Err(eyre!(
+                "no networks in {}; add one with /server add in the UI, or see docs/CONFIG.md",
+                config_path.display()
+            ));
+        }
         return runtime.block_on(headless::run(&config, paths.as_ref()));
     }
     runtime.block_on(async {
         let client = irsty_core::Client::start(&config, paths.as_ref(), None);
-        irsty_tui::run(client, &config.ui).await
+        irsty_tui::run(client, config, Some(file)).await
     })?;
     Ok(())
 }

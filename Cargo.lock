@@ -1670,6 +1670,7 @@ dependencies = [
  "jiff",
  "keyring",
  "rcgen",
+ "regex",
  "rustls-pki-types",
  "rustls-platform-verifier",
  "rustls-webpki",
@@ -1680,6 +1681,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-util",
  "toml",
+ "toml_edit",
  "tracing",
 ]
 
@@ -1713,6 +1715,7 @@ dependencies = [
  "jiff",
  "ratatui",
  "signal-hook 0.4.5",
+ "tempfile",
  "tokio",
  "tracing",
  "unicode-segmentation",
@@ -3680,6 +3683,7 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 

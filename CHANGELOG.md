@@ -6,8 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- When one event added two lines to the same buffer (such as the user count and the names list after `/names`), the log got the second line twice and never the first. Effects now name the line they added.
+
 ### Changed
 
+- `/server <network>` still connects, but `/server` now also manages networks; `/bind` moved from M6 to M7 with the configurable keymap.
 - Registration no longer waits on the output rate limit, so logging in (especially with SCRAM, which sends more lines) takes a fraction of a second instead of several.
 - The gate and `mise run cov` clear old coverage data first, which could skew the numbers.
 - Certificate errors now explain themselves: a name mismatch lists the names the certificate does cover (on macOS and Windows too), and unknown issuers, expiry, not-yet-valid and revocation get plain-English advice. macOS's raw Security framework codes for these are recognised. The explanation appears once per server; retries show a short reminder.
@@ -17,6 +22,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- M6, the full command set: `/whois /whowas /who /names /topic /mode /op /deop /voice /devoice /kick /ban /unban /invite /away /list /notice /ctcp /clear /window`, with replies gathered in the buffer you typed in.
+  - `/server add|del|update|list`, `/set`, `/alias`, `/ignore` and `/highlight` change `config.toml` at once, keeping its comments, and apply live where they can.
+  - Irsty starts without a config file and `/server add` creates one.
+  - Config gains `[aliases]`, `[[ignore]]` and `[highlight]` (words and regexes).
 - M5, IRCv3: `account-notify`, `account-tag`, `away-notify`, `batch`, `chghost`, `echo-message`, `extended-join`, `invite-notify`, `labeled-response`, `setname` and `standard-replies`, plus `MONITOR` with a per-network `monitor` list.
   - With `echo-message`, your messages show dimmed until the server echoes them; `labeled-response` ties each echo or error to its line, and lines that fail say why. Only confirmed lines are logged.
   - Netsplits and netjoins collapse into one line per channel.

@@ -17,6 +17,7 @@ futures = "0.3.34"
 irsty-proto.workspace = true
 jiff = "0.2.38"
 keyring = "4.2.0"
+regex = "1.13.1"
 rustls-pki-types = "1.15.1"
 rustls-platform-verifier = "0.7.1"
 rustls-webpki = { version = "0.103.16", default-features = false, features = ["alloc"] }
@@ -26,6 +27,7 @@ tokio = { version = "1.54.1", features = ["rt", "net", "time", "sync", "macros",
 tokio-rustls = "0.26.6"
 tokio-util = { version = "0.7.20", features = ["codec"] }
 toml = "1.1.8"
+toml_edit = "0.25.17"
 tracing = "0.1.44"
 
 [lints]

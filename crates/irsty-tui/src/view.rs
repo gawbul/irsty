@@ -73,12 +73,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, ui: &mut Ui) {
             },
             main,
         ),
-        None => frame.render_widget(
-            Paragraph::new("No networks configured. See docs/CONFIG.md, then restart Irsty.")
-                .style(theme::dim())
-                .wrap(Wrap { trim: true }),
-            main,
-        ),
+        None => frame.render_widget(first_run(ui), main),
     }
     if let (Some(channel), Some(net)) = (channel, network)
         && nick_width > 0
@@ -172,6 +167,35 @@ fn render_buffer_list(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &mut
     let divider = Rect::new(area.right().saturating_sub(1), area.y, 1, area.height);
     let bar: Vec<Line<'_>> = (0..area.height).map(|_| Line::from("│")).collect();
     frame.render_widget(Paragraph::new(bar).style(theme::dim()), divider);
+}
+
+/// What to show before there is any network: how to add one, then the
+/// output of commands typed so far.
+fn first_run(ui: &Ui) -> Paragraph<'static> {
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "Welcome to Irsty.",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from("No networks yet. Add one, for example:"),
+        Line::from(Span::styled(
+            "  /server add libera irc.libera.chat -nick yournick -autojoin #irsty",
+            Style::default().fg(Color::LightCyan),
+        )),
+        Line::from(Span::styled(
+            "  /help server for every option, /help for all commands.",
+            theme::dim(),
+        )),
+        Line::from(""),
+    ];
+    lines.extend(ui.status.iter().map(|(kind, text)| {
+        Line::from(Span::styled(
+            irsty_proto::format::StyledText::plain(text).to_plain(),
+            theme::line_style(*kind),
+        ))
+    }));
+    Paragraph::new(lines).wrap(Wrap { trim: false })
 }
 
 fn render_nicks(

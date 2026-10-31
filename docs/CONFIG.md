@@ -16,6 +16,22 @@ Use `irsty --config <PATH>` to read another file. Unknown keys are errors, so ty
 ```toml
 scrollback = 10000
 
+[aliases]
+j = "/join $*"
+hi = ["/msg $channel Hello from $nick!", "/me waves"]
+
+[highlight]
+words = ["irsty"]
+regex = ['\bsteve\b']
+
+[[ignore]]
+mask = "*!*@spam.example"
+
+[[ignore]]
+mask = "chattybot"
+what = ["events"]
+channels = ["#irsty"]
+
 [logging]
 enabled = true
 # dir = "~/irclogs"
@@ -69,6 +85,42 @@ password = { command = ["pass", "irc/bouncer"] }
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `scrollback` | integer | `10000` | Lines kept in memory per buffer. Older lines are dropped from memory but stay in the logs. |
+
+Irsty starts without a config file: the first-run screen shows how to add a network with `/server add`, which creates the file. Commands that change settings (`/server`, `/set`, `/ignore`, `/highlight`, `/alias`) write `config.toml` straight away, keeping your comments, spacing and order. Each change is checked as a whole before it is written, through a temporary file so a crash never leaves half a config, and the file is readable only by you. Passwords are never written by Irsty: `/server` only adds `keyring` references.
+
+## `[aliases]`
+
+Your own commands. Each is a command, or a list of commands run in order:
+
+```toml
+[aliases]
+j = "/join $*"
+hi = ["/msg $channel Hello from $nick!", "/me waves"]
+```
+
+In a command, `$*` is everything typed after the alias, `$1` to `$9` single words, and `$nick`, `$channel` and `$network` the current nick, channel or query, and network. Names may use letters, digits, `-` and `_`. Built-in commands always win over an alias with the same name. `/alias` and `/unalias` manage them from inside Irsty.
+
+## `[highlight]`
+
+Lines that mention your nick are always highlights. These add more:
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `words` | list of strings | `[]` | Whole words, matched without regard to case. |
+| `regex` | list of strings | `[]` | Regular expressions in [Rust `regex` syntax](https://docs.rs/regex/latest/regex/#syntax), matched without regard to case against the text without formatting. Matching always takes linear time, so no pattern can hang Irsty. Use single quotes in TOML so backslashes stay as typed: `'\bsteve\b'`. |
+
+## `[[ignore]]`
+
+Hide people. Repeat for each rule. Ignored users are still tracked, so nick lists stay accurate; only their lines are hidden, and nothing from them opens a query.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `mask` | string | required | `nick!user@host` with `*` and `?` wildcards. A bare nick means `nick!*@*`. Matched with the network's casemapping. |
+| `what` | list | everything | Any of `messages` (including actions), `notices`, `ctcps`, `events` (joins, parts, quits, nick changes and kicks) and `invites`. |
+| `networks` | list of strings | all | Network names it applies to. |
+| `channels` | list of strings | everywhere | Channels it applies to. With any listed, private messages are not hidden. |
+
+`/ignore` and `/unignore` manage them from inside Irsty.
 
 ## `[logging]`
 
