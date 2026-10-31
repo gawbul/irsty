@@ -67,6 +67,34 @@ EOF
 cargo run -p irsty -- -c target/ergo/irsty.toml "$@"
 '''
 
+[tasks."run:soju"]
+description = "Run Irsty against the local soju bouncer (start it with mise run soju)"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p target/soju/logs
+cat >target/soju/irsty.toml <<EOF
+[logging]
+dir = "$PWD/target/soju/logs"
+
+[[network]]
+name = "soju"
+nicks = ["irsty"]
+
+[[network.servers]]
+host = "127.0.0.1"
+port = 16670
+tls = false
+
+# The test bouncer's account (scripts/soju.sh); fine in plain text here.
+[network.sasl]
+mechanism = "plain"
+account = "irsty"
+password = { plain = "irsty-test" }
+EOF
+cargo run -p irsty -- -c target/soju/irsty.toml "$@"
+'''
+
 [tasks.watch]
 description = "Recheck on every save (bacon; press t for tests, c for clippy)"
 alias = "w"
@@ -137,6 +165,11 @@ description = "Run the integration tests against the local Ergo server (start it
 env = { IRSTY_ERGO_PORT = "16667", IRSTY_ERGO_TLS_PORT = "16697" }
 run = "cargo nextest run -p irsty-core --test ergo"
 
+[tasks."test:soju"]
+description = "Run the integration tests against the local soju bouncer (start mise run ergo, then mise run soju)"
+env = { IRSTY_SOJU_PORT = "16670", IRSTY_ERGO_PORT = "16667" }
+run = "cargo nextest run -p irsty-core --test soju"
+
 [tasks.snap]
 description = "Review changed UI snapshots interactively"
 run = "cargo insta review"
@@ -170,6 +203,14 @@ run = "cargo bench --workspace --"
 [tasks.ergo]
 description = "Run a local Ergo server on ports 16667 and 16697 (--fresh wipes its database)"
 run = "./scripts/ergo.sh"
+
+[tasks.soju]
+description = "Run a local soju bouncer on port 16670 in front of the local Ergo (--fresh starts over)"
+run = "./scripts/soju.sh"
+
+[tasks."soju:install"]
+description = "Build soju and sojuctl with go install (modules checked against Go's checksum database)"
+run = "go install codeberg.org/emersion/soju/cmd/soju@v0.11.1 codeberg.org/emersion/soju/cmd/sojuctl@v0.11.1"
 
 # Housekeeping
 
