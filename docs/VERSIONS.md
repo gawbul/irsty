@@ -11,7 +11,7 @@ All versions were checked live on **2026-10-30** using `rustup`, `cargo info` an
 | Edition | 2024 | Latest edition this toolchain supports. |
 | MSRV (`rust-version`) | 1.97 | Policy: trail stable by two releases and bump deliberately. Floor from deps today is 1.89 (rusqlite, notify-rust). |
 | rustup | 1.29.2 | |
-| cargo-nextest, cargo-deny, cargo-audit | installed (mise) | Need to install: cargo-fuzz (nightly), cargo-insta, cargo-dist. |
+| Developer tools | installed (mise) | See the table below. Still to add: cargo-dist (Phase 4). |
 
 ## Direct dependencies (planned)
 
@@ -92,12 +92,14 @@ Ergo v2.19.1 (2026-08-05) for integration tests: the container `ghcr.io/ergochat
 | cargo-deny | 0.20.2 | |
 | cargo-audit | 0.22.2 | |
 | cargo-llvm-cov | 0.9.1 | Needs the `llvm-tools` rustup component. |
+| cargo-insta | 1.49.0 | Matches the `insta` crate version. Used by `mise run snap`. |
+| bacon | 3.26.0 | `mise run watch`. AGPL-3.0, which is fine for a tool we run but never link. Chosen over cargo-watch, which is on life support and recommends bacon. |
 | cargo-fuzz | 0.13.2 | Needs nightly (1.101.0-nightly 2026-10-29 when checked). On networks where nightly cargo stalls fetching the index, set `CARGO_HTTP_MULTIPLEXING=false`. |
 
 ### Test data
 
 - `ircdocs/parser-tests`: CC0-1.0. Last commit was 2023-05-29, which is fine because it is a stable corpus. Files: `msg-split`, `msg-join`, `userhost-split`, `mask-match` and `validate-hostname` (`.yaml`).
-- Ergo v2.19.1 (2026-08-05) for integration tests. It is not installed locally; Docker is available, so use the container image.
+- Ergo v2.19.1 (2026-08-05) for integration tests. `mise run ergo` downloads and verifies the release binary; CI uses the container image.
 
 ## Rejected or flagged
 

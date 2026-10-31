@@ -71,12 +71,22 @@ Type `/help` for commands and `/quit` to exit. Alt+1, Alt+2 and so on switch buf
 
 ## Development
 
+Day-to-day work goes through [mise](https://mise.jdx.dev) tasks, which also pin the tools:
+
 ```sh
-./scripts/gate.sh   # fmt, clippy (pedantic, warnings denied), tests, coverage, deny, audit, MSRV
-./scripts/fuzz.sh   # all fuzz targets for 10 minutes (needs nightly)
+mise run setup      # install the pinned tools, the MSRV toolchain and nightly
+mise tasks          # list every task
+mise run test       # nextest; extra arguments are filters (mise run test scrollback)
+mise run lint       # clippy with warnings denied
+mise run watch      # bacon: recheck on every save
+mise run gate       # the full gate: fmt, clippy, tests, coverage, deny, audit, MSRV
+mise run ergo       # a local Ergo server on 16667/16697 (in another terminal)
+mise run test:ergo  # integration tests against it
+mise run run:ergo   # Irsty itself, connected to it
+mise run fuzz       # all fuzz targets for 10 minutes (needs nightly)
 ```
 
-Gate tools are pinned in `mise.toml`. The integration tests against a real Ergo server are described in [CONTRIBUTING.md](CONTRIBUTING.md).
+The tasks wrap plain `cargo` commands and `scripts/`, so everything works without mise too. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Documentation
 

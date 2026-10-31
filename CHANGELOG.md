@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- mise tasks for building, running, testing, linting, coverage, fuzzing, benchmarks and snapshot review (`mise tasks` lists them), and `scripts/ergo.sh` (`mise run ergo`) to run a checksum-verified local Ergo server for integration tests.
 - Workspace skeleton: `irsty-proto`, `irsty-core`, `irsty-tui` and the `irsty` binary.
 - CI: fmt, clippy, tests on Linux and macOS, MSRV check, cargo-deny and cargo-audit.
 - Architecture decision records 0001 to 0008.

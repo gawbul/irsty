@@ -3,12 +3,36 @@
 ## Setup
 
 - Rust: rustup installs the toolchain in `rust-toolchain.toml` on first use.
-- Gate tools: `mise install` (versions in `mise.toml`), or install `cargo-nextest`, `cargo-deny` and `cargo-audit` yourself.
-- MSRV toolchain: `rustup toolchain install 1.97 --profile minimal`.
+- Everything else: `mise run setup` installs the tools pinned in `mise.toml`, the MSRV toolchain and nightly (for fuzzing). Without mise, install `cargo-nextest`, `cargo-deny`, `cargo-audit`, `cargo-llvm-cov`, `cargo-insta` and `cargo-fuzz` yourself, then `rustup toolchain install 1.97 nightly --profile minimal`.
+
+## Tasks
+
+`mise tasks` lists them all. Each is a thin wrapper over `cargo` or a script in `scripts/`, and extra arguments go to the underlying command.
+
+| Task | What it does |
+|---|---|
+| `build` (`b`), `build:release`, `check` (`c`) | Build or type-check. |
+| `run` (`r`), `run:headless`, `run:ergo` | Run Irsty; `run:ergo` writes a config for the local Ergo server to `target/ergo/irsty.toml`. |
+| `watch` (`w`) | bacon: recheck on every save. |
+| `fmt`, `fmt:check`, `lint` (`l`), `lint:fix`, `fix` | Format and lint. `fix` applies clippy's suggestions, then formats. |
+| `test` (`t`), `test:doc`, `test:all`, `test:ergo` | Tests. Arguments to `test` are nextest filters. |
+| `snap`, `snap:test` | Review changed UI snapshots with cargo-insta. |
+| `cov`, `cov:proto` | HTML coverage report, or the gate's 90% check on `irsty-proto`. |
+| `deny`, `audit`, `msrv`, `gate` (`g`) | Supply-chain checks, the MSRV build and the full gate. |
+| `fuzz`, `fuzz:smoke`, `bench` | Fuzz every target (default 600 seconds, or 30 for the smoke run), or run the benchmarks. |
+| `ergo` | A local Ergo server (see below). |
+| `doc`, `update`, `duplicates`, `setup` | API docs, `cargo update` followed by deny and audit, list iCloud sync duplicates, and setup. |
 
 ## Integration tests against Ergo
 
-`crates/irsty-core/tests/ergo.rs` runs against a real [Ergo](https://ergo.chat) server and is skipped unless `IRSTY_ERGO_PORT` is set. CI uses the official container. Locally, either:
+`crates/irsty-core/tests/ergo.rs` runs against a real [Ergo](https://ergo.chat) server and is skipped unless `IRSTY_ERGO_PORT` is set. CI uses the official container. Locally, the easiest way is:
+
+```sh
+mise run ergo        # in one terminal; add --fresh to wipe its accounts and channels
+mise run test:ergo   # in another
+```
+
+`scripts/ergo.sh` downloads the release for your platform into `target/ergo` (set `ERGO_VERSION` to override 2.19.1), verifies its SHA-256 checksum, and runs it with plain text on 127.0.0.1:16667 and TLS (self-signed) on 127.0.0.1:16697. It supports macOS and Linux. Alternatively, either:
 
 ```sh
 docker run --rm -d --name irsty-ergo -p 127.0.0.1:16667:6667 -p 127.0.0.1:16697:6697 ghcr.io/ergochat/ergo:v2.19.1
@@ -22,7 +46,7 @@ The suite registers its own accounts and uses unique nicks and channels, so it c
 ## Before you push
 
 ```sh
-./scripts/gate.sh
+mise run gate   # or ./scripts/gate.sh
 ```
 
 This runs fmt, clippy (warnings denied), nextest, doctests, cargo-deny, cargo-audit and an MSRV check. CI runs the same checks on Linux and macOS.
