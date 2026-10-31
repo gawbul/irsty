@@ -60,6 +60,7 @@ fn bench(c: &mut Criterion) {
                     time_format: "%H:%M",
                     tz: &tz,
                     nick_width: 10,
+                    colours: &irsty_tui::theme::NickColours::default(),
                 }
                 .render(area, &mut cells);
                 black_box(&cells);

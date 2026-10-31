@@ -303,7 +303,10 @@ mod tests {
         let s = state();
         let m = run(&s, "/wh", &["whatever"]);
         assert_eq!(m.words, ["/whois", "/whowas", "/who", "/whatever"]);
-        assert_eq!(run(&s, "/set ui.n", &[]).words, ["ui.nicklist"]);
+        assert_eq!(
+            run(&s, "/set ui.n", &[]).words,
+            ["ui.nicklist", "ui.nick_colours"]
+        );
         assert_eq!(run(&s, "/set ui.keymap w", &[]).words, ["weechat"]);
         assert_eq!(run(&s, "/connect l", &[]).words, ["libera"]);
         assert_eq!(run(&s, "/server d", &[]).words, ["del"]);

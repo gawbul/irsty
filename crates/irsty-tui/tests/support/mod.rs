@@ -122,10 +122,14 @@ pub async fn joined(
         &mut ui,
     );
     let channel = channel.to_owned();
-    until(&mut client, &mut ui, "autojoin", |c, _| {
-        c.state()
-            .networks()
-            .any(|n| n.channel(&channel).is_some_and(|ch| ch.joined))
+    // The names arrive after the join; wait for both, or a test could look
+    // at the nick list before it is filled.
+    let members = names.split_whitespace().count() + 1;
+    until(&mut client, &mut ui, "autojoin and names", |c, _| {
+        c.state().networks().any(|n| {
+            n.channel(&channel)
+                .is_some_and(|ch| ch.joined && ch.members().count() == members)
+        })
     })
     .await;
     (client, ui, received)

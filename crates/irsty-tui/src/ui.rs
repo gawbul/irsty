@@ -45,6 +45,10 @@ pub struct Switcher {
 
 /// Everything the view needs besides [`State`].
 #[derive(Debug)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent flags (nick list, mouse, focus, a pending prefix) with nothing to merge"
+)]
 pub struct Ui {
     /// The buffer on screen.
     pub active: Option<BufferId>,
@@ -86,6 +90,12 @@ pub struct Ui {
     pub paste: Option<Vec<String>>,
     /// Digits typed after WeeChat's Alt+J.
     pub jump: Option<String>,
+    /// WeeChat's Ctrl+C was pressed; the next letter picks a format code.
+    pub format_prefix: bool,
+    /// How nicks are coloured.
+    pub nick_colours: crate::theme::NickColours,
+    /// The terminal has focus (from focus events; assumed until told).
+    pub focused: bool,
     back: Vec<BufferId>,
     forward: Vec<BufferId>,
 }
@@ -114,6 +124,12 @@ impl Ui {
             switcher: None,
             paste: None,
             jump: None,
+            format_prefix: false,
+            focused: true,
+            nick_colours: crate::theme::NickColours::new(
+                config.nick_colours,
+                &std::collections::BTreeMap::new(),
+            ),
             back: Vec::new(),
             forward: Vec::new(),
         };

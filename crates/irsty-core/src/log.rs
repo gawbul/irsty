@@ -1,5 +1,7 @@
 //! Plain-text logs per buffer, irssi style: one greppable file per channel or
-//! query, under `<dir>/<network>/<buffer>.log`.
+//! query, under `<dir>/<network>/<buffer>.log`, or with rotation
+//! `<buffer>-2026-10.log` (monthly) or `<buffer>-2026-10-31.log` (daily), by
+//! the line's UTC date.
 //!
 //! Writing happens on a dedicated thread behind a bounded queue. The app loop
 //! never blocks on disk: if the queue is full, lines are counted as dropped and a
@@ -14,6 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::JoinHandle;
 
+use crate::config::Rotate;
 #[cfg(test)]
 use crate::state::Delivery;
 use crate::state::{Line, LineKind};
@@ -38,6 +41,7 @@ struct Record {
 #[derive(Debug)]
 pub struct LogWriter {
     dir: PathBuf,
+    rotate: Rotate,
     tx: Option<SyncSender<Record>>,
     dropped: Arc<AtomicU64>,
     thread: Option<JoinHandle<()>>,
@@ -46,6 +50,11 @@ pub struct LogWriter {
 impl LogWriter {
     /// Starts the writer thread for logs under `dir`.
     pub fn spawn(dir: PathBuf) -> std::io::Result<Self> {
+        Self::spawn_rotating(dir, Rotate::Never)
+    }
+
+    /// Starts the writer thread, starting new files as `rotate` says.
+    pub fn spawn_rotating(dir: PathBuf, rotate: Rotate) -> std::io::Result<Self> {
         fs::create_dir_all(&dir)?;
         let (tx, rx) = mpsc::sync_channel(QUEUE);
         let dropped = Arc::new(AtomicU64::new(0));
@@ -55,17 +64,23 @@ impl LogWriter {
             .spawn(move || write_loop(&rx, &counter))?;
         Ok(Self {
             dir,
+            rotate,
             tx: Some(tx),
             dropped,
             thread: Some(thread),
         })
     }
 
-    /// The path a buffer's log is written to.
-    pub fn path_for(&self, network: &str, buffer: &str) -> PathBuf {
+    /// The path a buffer's line at `time` is written to.
+    pub fn path_for(&self, network: &str, buffer: &str, time: jiff::Timestamp) -> PathBuf {
+        let period = match self.rotate {
+            Rotate::Never => String::new(),
+            Rotate::Daily => time.strftime("-%Y-%m-%d").to_string(),
+            Rotate::Monthly => time.strftime("-%Y-%m").to_string(),
+        };
         self.dir
             .join(file_name(network))
-            .join(format!("{}.log", file_name(buffer)))
+            .join(format!("{}{period}.log", file_name(buffer)))
     }
 
     /// Queues a line. Never blocks.
@@ -74,7 +89,7 @@ impl LogWriter {
             return;
         };
         let record = Record {
-            path: self.path_for(network, buffer),
+            path: self.path_for(network, buffer, line.time),
             text: format_line(line),
         };
         match tx.try_send(record) {
@@ -231,6 +246,7 @@ mod tests {
             text: StyledText::parse(raw),
             raw: raw.to_owned(),
             delivery: Delivery::Delivered,
+            highlight: false,
         }
     }
 
@@ -290,7 +306,7 @@ mod tests {
             "#Rust",
             &line(LineKind::Message, Some("b"), "two"),
         );
-        let path = writer.path_for("Libera", "#Rust");
+        let path = writer.path_for("Libera", "#Rust", Timestamp::UNIX_EPOCH);
         assert!(path.ends_with("libera/#rust.log"));
         writer.shutdown();
         let text = fs::read_to_string(&path).unwrap();
@@ -304,6 +320,33 @@ mod tests {
                 0o600
             );
         }
+    }
+
+    #[test]
+    fn rotates_by_the_line_date() {
+        let dir = tempfile::tempdir().unwrap();
+        let day = |s: &str| -> Timestamp { s.parse().unwrap() };
+        let at = |time: &str, text: &str| {
+            let mut l = line(LineKind::Message, Some("a"), text);
+            l.time = day(time);
+            l
+        };
+        let writer = LogWriter::spawn_rotating(dir.path().to_owned(), Rotate::Daily).unwrap();
+        writer.log("net", "#c", &at("2026-10-31T23:59:00Z", "late"));
+        writer.log("net", "#c", &at("2026-11-01T00:01:00Z", "early"));
+        let (oct, nov) = (
+            writer.path_for("net", "#c", day("2026-10-31T12:00:00Z")),
+            writer.path_for("net", "#c", day("2026-11-01T12:00:00Z")),
+        );
+        assert!(oct.ends_with("net/#c-2026-10-31.log"), "{}", oct.display());
+        writer.shutdown();
+        assert!(fs::read_to_string(&oct).unwrap().contains("late"));
+        assert!(fs::read_to_string(&nov).unwrap().contains("early"));
+
+        let monthly = LogWriter::spawn_rotating(dir.path().to_owned(), Rotate::Monthly).unwrap();
+        let path = monthly.path_for("net", "#c", day("2026-10-31T12:00:00Z"));
+        assert!(path.ends_with("net/#c-2026-10.log"), "{}", path.display());
+        monthly.shutdown();
     }
 
     #[test]

@@ -70,6 +70,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, ui: &mut Ui) {
                 time_format: &ui.time_format,
                 tz: &ui.tz,
                 nick_width: NICK_COLUMN,
+                colours: &ui.nick_colours,
             },
             main,
         ),
@@ -78,7 +79,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, ui: &mut Ui) {
     if let (Some(channel), Some(net)) = (channel, network)
         && nick_width > 0
     {
-        render_nicks(frame, nicks, channel, net);
+        render_nicks(frame, nicks, channel, net, &ui.nick_colours);
     }
     render_status(frame, status, state, ui);
     render_input(frame, input, state, ui);
@@ -258,6 +259,7 @@ fn render_nicks(
     area: Rect,
     channel: &irsty_core::state::Channel,
     net: &Network,
+    colours: &theme::NickColours,
 ) {
     let mapping: CaseMapping = net.isupport.casemapping;
     let mut members: Vec<_> = channel.members().collect();
@@ -292,7 +294,7 @@ fn render_nicks(
             let style = if net.user(&m.nick).is_some_and(|u| u.away.is_some()) {
                 theme::dim()
             } else {
-                Style::default().fg(theme::nick_color(&nick))
+                Style::default().fg(colours.colour(&nick))
             };
             Line::from(vec![
                 Span::raw(" "),
@@ -423,15 +425,38 @@ fn render_input(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
     let room = usize::from(area.width).saturating_sub(prompt_width + 1);
     let (visible, cursor) = ui.input.view(room);
     // The typed text is the user's own, but formatting codes in it must not
-    // reach the terminal raw.
-    let shown: String = visible
-        .chars()
-        .map(|c| if c.is_control() { '·' } else { c })
-        .collect();
-    let line = Line::from(vec![
-        Span::styled(prompt, Style::default().fg(Color::Cyan)),
-        Span::raw(shown),
-    ]);
+    // reach the terminal raw: each shows as its letter in reverse video, as in
+    // irssi, and other control characters as a dot. Each takes one cell, so
+    // the cursor stays put.
+    let mut spans = vec![Span::styled(prompt, Style::default().fg(Color::Cyan))];
+    let mut plain = String::new();
+    for c in visible.chars() {
+        let marker = match c {
+            '\x02' => Some('B'),
+            '\x03' => Some('C'),
+            '\x04' => Some('D'),
+            '\x0f' => Some('O'),
+            '\x11' => Some('Q'),
+            '\x16' => Some('V'),
+            '\x1d' => Some('I'),
+            '\x1e' => Some('S'),
+            '\x1f' => Some('U'),
+            c if c.is_control() => Some('·'),
+            _ => None,
+        };
+        match marker {
+            Some(m) => {
+                spans.push(Span::raw(std::mem::take(&mut plain)));
+                spans.push(Span::styled(
+                    m.to_string(),
+                    Style::default().add_modifier(Modifier::REVERSED),
+                ));
+            }
+            None => plain.push(c),
+        }
+    }
+    spans.push(Span::raw(plain));
+    let line = Line::from(spans);
     frame.render_widget(Paragraph::new(line), area);
     let x = area.x
         + u16::try_from(prompt_width + cursor)
