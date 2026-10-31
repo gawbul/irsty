@@ -25,10 +25,21 @@ use crate::event::{NetCommand, NetEvent, NetworkId};
 
 /// Capabilities requested by default, beyond `sasl`.
 pub const DEFAULT_CAPS: &[&str] = &[
+    "account-notify",
+    "account-tag",
+    "away-notify",
+    "batch",
     "cap-notify",
+    "chghost",
+    "echo-message",
+    "extended-join",
+    "invite-notify",
+    "labeled-response",
     "message-tags",
     "multi-prefix",
     "server-time",
+    "setname",
+    "standard-replies",
     "userhost-in-names",
 ];
 

@@ -15,7 +15,7 @@ use crate::config::{Config, NetworkConfig, Paths, SaslMechanism};
 use crate::event::{NetCommand, NetEvent, NetworkId};
 use crate::log::LogWriter;
 use crate::net::connection::{self, EventSender, Proxy, Server, Settings};
-use crate::state::{BufferId, BufferKind, Effect, LineKind, State};
+use crate::state::{BufferId, BufferKind, Effect, Line, LineKind, State};
 
 /// Events buffered between connection tasks and the app loop.
 const EVENT_QUEUE: usize = 1024;
@@ -117,6 +117,7 @@ impl Client {
                 .state
                 .add_network(id, &net.name, nick, net.autojoin.clone());
             client.state.set_perform(id, net.perform.clone());
+            client.state.set_monitor(id, net.monitor.clone());
             for warning in config
                 .plaintext_secrets()
                 .iter()
@@ -219,7 +220,6 @@ impl Client {
             } else {
                 chunk.to_owned()
             };
-            self.send(id, Message::new("PRIVMSG").param(target).param(body))?;
             let kind = if action {
                 LineKind::Action
             } else {
@@ -227,9 +227,25 @@ impl Client {
             };
             // Never keep a services password in scrollback or logs.
             let shown = crate::redact::services_text(target, chunk);
-            let (recorded, effects) = self.state.own_message(id, target, kind, &shown);
-            buffer = recorded.or(buffer);
+            let own = self.state.own_message(id, target, kind, &shown);
+            let mut msg = Message::new("PRIVMSG").param(target).param(body);
+            if let Some(label) = &own.label {
+                msg = msg.tag("label", label);
+            }
+            let sent = self.send(id, msg);
+            let mut effects = own.effects;
+            if let (Err(error), Some(recorded)) = (&sent, own.buffer) {
+                // Show it as not sent, and keep it out of the log.
+                self.state.fail_newest(recorded, &error.to_string());
+                for effect in &mut effects {
+                    if *effect == Effect::Line(recorded) {
+                        *effect = Effect::Updated(recorded);
+                    }
+                }
+            }
             self.run_effects(effects);
+            sent?;
+            buffer = own.buffer.or(buffer);
         }
         Ok(buffer)
     }
@@ -348,7 +364,14 @@ impl Client {
                     }
                 }
                 Effect::Line(buffer) => {
-                    self.log(buffer);
+                    if let Some(line) = self.state.buffer(buffer).and_then(|b| b.lines().back()) {
+                        self.log(buffer, line);
+                    }
+                    changed.push(buffer);
+                }
+                Effect::Updated(buffer) => changed.push(buffer),
+                Effect::Log(buffer, line) => {
+                    self.log(buffer, &line);
                     changed.push(buffer);
                 }
             }
@@ -356,7 +379,7 @@ impl Client {
         changed
     }
 
-    fn log(&self, buffer: BufferId) {
+    fn log(&self, buffer: BufferId, line: &Line) {
         let Some(logger) = &self.logger else {
             return;
         };
@@ -366,14 +389,12 @@ impl Client {
         let Some(network) = self.state.network(buf.network) else {
             return;
         };
-        if let Some(line) = buf.lines().back() {
-            let name = if buf.id == network.server_buffer {
-                "-server"
-            } else {
-                buf.name.as_str()
-            };
-            logger.log(&network.name, name, line);
-        }
+        let name = if buf.id == network.server_buffer {
+            "-server"
+        } else {
+            buf.name.as_str()
+        };
+        logger.log(&network.name, name, line);
     }
 
     /// Sends a message on a network. Never blocks.

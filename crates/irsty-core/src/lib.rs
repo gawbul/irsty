@@ -5,6 +5,7 @@
 //! a headless mode or another frontend can sit on top of it.
 #![forbid(unsafe_code)]
 
+pub mod batch;
 pub mod client;
 pub mod config;
 pub mod event;

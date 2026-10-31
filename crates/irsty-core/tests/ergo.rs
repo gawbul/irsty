@@ -516,3 +516,90 @@ async fn certfp_login_against_ergo() {
     );
     client.quit(None).await;
 }
+
+/// The M5 extensions against a real server: the capabilities are enabled,
+/// our message is confirmed by its labelled echo, and away-notify reaches the
+/// other client.
+#[tokio::test]
+async fn ircv3_extensions_against_ergo() {
+    let Some(ergo) = ergo() else { return };
+    let channel = format!("#{}", unique("v3"));
+    let (alice, bob) = (unique("a"), unique("b"));
+    let dir = tempfile::tempdir().unwrap();
+    let net = |name: &str, nick: &str| {
+        format!(
+            r#"
+            [[network]]
+            name = "{name}"
+            nicks = ["{nick}"]
+            autojoin = ["{channel}"]
+            [[network.servers]]
+            host = "{{host}}"
+            port = {{port}}
+            tls = false
+            "#
+        )
+    };
+    let cfg = config(
+        &ergo,
+        &(net("alice", &alice) + &net("bob", &bob)),
+        dir.path(),
+    );
+    let mut client = Client::start(&cfg, None, None);
+    until(&mut client, "both joined", |c| {
+        ["alice", "bob"].iter().all(|n| {
+            network(c, n)
+                .channel(&channel)
+                .is_some_and(|ch| ch.joined && ch.members().count() == 2)
+        })
+    })
+    .await;
+    let caps = network(&client, "alice").caps.clone();
+    for cap in [
+        "account-notify",
+        "account-tag",
+        "away-notify",
+        "batch",
+        "chghost",
+        "echo-message",
+        "extended-join",
+        "invite-notify",
+        "labeled-response",
+        "setname",
+        "standard-replies",
+    ] {
+        assert!(caps.iter().any(|c| c == cap), "{cap} not enabled: {caps:?}");
+    }
+
+    let alice_id = network(&client, "alice").id;
+    client
+        .say(alice_id, &channel, "echoed back", false)
+        .unwrap();
+    let delivered = |c: &Client| {
+        let ch = network(c, "alice").channel(&channel).unwrap();
+        c.state()
+            .buffer(ch.buffer)
+            .unwrap()
+            .lines()
+            .iter()
+            .filter(|l| l.raw == "echoed back")
+            .map(|l| l.delivery.clone())
+            .collect::<Vec<_>>()
+    };
+    until(&mut client, "echo confirms the line", |c| {
+        delivered(c) == [irsty_core::state::Delivery::Delivered]
+    })
+    .await;
+
+    let bob_id = network(&client, "bob").id;
+    client
+        .send(bob_id, Message::new("AWAY").param("lunch"))
+        .unwrap();
+    until(&mut client, "alice sees bob away", |c| {
+        network(c, "alice")
+            .user(&bob)
+            .is_some_and(|u| u.away.as_deref() == Some("lunch"))
+    })
+    .await;
+    client.quit(None).await;
+}

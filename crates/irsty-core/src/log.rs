@@ -14,6 +14,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::JoinHandle;
 
+#[cfg(test)]
+use crate::state::Delivery;
 use crate::state::{Line, LineKind};
 
 /// Queue depth between the app loop and the writer thread.
@@ -228,6 +230,7 @@ mod tests {
             sender: sender.map(str::to_owned),
             text: StyledText::parse(raw),
             raw: raw.to_owned(),
+            delivery: Delivery::Delivered,
         }
     }
 
