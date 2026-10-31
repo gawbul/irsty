@@ -214,11 +214,45 @@ pub struct ServerConfig {
 
 impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.host, self.port)?;
+        if self.host.contains(':') {
+            write!(f, "[{}]:{}", self.host, self.port)?;
+        } else {
+            write!(f, "{}:{}", self.host, self.port)?;
+        }
         if self.tls {
             f.write_str(" (TLS)")?;
         }
         Ok(())
+    }
+}
+
+fn default_proxy_port() -> u16 {
+    1080
+}
+
+/// A SOCKS5 proxy, for Tor or a bastion host. Host names are resolved by the
+/// proxy, never locally.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProxyConfig {
+    /// Proxy host name or IP address.
+    pub host: String,
+    /// Proxy port. Defaults to 1080.
+    #[serde(default = "default_proxy_port")]
+    pub port: u16,
+    /// Username, if the proxy wants one.
+    pub username: Option<String>,
+    /// Password; required with `username`.
+    pub password: Option<SecretSource>,
+}
+
+impl std::fmt::Display for ProxyConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.host.contains(':') {
+            write!(f, "[{}]:{}", self.host, self.port)
+        } else {
+            write!(f, "{}:{}", self.host, self.port)
+        }
     }
 }
 
@@ -230,6 +264,9 @@ pub enum SaslMechanism {
     Plain,
     /// The TLS client certificate (CertFP).
     External,
+    /// Account name and password, proved without sending the password.
+    #[serde(rename = "scram-sha-256")]
+    ScramSha256,
 }
 
 /// SASL settings.
@@ -238,9 +275,9 @@ pub enum SaslMechanism {
 pub struct SaslConfig {
     /// The mechanism.
     pub mechanism: SaslMechanism,
-    /// Account name; required for `plain`.
+    /// Account name; required for `plain` and `scram-sha-256`.
     pub account: Option<String>,
-    /// Password; required for `plain`.
+    /// Password; required for `plain` and `scram-sha-256`.
     pub password: Option<SecretSource>,
 }
 
@@ -272,12 +309,42 @@ pub struct NetworkConfig {
     pub sasl: Option<SaslConfig>,
     /// TLS client certificate.
     pub client_cert: Option<ClientCertConfig>,
+    /// SOCKS5 proxy to connect through.
+    pub proxy: Option<ProxyConfig>,
     /// Channels to join once registered.
     #[serde(default)]
     pub autojoin: Vec<String>,
+    /// Raw IRC lines sent after registration, before autojoin. `$nick` is
+    /// replaced with the current nick.
+    #[serde(default)]
+    pub perform: Vec<PerformLine>,
     /// Connect at startup. Defaults to true.
     #[serde(default = "default_true")]
     pub autoconnect: bool,
+}
+
+/// A raw IRC line sent after registration. `Debug` redacts passwords, since
+/// people do put `PRIVMSG NickServ :IDENTIFY ...` here.
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[serde(transparent)]
+pub struct PerformLine(String);
+
+impl PerformLine {
+    /// Wraps a line.
+    pub fn new(line: impl Into<String>) -> Self {
+        Self(line.into())
+    }
+
+    /// The line as written, with `$nick` unexpanded.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for PerformLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&crate::redact::raw_line(&self.0))
+    }
 }
 
 /// Plain-text logging.
@@ -355,7 +422,7 @@ pub struct Config {
 impl Config {
     /// Parses and validates configuration text.
     pub fn parse(text: &str, path: &Path) -> Result<Self, ConfigError> {
-        let config: Self = toml::from_str(text).map_err(|e| {
+        let mut config: Self = toml::from_str(text).map_err(|e| {
             let offset = e.span().map_or(0, |span| span.start);
             let before = text.get(..offset).unwrap_or_default();
             ConfigError::Parse {
@@ -365,6 +432,18 @@ impl Config {
                 message: e.message().to_owned(),
             }
         })?;
+        // Accept IPv6 literals written as in URLs, "[2001:db8::1]".
+        let unbracket = |host: &mut String| {
+            if let Some(bare) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+                *host = bare.to_owned();
+            }
+        };
+        for net in &mut config.networks {
+            net.servers.iter_mut().for_each(|s| unbracket(&mut s.host));
+            if let Some(proxy) = &mut net.proxy {
+                unbracket(&mut proxy.host);
+            }
+        }
         config.validate()?;
         Ok(config)
     }
@@ -405,12 +484,40 @@ impl Config {
                     net.name
                 ));
             }
+            for (index, line) in net.perform.iter().enumerate() {
+                // Never quote the line: it may hold a password.
+                let line = line.as_str();
+                if line.contains(['\r', '\n'])
+                    || irsty_proto::Message::parse(&line.replace("$nick", "nick")).is_err()
+                {
+                    return invalid(format!(
+                        "network {:?}: perform line {} is not a valid IRC line",
+                        net.name,
+                        index + 1
+                    ));
+                }
+            }
+            if let Some(proxy) = &net.proxy
+                && proxy.username.is_some() != proxy.password.is_some()
+            {
+                return invalid(format!(
+                    "network {:?}: the proxy needs both username and password, or neither",
+                    net.name
+                ));
+            }
             if let Some(sasl) = &net.sasl {
                 match sasl.mechanism {
-                    SaslMechanism::Plain if sasl.account.is_none() || sasl.password.is_none() => {
+                    SaslMechanism::Plain | SaslMechanism::ScramSha256
+                        if sasl.account.is_none() || sasl.password.is_none() =>
+                    {
                         return invalid(format!(
-                            "network {:?}: SASL plain needs account and password",
-                            net.name
+                            "network {:?}: SASL {} needs account and password",
+                            net.name,
+                            if sasl.mechanism == SaslMechanism::Plain {
+                                "plain"
+                            } else {
+                                "scram-sha-256"
+                            }
                         ));
                     }
                     SaslMechanism::External if net.client_cert.is_none() => {
@@ -437,6 +544,23 @@ impl Config {
                 .is_some_and(SecretSource::is_plain)
             {
                 found.push(format!("{}: SASL password", net.name));
+            }
+            for (index, line) in net.perform.iter().enumerate() {
+                if crate::redact::raw_line(line.as_str()) != line.as_str() {
+                    found.push(format!(
+                        "{}: perform line {} holds a password (SASL is safer)",
+                        net.name,
+                        index + 1
+                    ));
+                }
+            }
+            if net
+                .proxy
+                .as_ref()
+                .and_then(|p| p.password.as_ref())
+                .is_some_and(SecretSource::is_plain)
+            {
+                found.push(format!("{}: proxy password", net.name));
             }
             for server in &net.servers {
                 if server.password.as_ref().is_some_and(SecretSource::is_plain) {
@@ -579,6 +703,17 @@ mod tests {
         let config = parse(&text).unwrap();
         assert_eq!(config.plaintext_secrets(), ["libera: SASL password"]);
         assert!(!format!("{config:?}").contains("hunter2"));
+
+        let text = EXAMPLE.replace(
+            "autojoin = [",
+            "perform = [\"PRIVMSG NickServ :IDENTIFY hunter2\", \"MODE $nick +i\"]\nautojoin = [",
+        );
+        let config = parse(&text).unwrap();
+        assert_eq!(
+            config.plaintext_secrets(),
+            ["libera: perform line 1 holds a password (SASL is safer)"]
+        );
+        assert!(!format!("{config:?}").contains("hunter2"));
     }
 
     #[test]
@@ -612,6 +747,26 @@ mod tests {
                 "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[[network.servers]]\nhost = \"h\"\n[network.sasl]\nmechanism = \"external\"",
                 "client_cert",
             ),
+            (
+                "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[[network.servers]]\nhost = \"h\"\n[network.sasl]\nmechanism = \"scram-sha-256\"\naccount = \"a\"",
+                "SASL scram-sha-256 needs account and password",
+            ),
+            (
+                "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[[network.servers]]\nhost = \"h\"\n[network.sasl]\nmechanism = \"scram\"",
+                "unknown variant",
+            ),
+            (
+                "[[network]]\nname = \"x\"\nnicks = [\"n\"]\nperform = [\"MODE $nick +i\", \"\"]\n[[network.servers]]\nhost = \"h\"",
+                "perform line 2 is not a valid IRC line",
+            ),
+            (
+                "[[network]]\nname = \"x\"\nnicks = [\"n\"]\nperform = [\"PRIVMSG a :b\\r\\nQUIT\"]\n[[network.servers]]\nhost = \"h\"",
+                "perform line 1",
+            ),
+            (
+                "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[network.proxy]\nhost = \"p\"\nusername = \"u\"\n[[network.servers]]\nhost = \"h\"",
+                "both username and password",
+            ),
             ("scrollback = 0", "scrollback"),
         ];
         for (text, expected) in cases {
@@ -621,6 +776,36 @@ mod tests {
         let err = parse("bogus = 1").unwrap_err().to_string();
         assert!(err.contains("unknown field"), "{err}");
         assert!(parse("").unwrap().networks.is_empty());
+    }
+
+    /// The complete example in docs/CONFIG.md must stay valid.
+    #[test]
+    fn documented_example_parses() {
+        let doc = include_str!("../../../docs/CONFIG.md");
+        let start = doc.find("```toml\n").unwrap() + "```toml\n".len();
+        let end = start + doc[start..].find("```").unwrap();
+        let config = parse(&doc[start..end]).unwrap();
+        let names: Vec<&str> = config.networks.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, ["libera", "tor-example", "bouncer"]);
+    }
+
+    #[test]
+    fn accepts_bracketed_ipv6_hosts() {
+        let config = parse(
+            "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[[network.servers]]\nhost = \"[2001:db8::1]\"\n[[network.servers]]\nhost = \"::1\"\nport = 6667\ntls = false",
+        )
+        .unwrap();
+        let proxied = parse(
+            "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[network.proxy]\nhost = \"[::1]\"\nusername = \"u\"\npassword = { plain = \"p\" }\n[[network.servers]]\nhost = \"h\"",
+        )
+        .unwrap();
+        let proxy = proxied.networks[0].proxy.as_ref().unwrap();
+        assert_eq!(proxy.to_string(), "[::1]:1080");
+        assert_eq!(proxied.plaintext_secrets(), ["x: proxy password"]);
+        let servers = &config.networks[0].servers;
+        assert_eq!(servers[0].host, "2001:db8::1");
+        assert_eq!(servers[0].to_string(), "[2001:db8::1]:6697 (TLS)");
+        assert_eq!(servers[1].to_string(), "[::1]:6667");
     }
 
     #[test]

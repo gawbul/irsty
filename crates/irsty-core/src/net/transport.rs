@@ -47,6 +47,9 @@ pub enum ConnectError {
     /// The host is not a valid DNS name or IP address.
     #[error("invalid server name {0:?}")]
     InvalidName(String),
+    /// The SOCKS5 proxy could not be reached or would not connect us.
+    #[error("{0}")]
+    Proxy(String),
     /// The server's certificate was rejected.
     #[error("{}", explain_certificate(.host, .error))]
     Certificate {
@@ -345,14 +348,38 @@ impl ServerCertVerifier for AcceptAnyCertificate {
     }
 }
 
-/// Connects to `server`, with TLS if configured, within `timeout`.
+/// A SOCKS5 proxy to connect through.
+#[derive(Clone, Copy, Debug)]
+pub struct ProxyTarget<'a> {
+    /// Proxy host.
+    pub host: &'a str,
+    /// Proxy port.
+    pub port: u16,
+    /// Username and password.
+    pub credentials: Option<(&'a str, &'a str)>,
+}
+
+/// Connects to `server`, through `proxy` if given and with TLS if configured,
+/// within `timeout`.
 pub async fn connect(
     server: &ServerConfig,
+    proxy: Option<ProxyTarget<'_>>,
     tls: Option<Arc<ClientConfig>>,
     timeout: Duration,
 ) -> Result<Stream, ConnectError> {
     let attempt = async {
-        let tcp = TcpStream::connect((server.host.as_str(), server.port)).await?;
+        let tcp = match proxy {
+            None => super::dial::connect(&server.host, server.port).await?,
+            Some(proxy) => {
+                let mut tcp = super::dial::connect(proxy.host, proxy.port)
+                    .await
+                    .map_err(|e| ConnectError::Proxy(format!("cannot reach the proxy: {e}")))?;
+                super::socks::handshake(&mut tcp, &server.host, server.port, proxy.credentials)
+                    .await
+                    .map_err(|e| ConnectError::Proxy(e.to_string()))?;
+                tcp
+            }
+        };
         tcp.set_nodelay(true)?;
         let Some(tls) = tls else {
             return Ok(Either::Left(tcp));
@@ -642,7 +669,7 @@ mod tests {
             password: None,
         };
         let tls = tls_config(true, None).unwrap();
-        let err = connect(&server, Some(tls), Duration::from_secs(10))
+        let err = connect(&server, None, Some(tls), Duration::from_secs(10))
             .await
             .unwrap_err();
         assert!(
@@ -674,7 +701,7 @@ mod tests {
             password: None,
         };
         assert!(matches!(
-            connect(&server, None, Duration::from_secs(5)).await,
+            connect(&server, None, None, Duration::from_secs(5)).await,
             Err(ConnectError::Io(_))
         ));
     }

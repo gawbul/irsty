@@ -20,7 +20,7 @@ use super::backoff::Backoff;
 use super::codec::IrcCodec;
 use super::ratelimit::TokenBucket;
 use super::transport::{self, Stream};
-use crate::config::{ClientCertConfig, ServerConfig};
+use crate::config::{ClientCertConfig, ProxyConfig, ServerConfig};
 use crate::event::{NetCommand, NetEvent, NetworkId};
 
 /// Capabilities requested by default, beyond `sasl`.
@@ -92,6 +92,15 @@ pub struct Server {
     pub password: Option<Secret>,
 }
 
+/// A SOCKS5 proxy with its password resolved.
+#[derive(Clone, Debug)]
+pub struct Proxy {
+    /// From the config.
+    pub config: ProxyConfig,
+    /// Username and resolved password.
+    pub credentials: Option<(String, Secret)>,
+}
+
 /// Everything a connection task needs. Secrets are resolved before it starts.
 #[derive(Clone, Debug)]
 pub struct Settings {
@@ -109,6 +118,8 @@ pub struct Settings {
     pub sasl: Option<Mechanism>,
     /// TLS client certificate.
     pub client_cert: Option<ClientCertConfig>,
+    /// SOCKS5 proxy.
+    pub proxy: Option<Proxy>,
     /// Capabilities to request when offered.
     pub caps: Vec<String>,
     /// Timing.
@@ -133,6 +144,7 @@ impl Settings {
             nicks,
             sasl: None,
             client_cert: None,
+            proxy: None,
             caps: DEFAULT_CAPS.iter().map(|&c| c.to_owned()).collect(),
             timeouts: Timeouts::default(),
             rate: RateLimit::default(),
@@ -178,8 +190,13 @@ pub async fn run(
             .await;
             return;
         };
+        let via = settings
+            .proxy
+            .as_ref()
+            .map(|p| format!(" via SOCKS5 proxy {}", p.config))
+            .unwrap_or_default();
         if emit(NetEvent::Connecting {
-            server: server.config.to_string(),
+            server: format!("{}{via}", server.config),
         })
         .await
         .is_err()
@@ -307,7 +324,15 @@ async fn open(settings: &Settings, server: &Server) -> Result<Stream, transport:
     } else {
         None
     };
-    transport::connect(&server.config, tls, settings.timeouts.connect).await
+    let proxy = settings.proxy.as_ref().map(|p| transport::ProxyTarget {
+        host: &p.config.host,
+        port: p.config.port,
+        credentials: p
+            .credentials
+            .as_ref()
+            .map(|(user, pass)| (user.as_str(), pass.expose())),
+    });
+    transport::connect(&server.config, proxy, tls, settings.timeouts.connect).await
 }
 
 /// One connected session, from registration until the socket closes.
@@ -424,7 +449,16 @@ impl<'a> Session<'a> {
         self.enqueue_all(hello);
 
         loop {
-            let send_at = self.bucket.ready_at();
+            // Registration lines skip the rate limit: there are only a few, we
+            // generate them, and SCRAM alone would otherwise stall login by
+            // seconds.
+            let skip_limit = self.registered_at.is_none()
+                && self.queue.front().is_some_and(|line| is_registration(line));
+            let send_at = if skip_limit {
+                Instant::now()
+            } else {
+                self.bucket.ready_at()
+            };
             let has_output = !self.queue.is_empty();
             tokio::select! {
                 incoming = framed.next() => {
@@ -479,7 +513,7 @@ impl<'a> Session<'a> {
                     None => return End::Closed,
                 },
                 () = sleep_until(send_at), if has_output => {
-                    if self.bucket.try_take(Instant::now())
+                    if (skip_limit || self.bucket.try_take(Instant::now()))
                         && let Some(line) = self.queue.pop_front()
                         && let Err(error) = framed.send(line).await
                     {
@@ -602,9 +636,7 @@ impl<'a> Session<'a> {
                 CapEvent::Enabled(_) | CapEvent::Disabled(_) => caps_changed = true,
                 CapEvent::SaslReady => {
                     if let Some(mechanism) = self.settings.sasl.clone() {
-                        let auth = Authenticator::new(mechanism);
-                        self.enqueue_all([auth.start()]);
-                        self.sasl = Some(auth);
+                        self.start_sasl(mechanism).await?;
                     }
                 }
                 CapEvent::SaslUnavailable => {
@@ -619,6 +651,32 @@ impl<'a> Session<'a> {
             let enabled = self.cap.enabled().map(str::to_owned).collect();
             self.emit(NetEvent::Caps { enabled }).await?;
         }
+        Ok(())
+    }
+
+    /// Starts SASL, unless the server lists its mechanisms and ours isn't one.
+    /// We never fall back to another mechanism: that could downgrade SCRAM to
+    /// PLAIN on a hostile server.
+    async fn start_sasl(&mut self, mechanism: Mechanism) -> Result<(), End> {
+        if let Some(offered) = self.cap.value("sasl").filter(|v| !v.is_empty()) {
+            let name = mechanism.name();
+            if !offered.split(',').any(|m| m.eq_ignore_ascii_case(name)) {
+                let reason = format!("the server offers SASL {offered} but not {name}");
+                self.emit(NetEvent::Sasl(Err(reason))).await?;
+                let finish = self.cap.finish();
+                self.enqueue_all(finish.send);
+                return Ok(());
+            }
+        }
+        let mut random = [0u8; 32];
+        let filled = tokio_rustls::rustls::crypto::aws_lc_rs::default_provider()
+            .secure_random
+            .fill(&mut random)
+            .is_ok();
+        // Without randomness SCRAM refuses to start; the others don't need it.
+        let auth = Authenticator::new(mechanism, if filled { &random } else { &[] });
+        self.enqueue_all([auth.start()]);
+        self.sasl = Some(auth);
         Ok(())
     }
 
@@ -643,6 +701,14 @@ impl<'a> Session<'a> {
         }
         Ok(())
     }
+}
+
+/// Whether a wire line is part of connection registration.
+fn is_registration(line: &str) -> bool {
+    let command = line.split(' ').next().unwrap_or_default();
+    ["CAP", "AUTHENTICATE", "PASS", "NICK", "USER"]
+        .iter()
+        .any(|c| command.eq_ignore_ascii_case(c))
 }
 
 /// The reply to a server `PING`, if `msg` is one.

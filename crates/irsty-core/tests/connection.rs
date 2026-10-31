@@ -263,6 +263,42 @@ async fn registers_with_cap_and_sasl_plain() {
     );
 }
 
+/// A server that lists its mechanisms without ours is never asked to
+/// authenticate, so SCRAM can't be downgraded to PLAIN.
+#[tokio::test]
+async fn sasl_mechanism_not_offered_is_not_attempted() {
+    let mock = Mock::bind().await;
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = config(
+        mock.port(),
+        "[network.sasl]\nmechanism = \"scram-sha-256\"\naccount = \"a\"\npassword = { plain = \"pw\" }",
+        dir.path(),
+    );
+    let server = tokio::spawn(async move {
+        let mut c = mock.accept().await;
+        for _ in 0..3 {
+            c.recv().await;
+        }
+        c.send(":srv CAP * LS :sasl=PLAIN,EXTERNAL").await;
+        c.expect("CAP REQ sasl").await;
+        c.send(":srv CAP * ACK :sasl").await;
+        // No AUTHENTICATE: straight to CAP END.
+        c.expect("CAP END").await;
+        c.send(":srv 001 me :Welcome").await;
+        c
+    });
+    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30))));
+    until(&mut client, |c| status(c) == Status::Registered).await;
+    assert!(
+        server_text(&client).iter().any(|l| l
+            == "SASL authentication failed: the server offers SASL PLAIN,EXTERNAL but not SCRAM-SHA-256"),
+        "{:?}",
+        server_text(&client)
+    );
+    let _conn = server.await.unwrap();
+    client.quit(None).await;
+}
+
 #[tokio::test]
 async fn sasl_failure_still_registers() {
     let mock = Mock::bind().await;
@@ -607,5 +643,116 @@ async fn says_split_text_and_reconnects_after_disconnect() {
         .join(" ");
     assert_eq!(rejoined, long.trim_end());
     assert!(received.contains(&"PRIVMSG #test :\x01ACTION waves\x01".to_owned()));
+    client.quit(None).await;
+}
+
+/// Connects through a SOCKS5 proxy with a username and password. The server
+/// name can't resolve locally, so registering proves the proxy did the lookup.
+#[tokio::test]
+async fn connects_through_a_socks5_proxy() {
+    use tokio::io::AsyncReadExt;
+
+    let proxy = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = proxy.local_addr().unwrap().port();
+    let dir = tempfile::tempdir().unwrap();
+    let text = format!(
+        r#"
+        [logging]
+        dir = "{}"
+
+        [[network]]
+        name = "mock"
+        nicks = ["me"]
+
+        [network.proxy]
+        host = "127.0.0.1"
+        port = {port}
+        username = "user"
+        password = {{ plain = "pass" }}
+
+        [[network.servers]]
+        host = "irc.invalid"
+        port = 6667
+        tls = false
+        "#,
+        dir.path().display()
+    );
+    let cfg = Config::parse(&text, Path::new("test.toml")).unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = timeout(STEP, proxy.accept()).await.unwrap().unwrap();
+        let mut greeting = [0u8; 4];
+        stream.read_exact(&mut greeting).await.unwrap();
+        assert_eq!(greeting, [5, 2, 0, 2]);
+        stream.write_all(&[5, 2]).await.unwrap();
+        let mut auth = [0u8; 11];
+        stream.read_exact(&mut auth).await.unwrap();
+        assert_eq!(&auth, b"\x01\x04user\x04pass");
+        stream.write_all(&[1, 0]).await.unwrap();
+        let mut request = vec![0u8; 5 + "irc.invalid".len() + 2];
+        stream.read_exact(&mut request).await.unwrap();
+        assert_eq!(&request[..5], [5, 1, 0, 3, 11]);
+        assert_eq!(&request[5..16], b"irc.invalid");
+        assert_eq!(&request[16..], 6667u16.to_be_bytes());
+        stream
+            .write_all(&[5, 0, 0, 1, 127, 0, 0, 1, 0, 0])
+            .await
+            .unwrap();
+        let mut conn = Conn::new(stream);
+        conn.register("me", "").await;
+        conn
+    });
+    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30))));
+    until(&mut client, |c| status(c) == Status::Registered).await;
+    assert!(
+        server_text(&client)
+            .iter()
+            .any(|l| l
+                == &format!("Connecting to irc.invalid:6667 via SOCKS5 proxy 127.0.0.1:{port}")),
+        "{:?}",
+        server_text(&client)
+    );
+    let _conn = server.await.unwrap();
+    client.quit(None).await;
+}
+
+/// Registration isn't held back by the output rate limit. With the default
+/// limit (a burst of 5, then one every 2 s), the 7 lines of a SASL login
+/// would otherwise take 4 s.
+#[tokio::test]
+async fn registration_skips_the_rate_limit() {
+    let mock = Mock::bind().await;
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = config(
+        mock.port(),
+        "[network.sasl]\nmechanism = \"plain\"\naccount = \"a\"\npassword = { plain = \"pw\" }",
+        dir.path(),
+    );
+    let server = tokio::spawn(async move {
+        let mut c = mock.accept().await;
+        let start = Instant::now();
+        for _ in 0..3 {
+            c.recv().await;
+        }
+        c.send(":srv CAP * LS :sasl").await;
+        c.expect("CAP REQ sasl").await;
+        c.send(":srv CAP * ACK :sasl").await;
+        c.expect("AUTHENTICATE PLAIN").await;
+        c.send("AUTHENTICATE +").await;
+        c.recv().await;
+        c.send(":srv 903 me :SASL authentication successful").await;
+        c.expect("CAP END").await;
+        let elapsed = start.elapsed();
+        c.send(":srv 001 me :Welcome").await;
+        (c, elapsed)
+    });
+    // Default rate limit; only the registration timeout is shortened.
+    let hook: SettingsHook = Arc::new(|s| s.timeouts.registration = Duration::from_secs(5));
+    let mut client = Client::start(&cfg, None, Some(hook));
+    until(&mut client, |c| status(c) == Status::Registered).await;
+    let (_conn, elapsed) = server.await.unwrap();
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "registration took {elapsed:?}"
+    );
     client.quit(None).await;
 }

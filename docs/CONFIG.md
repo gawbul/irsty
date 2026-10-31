@@ -26,6 +26,7 @@ nicks = ["gawbul", "gawbul_"]
 username = "gawbul"
 realname = "Steve"
 autojoin = ["#irsty", "#rust"]
+perform = ["MODE $nick +i"]
 
 [[network.servers]]
 host = "irc.libera.chat"
@@ -35,9 +36,22 @@ port = 6697
 host = "irc.eu.libera.chat"
 
 [network.sasl]
-mechanism = "plain"
+mechanism = "scram-sha-256"
 account = "gawbul"
 password = { keyring = "libera" }
+
+[[network]]
+name = "tor-example"
+nicks = ["gawbul"]
+
+# Tor's SOCKS port; the onion address is resolved by Tor, not locally.
+[network.proxy]
+host = "127.0.0.1"
+port = 9050
+
+[[network.servers]]
+host = "the-network-onion-address.onion"
+tls = false
 
 [[network]]
 name = "bouncer"
@@ -85,17 +99,19 @@ Repeat for each network.
 | `username` | string | first nick | Username (ident). |
 | `realname` | string | first nick | Real name (gecos). |
 | `autojoin` | list of strings | `[]` | Channels to join after every registration. Channels you were in when a connection dropped are rejoined too. |
+| `perform` | list of strings | `[]` | Raw IRC lines (as with `/raw`) sent after every registration, before autojoin. `$nick` becomes your current nick, for example `"MODE $nick +i"` or `"PRIVMSG ChanServ :OP #channel $nick"`. Lines are checked when the config loads. Prefer SASL to identifying here: a line holding a password gets the plaintext warning, though it is redacted from logs and debug output. |
 | `autoconnect` | boolean | `true` | Connect at startup. |
 | `sasl` | table | none | See below. |
 | `client_cert` | table | none | See below. |
+| `proxy` | table | none | A SOCKS5 proxy; see below. |
 
 ### `[[network.servers]]`
 
-At least one per network. On failure, Irsty moves to the next server and backs off exponentially (2 s, then doubling up to 5 minutes, with jitter); a connection that stays up for a minute resets the backoff.
+At least one per network. Irsty resolves the host and races its IPv6 and IPv4 addresses (Happy Eyeballs, RFC 8305): it starts the next address every 250 ms or as soon as one fails, so a broken IPv6 route costs a quarter of a second rather than a timeout. On failure, Irsty moves to the next server and backs off exponentially (2 s, then doubling up to 5 minutes, with jitter); a connection that stays up for a minute resets the backoff.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `host` | string | required | Hostname or IP address. |
+| `host` | string | required | Hostname or IP address. IPv6 addresses may be written with or without brackets (`"[2001:db8::1]"`). |
 | `port` | integer | `6697` | Port. |
 | `tls` | boolean | `true` | Use TLS. |
 | `tls_verify` | boolean | `true` | Verify the server's certificate against the operating system's trust store. Setting this to `false` makes the connection open to interception; Irsty warns in red every time it connects. Only use it for servers you control with self-signed certificates. |
@@ -113,11 +129,24 @@ The full explanation appears once per server; retries show `same certificate pro
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `mechanism` | `"plain"` or `"external"` | required | `plain` uses an account and password. `external` uses the TLS client certificate (CertFP) and needs `client_cert`. |
-| `account` | string | none | Account name; required for `plain`. |
-| `password` | secret | none | Required for `plain`. |
+| `mechanism` | `"scram-sha-256"`, `"plain"` or `"external"` | required | `scram-sha-256` proves your password without sending it, and checks the server knows it too; prefer it where the server offers it. `plain` sends the account and password (inside TLS). `external` uses the TLS client certificate (CertFP) and needs `client_cert`. |
+| `account` | string | none | Account name; required for `scram-sha-256` and `plain`. |
+| `password` | secret | none | Required for `scram-sha-256` and `plain`. |
 
-If SASL fails or the server doesn't offer it, Irsty says so in the server buffer and carries on connecting without authentication.
+If SASL fails or the server doesn't offer it, Irsty says so in the server buffer and carries on connecting without authentication. If the server lists its mechanisms and yours isn't among them, Irsty doesn't try another one: falling back from SCRAM to PLAIN on a hostile server would hand it your password.
+
+To use CertFP, connect once with a password and the certificate configured, send `/msg NickServ CERT ADD` (the exact command depends on the network's services), then switch `mechanism` to `"external"`.
+
+### `[network.proxy]`
+
+Connects through a SOCKS5 proxy, such as Tor or `ssh -D`. Host names are passed to the proxy unresolved, so your DNS lookups don't reveal where you connect.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `host` | string | required | Proxy host name or IP address. |
+| `port` | integer | `1080` | Proxy port. Tor uses `9050` (or `9150` for Tor Browser). |
+| `username` | string | none | For proxies that need a login. Requires `password`. |
+| `password` | secret | none | Requires `username`. |
 
 ### `[network.client_cert]`
 
