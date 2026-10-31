@@ -6,7 +6,7 @@ mod headless;
 use std::path::PathBuf;
 
 use clap::Parser;
-use color_eyre::eyre::{Result, WrapErr, bail, eyre};
+use color_eyre::eyre::{Result, WrapErr, eyre};
 use irsty_core::Config;
 use irsty_core::config::Paths;
 use tracing_subscriber::EnvFilter;
@@ -40,13 +40,17 @@ fn main() -> Result<()> {
     let _guard = init_tracing(log_dir)?;
     tracing::info!(config = %config_path.display(), "starting");
 
-    if !cli.headless {
-        bail!("the terminal UI arrives in milestone M3; run with --headless for now");
-    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    runtime.block_on(headless::run(&config, paths.as_ref()))
+    if cli.headless {
+        return runtime.block_on(headless::run(&config, paths.as_ref()));
+    }
+    runtime.block_on(async {
+        let client = irsty_core::Client::start(&config, paths.as_ref(), None);
+        irsty_tui::run(client, &config.ui).await
+    })?;
+    Ok(())
 }
 
 /// Sends tracing output to `<data dir>/irsty.log`, never to the terminal.
