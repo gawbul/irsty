@@ -42,10 +42,18 @@ pub const SETTINGS: &[(&str, SettingKind)] = &[
     ("scrollback", SettingKind::Integer),
     ("logging.enabled", SettingKind::Bool),
     ("logging.dir", SettingKind::Text),
+    ("logging.rotate", SettingKind::Text),
     ("ui.mouse", SettingKind::Bool),
     ("ui.nicklist", SettingKind::Bool),
     ("ui.timestamp_format", SettingKind::Text),
     ("ui.keymap", SettingKind::Text),
+    ("ui.nick_colours", SettingKind::Bool),
+    ("notifications.method", SettingKind::Text),
+    ("notifications.when_focused", SettingKind::Bool),
+    ("notifications.show_text", SettingKind::Bool),
+    ("ctcp.replies", SettingKind::Bool),
+    ("ctcp.version", SettingKind::Text),
+    ("ctcp.time", SettingKind::Bool),
 ];
 
 /// The type of a setting.

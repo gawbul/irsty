@@ -359,6 +359,22 @@ pub struct LoggingConfig {
     pub enabled: bool,
     /// Directory for logs. Defaults to the platform data directory.
     pub dir: Option<PathBuf>,
+    /// Start a new file every day or month, or never.
+    #[serde(default)]
+    pub rotate: Rotate,
+}
+
+/// When logs start a new file.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Rotate {
+    /// One file per buffer, forever.
+    #[default]
+    Never,
+    /// `#channel-2026-10-31.log`.
+    Daily,
+    /// `#channel-2026-10.log`.
+    Monthly,
 }
 
 impl Default for LoggingConfig {
@@ -366,6 +382,7 @@ impl Default for LoggingConfig {
         Self {
             enabled: true,
             dir: None,
+            rotate: Rotate::Never,
         }
     }
 }
@@ -391,6 +408,83 @@ pub struct UiConfig {
     /// Key binding preset: `irssi` (the default) or `weechat`.
     #[serde(default = "default_keymap")]
     pub keymap: String,
+    /// Colour nicks by a hash of their name. Defaults to true.
+    #[serde(default = "default_true")]
+    pub nick_colours: bool,
+}
+
+/// How to tell you about highlights and private messages.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NotifyMethod {
+    /// A desktop notification through the terminal's OSC 777 sequence.
+    #[default]
+    Osc777,
+    /// A desktop notification through the terminal's OSC 9 sequence.
+    Osc9,
+    /// The terminal bell.
+    Bell,
+    /// Nothing.
+    None,
+}
+
+/// Notifications.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotifyConfig {
+    /// How. Defaults to OSC 777.
+    #[serde(default)]
+    pub method: NotifyMethod,
+    /// Also when the terminal has focus and the buffer is on screen.
+    /// Defaults to false.
+    #[serde(default)]
+    pub when_focused: bool,
+    /// Include the message text; off shows only who and where. Defaults to
+    /// true.
+    #[serde(default = "default_true")]
+    pub show_text: bool,
+}
+
+impl Default for NotifyConfig {
+    fn default() -> Self {
+        Self {
+            method: NotifyMethod::default(),
+            when_focused: false,
+            show_text: true,
+        }
+    }
+}
+
+/// Replies to CTCP requests from others.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CtcpConfig {
+    /// Answer VERSION, PING, TIME, CLIENTINFO and SOURCE. Defaults to true.
+    #[serde(default = "default_true")]
+    pub replies: bool,
+    /// The VERSION reply. Defaults to Irsty and its version.
+    #[serde(default = "default_version")]
+    pub version: String,
+    /// Answer TIME, which reveals your time zone. Defaults to true.
+    #[serde(default = "default_true")]
+    pub time: bool,
+}
+
+fn default_version() -> String {
+    format!(
+        "Irsty {} (https://github.com/gawbul/irsty)",
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
+impl Default for CtcpConfig {
+    fn default() -> Self {
+        Self {
+            replies: true,
+            version: default_version(),
+            time: true,
+        }
+    }
 }
 
 fn default_keymap() -> String {
@@ -404,6 +498,7 @@ impl Default for UiConfig {
             nicklist: true,
             timestamp_format: default_timestamp(),
             keymap: default_keymap(),
+            nick_colours: true,
         }
     }
 }
@@ -510,6 +605,26 @@ pub struct HighlightConfig {
     pub regex: Vec<String>,
 }
 
+/// Colour names `nick_colours` accepts: the 16 terminal colours.
+pub const COLOUR_NAMES: &[&str] = &[
+    "black",
+    "red",
+    "green",
+    "yellow",
+    "blue",
+    "magenta",
+    "cyan",
+    "gray",
+    "dark_gray",
+    "light_red",
+    "light_green",
+    "light_yellow",
+    "light_blue",
+    "light_magenta",
+    "light_cyan",
+    "white",
+];
+
 fn default_scrollback() -> usize {
     10_000
 }
@@ -543,6 +658,15 @@ pub struct Config {
     /// checks the names; `"none"` unbinds a preset key.
     #[serde(default)]
     pub keys: std::collections::BTreeMap<String, String>,
+    /// Colours for particular nicks, overriding the hash: `alice = "cyan"`.
+    #[serde(default)]
+    pub nick_colours: std::collections::BTreeMap<String, String>,
+    /// Notifications for highlights and private messages.
+    #[serde(default)]
+    pub notifications: NotifyConfig,
+    /// CTCP replies.
+    #[serde(default)]
+    pub ctcp: CtcpConfig,
 }
 
 impl Default for Config {
@@ -557,6 +681,9 @@ impl Default for Config {
             ignore: Vec::new(),
             highlight: HighlightConfig::default(),
             keys: std::collections::BTreeMap::new(),
+            nick_colours: std::collections::BTreeMap::new(),
+            notifications: NotifyConfig::default(),
+            ctcp: CtcpConfig::default(),
         }
     }
 }
@@ -640,6 +767,16 @@ impl Config {
         let invalid = |msg: String| Err(ConfigError::Invalid(msg));
         if self.scrollback == 0 {
             return invalid("scrollback must be at least 1".into());
+        }
+        if let Some((nick, colour)) = self
+            .nick_colours
+            .iter()
+            .find(|(_, c)| !COLOUR_NAMES.contains(&c.to_lowercase().as_str()))
+        {
+            return invalid(format!(
+                "nick_colours: {colour:?} for {nick:?} is not a colour; use one of {}",
+                COLOUR_NAMES.join(", ")
+            ));
         }
         if !matches!(self.ui.keymap.as_str(), "irssi" | "weechat") {
             return invalid(format!(

@@ -15,7 +15,7 @@ use crate::config::{Config, NetworkConfig, Paths, SaslMechanism};
 use crate::event::{NetCommand, NetEvent, NetworkId};
 use crate::log::LogWriter;
 use crate::net::connection::{self, EventSender, Proxy, Server, Settings};
-use crate::state::{BufferId, BufferKind, Effect, Line, LineKind, State};
+use crate::state::{BufferId, BufferKind, Effect, Line, LineKind, Notification, State};
 
 /// Events buffered between connection tasks and the app loop.
 const EVENT_QUEUE: usize = 1024;
@@ -25,6 +25,9 @@ const COMMAND_QUEUE: usize = 256;
 
 /// Most events applied before returning, so bursts become one redraw.
 const MAX_BATCH: usize = 512;
+
+/// Notifications kept for a frontend that isn't collecting them.
+const MAX_NOTIFICATIONS: usize = 64;
 
 /// How long [`Client::quit`] waits for connections to close.
 const QUIT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -68,6 +71,8 @@ pub struct Client {
     /// Networks to connect again once their old connection has closed, to
     /// pick up new settings.
     restarting: std::collections::BTreeSet<NetworkId>,
+    /// Notifications waiting for the frontend.
+    notifications: Vec<Notification>,
     /// The next network id. Ids are never reused, so late events from a
     /// removed network's connection can't land on a new one.
     next_network: u32,
@@ -101,7 +106,9 @@ impl Client {
             hook,
             restarting: std::collections::BTreeSet::new(),
             next_network: 0,
+            notifications: Vec::new(),
         };
+        client.state.set_ctcp(config.ctcp.clone());
         client
             .state
             .set_rules(config.ignore.clone(), &config.highlight);
@@ -112,7 +119,8 @@ impl Client {
                 .dir
                 .clone()
                 .or_else(|| paths.map(Paths::log_dir));
-            match dir.map(LogWriter::spawn) {
+            let rotate = config.logging.rotate;
+            match dir.map(|d| LogWriter::spawn_rotating(d, rotate)) {
                 Some(Ok(writer)) => client.logger = Some(writer),
                 Some(Err(error)) => {
                     tracing::warn!(%error, "logging disabled: cannot create the log directory");
@@ -182,9 +190,15 @@ impl Client {
     /// Applies settings that can change while running: scrollback, ignores
     /// and highlights. (The UI applies its own.)
     pub fn apply_config(&mut self, config: &Config) {
+        self.state.set_ctcp(config.ctcp.clone());
         self.state.set_scrollback(config.scrollback);
         self.state
             .set_rules(config.ignore.clone(), &config.highlight);
+    }
+
+    /// Takes the notifications gathered since the last call.
+    pub fn take_notifications(&mut self) -> Vec<Notification> {
+        std::mem::take(&mut self.notifications)
     }
 
     /// Notes that replies to a command typed in `buffer` belong there.
@@ -447,6 +461,11 @@ impl Client {
                     changed.push(buffer);
                 }
                 Effect::Updated(buffer) => changed.push(buffer),
+                Effect::Notify(notification) => {
+                    if self.notifications.len() < MAX_NOTIFICATIONS {
+                        self.notifications.push(*notification);
+                    }
+                }
                 Effect::Log(buffer, line) => {
                     self.log(buffer, &line);
                     changed.push(buffer);

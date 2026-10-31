@@ -14,7 +14,7 @@ use irsty_proto::{ISupport, MAX_BODY_LEN, Message, Source};
 use jiff::Timestamp;
 
 use crate::batch::{Batch, Batches, Routed};
-use crate::config::{HighlightConfig, IgnoreKind, IgnoreRule, PerformLine};
+use crate::config::{CtcpConfig, HighlightConfig, IgnoreKind, IgnoreRule, PerformLine};
 use crate::event::{NetEvent, NetworkId};
 
 /// Identifies a buffer for the lifetime of the process.
@@ -109,6 +109,8 @@ pub struct Line {
     pub raw: String,
     /// Whether it reached the server, for our own messages.
     pub delivery: Delivery,
+    /// It mentions our nick or a highlight word (set when added).
+    pub highlight: bool,
 }
 
 /// A buffer: a window of scrollback.
@@ -264,6 +266,7 @@ pub struct Network {
     labels: VecDeque<(String, BufferId)>,
     next_label: u64,
     awaiting: Vec<(Awaiting, BufferId)>,
+    ctcp_sent: VecDeque<Timestamp>,
     monitor_sent: bool,
 }
 
@@ -344,6 +347,25 @@ pub enum Effect {
     Updated(BufferId),
     /// Log this line, which is already in the buffer (a confirmed echo).
     Log(BufferId, Box<Line>),
+    /// Tell the user: a highlight or a private message.
+    Notify(Box<Notification>),
+}
+
+/// Something worth a notification.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Notification {
+    /// Where it happened.
+    pub buffer: BufferId,
+    /// The network's name.
+    pub network: String,
+    /// The channel or nick (sanitised).
+    pub place: String,
+    /// Who said it (sanitised).
+    pub sender: String,
+    /// What they said, without formatting.
+    pub text: String,
+    /// A private message rather than a highlight in a channel.
+    pub private: bool,
 }
 
 /// The result of [`State::own_message`].
@@ -372,6 +394,21 @@ pub enum Awaiting {
     List,
 }
 
+/// CTCP replies allowed per window on one network.
+const CTCP_BURST: usize = 3;
+/// The CTCP rate-limit window.
+const CTCP_WINDOW_SECS: i64 = 10;
+
+/// What to do about a CTCP request.
+enum CtcpAnswer {
+    /// Reply with this.
+    Sent(String),
+    /// We would, but too many came in.
+    Limited,
+    /// We don't answer this one.
+    No,
+}
+
 /// Most commands awaiting replies; older ones are forgotten.
 const MAX_AWAITING: usize = 64;
 
@@ -396,6 +433,7 @@ pub struct State {
     ignores: Vec<IgnoreRule>,
     highlight_words: Vec<String>,
     highlight_regex: Vec<regex::Regex>,
+    ctcp: CtcpConfig,
 }
 
 impl State {
@@ -410,6 +448,7 @@ impl State {
             ignores: Vec::new(),
             highlight_words: Vec::new(),
             highlight_regex: Vec::new(),
+            ctcp: CtcpConfig::default(),
         }
     }
 
@@ -451,6 +490,7 @@ impl State {
                 labels: VecDeque::new(),
                 next_label: 0,
                 awaiting: Vec::new(),
+                ctcp_sent: VecDeque::new(),
                 monitor_sent: false,
             },
         );
@@ -560,6 +600,49 @@ impl State {
             .is_some_and(|s| self.is_ignored(id, s, channel, kind))
     }
 
+    /// Sets how CTCP requests are answered.
+    pub fn set_ctcp(&mut self, ctcp: CtcpConfig) {
+        self.ctcp = ctcp;
+    }
+
+    /// The reply to a CTCP request, if we answer it and the rate limit allows.
+    fn ctcp_reply(&mut self, id: NetworkId, command: &str, params: Option<&str>) -> CtcpAnswer {
+        if !self.ctcp.replies {
+            return CtcpAnswer::No;
+        }
+        let clean = |text: &str, max: usize| -> String {
+            text.chars()
+                .filter(|c| !matches!(c, '\x01' | '\r' | '\n' | '\0'))
+                .take(max)
+                .collect()
+        };
+        let body = match command {
+            "VERSION" => clean(&self.ctcp.version, 300),
+            "PING" => clean(params.unwrap_or_default(), 100),
+            "TIME" if self.ctcp.time => (self.clock)()
+                .to_zoned(jiff::tz::TimeZone::system())
+                .strftime("%a, %d %b %Y %H:%M:%S %z")
+                .to_string(),
+            "CLIENTINFO" => "ACTION CLIENTINFO PING SOURCE TIME VERSION".into(),
+            "SOURCE" => "https://github.com/gawbul/irsty".into(),
+            _ => return CtcpAnswer::No,
+        };
+        // At most CTCP_BURST replies per CTCP_WINDOW_SECS on each network, so
+        // a flood of requests can't get us disconnected for flooding.
+        let now = (self.clock)();
+        let Some(net) = self.networks.get_mut(&id) else {
+            return CtcpAnswer::No;
+        };
+        net.ctcp_sent
+            .retain(|&t| now.duration_since(t).as_secs() < CTCP_WINDOW_SECS);
+        if net.ctcp_sent.len() >= CTCP_BURST {
+            return CtcpAnswer::Limited;
+        }
+        net.ctcp_sent.push_back(now);
+        let params = (!body.is_empty()).then_some(body.as_str());
+        CtcpAnswer::Sent(irsty_proto::ctcp::encode(command, params))
+    }
+
     /// The channel name of a buffer, for channel-limited ignore rules.
     fn channel_of(&self, buffer: BufferId) -> Option<&str> {
         self.buffers
@@ -636,6 +719,7 @@ impl State {
                 raw: text.to_plain(),
                 text,
                 delivery: Delivery::Delivered,
+                highlight: false,
             };
             self.push_line(buffer, line, &mut effects);
         }
@@ -699,6 +783,7 @@ impl State {
             } else {
                 Delivery::Delivered
             },
+            highlight: false,
         };
         self.push_line(buffer, line, &mut own.effects);
         if echo {
@@ -841,11 +926,34 @@ impl State {
         id
     }
 
-    fn push_line(&mut self, buffer: BufferId, line: Line, effects: &mut Vec<Effect>) {
+    fn push_line(&mut self, buffer: BufferId, mut line: Line, effects: &mut Vec<Effect>) {
         let limit = self.scrollback;
         let Some(buf) = self.buffers.get(&buffer) else {
             return;
         };
+        let net = self.networks.get(&buf.network);
+        let from_others = line
+            .sender
+            .as_deref()
+            .is_some_and(|s| net.is_some_and(|n| !n.is_me(s)));
+        let talk = matches!(
+            line.kind,
+            LineKind::Message | LineKind::Action | LineKind::Notice
+        );
+        if talk && from_others {
+            line.highlight = self.is_highlight(buf.network, &line.raw);
+            let private = buf.kind == BufferKind::Query;
+            if line.highlight || private {
+                effects.push(Effect::Notify(Box::new(Notification {
+                    buffer,
+                    network: net.map(|n| n.name.clone()).unwrap_or_default(),
+                    place: format::sanitise_identifier(&buf.name),
+                    sender: line.sender.clone().unwrap_or_default(),
+                    text: line.text.to_plain(),
+                    private,
+                })));
+            }
+        }
         let activity = match line.kind {
             LineKind::Message | LineKind::Action | LineKind::Notice => {
                 let mentions = self.is_highlight(buf.network, &line.raw);
@@ -916,6 +1024,7 @@ impl State {
             raw: text.to_plain(),
             text,
             delivery: Delivery::Delivered,
+            highlight: false,
         };
         match event {
             NetEvent::Connecting { server } => {
@@ -1091,6 +1200,7 @@ impl State {
                 raw: text.to_plain(),
                 text,
                 delivery: Delivery::Delivered,
+                highlight: false,
             };
             self.push_line(buffer, line, effects);
         }
@@ -1167,6 +1277,7 @@ impl State {
                         raw: text.to_plain(),
                         text,
                         delivery: Delivery::Delivered,
+                        highlight: false,
                     };
                     self.push_line(buffer, line, effects);
                 }
@@ -1228,6 +1339,7 @@ impl State {
             text,
             raw,
             delivery: Delivery::Delivered,
+            highlight: false,
         };
         let event = |text: StyledText| {
             let raw = text.to_plain();
@@ -1829,6 +1941,7 @@ impl State {
                     raw: text.to_plain(),
                     text,
                     delivery: Delivery::Delivered,
+                    highlight: false,
                 };
                 self.push_line(buffer, line, effects);
             }
@@ -1850,6 +1963,7 @@ impl State {
             raw: text.to_plain(),
             text,
             delivery: Delivery::Delivered,
+            highlight: false,
         };
         self.push_line(buffer, line, effects);
     }
@@ -1976,6 +2090,7 @@ impl State {
                 raw: text.to_plain(),
                 text,
                 delivery: Delivery::Delivered,
+                highlight: false,
             };
             self.push_line(buffer, line, effects);
         }
@@ -2025,23 +2140,8 @@ impl State {
                 return;
             }
             Some(c) => {
-                // Replies arrive in M8; for now, report requests and replies.
-                let what = if notice { "reply" } else { "request" };
-                let text = format!(
-                    "CTCP {} {what} from {nick}{}",
-                    c.command,
-                    c.params.map(|p| format!(": {p}")).unwrap_or_default()
-                );
-                let text = StyledText::plain(&text);
-                let line = Line {
-                    time,
-                    kind: LineKind::Info,
-                    sender: None,
-                    raw: text.to_plain(),
-                    text,
-                    delivery: Delivery::Delivered,
-                };
-                self.push_line(server_buffer, line, effects);
+                let answer = !notice && !from_me && !nick.is_empty();
+                self.on_ctcp(id, &nick, &c, (notice, answer), time, effects);
                 return;
             }
             None if notice => (LineKind::Notice, body.to_owned()),
@@ -2090,8 +2190,56 @@ impl State {
             text: StyledText::parse(&raw),
             raw,
             delivery: Delivery::Delivered,
+            highlight: false,
         };
         self.push_line(buffer, line, effects);
+    }
+
+    /// A CTCP request or reply other than ACTION: answer requests we can, and
+    /// note it in the server buffer.
+    fn on_ctcp(
+        &mut self,
+        id: NetworkId,
+        nick: &str,
+        ctcp: &Ctcp<'_>,
+        (notice, answer_it): (bool, bool),
+        time: Timestamp,
+        effects: &mut Vec<Effect>,
+    ) {
+        let mut answer = "";
+        if answer_it {
+            let command = ctcp.command.to_ascii_uppercase();
+            answer = match self.ctcp_reply(id, &command, ctcp.params) {
+                CtcpAnswer::Sent(reply) => {
+                    effects.push(Effect::Send(
+                        id,
+                        Message::new("NOTICE").param(nick).param(reply),
+                    ));
+                    " (answered)"
+                }
+                CtcpAnswer::Limited => " (not answered: too many requests)",
+                CtcpAnswer::No => "",
+            };
+        }
+        let what = if notice { "reply" } else { "request" };
+        let text = StyledText::plain(&format!(
+            "CTCP {} {what} from {nick}{}{answer}",
+            ctcp.command,
+            ctcp.params.map(|p| format!(": {p}")).unwrap_or_default()
+        ));
+        let Some(server_buffer) = self.networks.get(&id).map(|n| n.server_buffer) else {
+            return;
+        };
+        let line = Line {
+            time,
+            kind: LineKind::Info,
+            sender: None,
+            raw: text.to_plain(),
+            text,
+            delivery: Delivery::Delivered,
+            highlight: false,
+        };
+        self.push_line(server_buffer, line, effects);
     }
 
     /// Removes `nick` from every channel; returns the buffers it was seen in.
@@ -2170,6 +2318,7 @@ impl State {
                 raw: text.to_plain(),
                 text,
                 delivery: Delivery::Delivered,
+                highlight: false,
             };
             self.push_line(buffer, line, effects);
         }
@@ -2212,6 +2361,7 @@ impl State {
             raw: text.to_plain(),
             text,
             delivery: Delivery::Delivered,
+            highlight: false,
         };
         self.push_line(buffer, line, effects);
     }
@@ -2486,9 +2636,19 @@ mod tests {
         assert_eq!(last_text(&s, chan), "ops only");
 
         let effects = feed(&mut s, ":bob!b@h PRIVMSG me :\x01ACTION waves\x01");
-        let Effect::Line(query, _) = effects[0] else {
-            panic!()
-        };
+        let query = effects
+            .iter()
+            .find_map(|e| match e {
+                Effect::Line(b, _) => Some(*b),
+                _ => None,
+            })
+            .unwrap();
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::Notify(n) if n.private)),
+            "a private message notifies"
+        );
         assert_eq!(s.buffer(query).unwrap().kind, BufferKind::Query);
         assert_eq!(
             s.buffer(query).unwrap().lines().back().unwrap().kind,
@@ -2508,13 +2668,112 @@ mod tests {
         );
         assert_eq!(last_text(&s, server), "*** Looking up your hostname");
         feed(&mut s, ":bob!b@h PRIVMSG me :\x01VERSION\x01");
-        assert_eq!(last_text(&s, server), "CTCP VERSION request from bob");
+        assert_eq!(
+            last_text(&s, server),
+            "CTCP VERSION request from bob (answered)"
+        );
         feed(&mut s, ":srv 433 * me :Nickname is already in use");
         assert_eq!(
             s.buffer(server).unwrap().lines().back().unwrap().kind,
             LineKind::Error
         );
         assert_eq!(last_text(&s, server), "me Nickname is already in use");
+    }
+
+    fn fixed() -> Timestamp {
+        "2026-10-31T12:00:00Z".parse().unwrap()
+    }
+
+    /// CTCP requests are answered, a few at a time.
+    #[test]
+    fn ctcp_replies_and_their_limit() {
+        let mut s = state();
+        s.set_clock(fixed);
+        let reply = |s: &mut State, line: &str| -> Option<String> {
+            feed(s, line).into_iter().find_map(|e| match e {
+                Effect::Send(_, m) if m.command == "NOTICE" => Some(m.to_wire().unwrap()),
+                _ => None,
+            })
+        };
+        let version = reply(&mut s, ":bob!b@h PRIVMSG me :\x01VERSION\x01").unwrap();
+        assert!(
+            version.starts_with("NOTICE bob :\x01VERSION Irsty "),
+            "{version}"
+        );
+        // PING echoes, without anything that could break out of the CTCP.
+        assert_eq!(
+            reply(&mut s, ":bob!b@h PRIVMSG #c :\x01PING 12345\x01"),
+            Some("NOTICE bob :\x01PING 12345\x01".into())
+        );
+        assert_eq!(
+            reply(&mut s, ":carol!c@h PRIVMSG me :\x01CLIENTINFO\x01"),
+            Some(
+                "NOTICE carol :\x01CLIENTINFO ACTION CLIENTINFO PING SOURCE TIME VERSION\x01"
+                    .into()
+            )
+        );
+        // Three in ten seconds is the most; the rest are noted, not answered.
+        assert_eq!(reply(&mut s, ":dave!d@h PRIVMSG me :\x01SOURCE\x01"), None);
+        let server = s.network(NET).unwrap().server_buffer;
+        assert_eq!(
+            last_text(&s, server),
+            "CTCP SOURCE request from dave (not answered: too many requests)"
+        );
+
+        let mut s = state();
+        s.set_clock(fixed);
+        assert_eq!(
+            reply(&mut s, ":bob!b@h PRIVMSG me :\x01SOURCE\x01"),
+            Some("NOTICE bob :\x01SOURCE https://github.com/gawbul/irsty\x01".into())
+        );
+        // Unknown requests, replies and our own echoes get no answer.
+        assert_eq!(reply(&mut s, ":bob!b@h PRIVMSG me :\x01FINGER\x01"), None);
+        assert_eq!(reply(&mut s, ":bob!b@h NOTICE me :\x01VERSION x\x01"), None);
+        assert_eq!(reply(&mut s, ":me!u@h PRIVMSG bob :\x01VERSION\x01"), None);
+
+        // Turned off, or TIME alone turned off.
+        s.set_ctcp(CtcpConfig {
+            time: false,
+            ..CtcpConfig::default()
+        });
+        assert_eq!(reply(&mut s, ":bob!b@h PRIVMSG me :\x01TIME\x01"), None);
+        s.set_ctcp(CtcpConfig {
+            replies: false,
+            ..CtcpConfig::default()
+        });
+        assert_eq!(reply(&mut s, ":bob!b@h PRIVMSG me :\x01VERSION\x01"), None);
+    }
+
+    /// Highlights and private messages notify and are marked; our own lines
+    /// and channel chatter don't.
+    #[test]
+    fn highlights_notify_and_are_marked() {
+        let mut s = state();
+        feed(&mut s, ":me!u@h JOIN #c");
+        let channel = channel_buffer(&s, "#c");
+        let notified = |effects: &[Effect]| {
+            effects.iter().find_map(|e| match e {
+                Effect::Notify(n) => Some((**n).clone()),
+                _ => None,
+            })
+        };
+        assert!(notified(&feed(&mut s, ":a!a@h PRIVMSG #c :just chat")).is_none());
+        let n = notified(&feed(&mut s, ":a!a@h PRIVMSG #c :me: look")).unwrap();
+        assert_eq!(
+            (
+                n.place.as_str(),
+                n.sender.as_str(),
+                n.text.as_str(),
+                n.private
+            ),
+            ("#c", "a", "me: look", false)
+        );
+        assert!(s.buffer(channel).unwrap().lines().back().unwrap().highlight);
+        let n = notified(&feed(&mut s, ":a!a@h PRIVMSG me :psst")).unwrap();
+        assert!(n.private);
+        // Our own message mentioning our nick, and events, never notify.
+        assert!(notified(&feed(&mut s, ":me!u@h PRIVMSG #c :me me me")).is_none());
+        assert!(notified(&feed(&mut s, ":me!u@h JOIN #d")).is_none());
     }
 
     #[test]
