@@ -5,7 +5,7 @@
 //! is full, so a slow UI slows reads rather than buffering without bound
 //! (ADR 0002).
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
@@ -166,6 +166,7 @@ pub async fn run(
     let id = settings.id;
     let mut backoff = Backoff::new(settings.backoff_base, settings.backoff_cap);
     let mut index = 0usize;
+    let mut explained = Explained::default();
     let emit = |event| events.send((id, event));
 
     loop {
@@ -188,6 +189,7 @@ pub async fn run(
 
         let end = match open(&settings, server).await {
             Ok(stream) => {
+                explained.clear();
                 let connected = NetEvent::Connected {
                     server: server.config.to_string(),
                     insecure: server.config.tls && !server.config.tls_verify,
@@ -200,7 +202,7 @@ pub async fn run(
                     .await
             }
             Err(error) => End::Lost {
-                reason: format!("cannot connect to {}: {error}", server.config),
+                reason: explained.reason(&server.config, &error),
                 stable: false,
             },
         };
@@ -245,6 +247,27 @@ pub async fn run(
         if !wait_to_reconnect(delay, &mut commands, &events, id).await {
             return;
         }
+    }
+}
+
+/// Remembers which certificate problems have been explained, so retries show a
+/// short reminder instead of repeating the whole explanation every few seconds.
+#[derive(Debug, Default)]
+struct Explained(HashSet<String>);
+
+impl Explained {
+    fn reason(&mut self, server: &ServerConfig, error: &transport::ConnectError) -> String {
+        let full = format!("cannot connect to {server}: {error}");
+        if !matches!(error, transport::ConnectError::Certificate { .. })
+            || self.0.insert(full.clone())
+        {
+            return full;
+        }
+        format!("cannot connect to {server}: same certificate problem as before")
+    }
+
+    fn clear(&mut self) {
+        self.0.clear();
     }
 }
 
@@ -653,5 +676,48 @@ mod tests {
         let s = Settings::new(NetworkId(1), Vec::new(), vec!["me".into()]);
         assert_eq!(s.username, "me");
         assert!(s.caps.iter().any(|c| c == "server-time"));
+    }
+
+    #[test]
+    fn explains_a_certificate_problem_once() {
+        use tokio_rustls::rustls::CertificateError;
+        let server = |host: &str| ServerConfig {
+            host: host.into(),
+            port: 6697,
+            tls: true,
+            tls_verify: true,
+            password: None,
+        };
+        let cert = |host: &str| transport::ConnectError::Certificate {
+            host: host.into(),
+            error: CertificateError::UnknownIssuer,
+        };
+        let mut explained = Explained::default();
+        let a = server("a.example");
+        let first = explained.reason(&a, &cert("a.example"));
+        assert!(
+            first.starts_with("cannot connect to a.example:6697 (TLS): the certificate"),
+            "{first}"
+        );
+        assert_eq!(
+            explained.reason(&a, &cert("a.example")),
+            "cannot connect to a.example:6697 (TLS): same certificate problem as before"
+        );
+        // A different server, or a different problem, is explained in full.
+        let b = server("b.example");
+        assert!(
+            explained
+                .reason(&b, &cert("b.example"))
+                .contains("not signed")
+        );
+        // Other errors always show in full.
+        let timeout = transport::ConnectError::Timeout(Duration::from_secs(1));
+        assert_eq!(
+            explained.reason(&a, &timeout),
+            explained.reason(&a, &timeout)
+        );
+        // After a successful connection, explain again.
+        explained.clear();
+        assert_eq!(explained.reason(&a, &cert("a.example")), first);
     }
 }
