@@ -449,7 +449,16 @@ impl<'a> Session<'a> {
         self.enqueue_all(hello);
 
         loop {
-            let send_at = self.bucket.ready_at();
+            // Registration lines skip the rate limit: there are only a few, we
+            // generate them, and SCRAM alone would otherwise stall login by
+            // seconds.
+            let skip_limit = self.registered_at.is_none()
+                && self.queue.front().is_some_and(|line| is_registration(line));
+            let send_at = if skip_limit {
+                Instant::now()
+            } else {
+                self.bucket.ready_at()
+            };
             let has_output = !self.queue.is_empty();
             tokio::select! {
                 incoming = framed.next() => {
@@ -504,7 +513,7 @@ impl<'a> Session<'a> {
                     None => return End::Closed,
                 },
                 () = sleep_until(send_at), if has_output => {
-                    if self.bucket.try_take(Instant::now())
+                    if (skip_limit || self.bucket.try_take(Instant::now()))
                         && let Some(line) = self.queue.pop_front()
                         && let Err(error) = framed.send(line).await
                     {
@@ -692,6 +701,14 @@ impl<'a> Session<'a> {
         }
         Ok(())
     }
+}
+
+/// Whether a wire line is part of connection registration.
+fn is_registration(line: &str) -> bool {
+    let command = line.split(' ').next().unwrap_or_default();
+    ["CAP", "AUTHENTICATE", "PASS", "NICK", "USER"]
+        .iter()
+        .any(|c| command.eq_ignore_ascii_case(c))
 }
 
 /// The reply to a server `PING`, if `msg` is one.

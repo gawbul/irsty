@@ -714,3 +714,45 @@ async fn connects_through_a_socks5_proxy() {
     let _conn = server.await.unwrap();
     client.quit(None).await;
 }
+
+/// Registration isn't held back by the output rate limit. With the default
+/// limit (a burst of 5, then one every 2 s), the 7 lines of a SASL login
+/// would otherwise take 4 s.
+#[tokio::test]
+async fn registration_skips_the_rate_limit() {
+    let mock = Mock::bind().await;
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = config(
+        mock.port(),
+        "[network.sasl]\nmechanism = \"plain\"\naccount = \"a\"\npassword = { plain = \"pw\" }",
+        dir.path(),
+    );
+    let server = tokio::spawn(async move {
+        let mut c = mock.accept().await;
+        let start = Instant::now();
+        for _ in 0..3 {
+            c.recv().await;
+        }
+        c.send(":srv CAP * LS :sasl").await;
+        c.expect("CAP REQ sasl").await;
+        c.send(":srv CAP * ACK :sasl").await;
+        c.expect("AUTHENTICATE PLAIN").await;
+        c.send("AUTHENTICATE +").await;
+        c.recv().await;
+        c.send(":srv 903 me :SASL authentication successful").await;
+        c.expect("CAP END").await;
+        let elapsed = start.elapsed();
+        c.send(":srv 001 me :Welcome").await;
+        (c, elapsed)
+    });
+    // Default rate limit; only the registration timeout is shortened.
+    let hook: SettingsHook = Arc::new(|s| s.timeouts.registration = Duration::from_secs(5));
+    let mut client = Client::start(&cfg, None, Some(hook));
+    until(&mut client, |c| status(c) == Status::Registered).await;
+    let (_conn, elapsed) = server.await.unwrap();
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "registration took {elapsed:?}"
+    );
+    client.quit(None).await;
+}
