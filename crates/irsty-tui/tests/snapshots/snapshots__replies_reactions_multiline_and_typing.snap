@@ -1,0 +1,18 @@
+---
+source: crates/irsty-tui/tests/snapshots.rs
+expression: "render(&s, &mut ui, 100, 14).backend()"
+---
+"Irsty: a terminal IRC client in Rust | https://github.com/gawbul/irsty                              "
+" 1.libera        │09:08        <-- │ bob has left #irsty (lunch)                     @gawbul        "
+" 2.  #irsty      │09:09      alice │ gawbul: are you there?                          +alice         "
+" 3.  frank       │09:11      alice │ shall we tag a release today, or wait for the    carol         "
+"                 │                 │ docs?  👍 2  🎉 1                                dave_         " Hidden by multi-width symbols: [(45, " "), (51, " ")]
+"                 │09:12      carol │ ↪ alice: shall we tag a release today, …         eve           "
+"                 │                 │ alice: after the docs land                                     "
+"                 │09:13        eve │ ↪ an earlier message  replying to something                    "
+"                 │                 │ long gone                                                      "
+"                 │09:14      dave_ │ release checklist:                                             "
+"                 │                 │ - docs                                                         "
+"                 │                 │ - changelog                                                    "
+"[08:59] [gawbul] [2:libera/#irsty] [Act: 3] [Lag: 1.2s]  eve and carol are typing…                  "
+"[#irsty]                                                                                            "

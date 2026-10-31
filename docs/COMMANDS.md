@@ -13,6 +13,9 @@ A test checks this file against the command table in `crates/irsty-tui/src/comma
 | `/msg` (`/m`) | `/msg <target> <text>` | Send a message to a nick or channel. Long text is split at word boundaries to fit the line limit. |
 | `/query` (`/q`) | `/query <nick> [text]` | Open a private conversation and switch to it, optionally sending a first message. |
 | `/me` | `/me <action>` | Send an action (CTCP ACTION) to the current channel or query. |
+| `/reply` | `/reply <nick> <text>` | Reply to the newest message from `<nick>` in the current buffer. In a channel the text is addressed to them (`nick: text`). Where the server supports message tags, the reply also carries the message's id (`+reply`), so other modern clients can show what it answers. Without that, it is an ordinary message. |
+| `/react` | `/react <nick> <reaction>` | React to the newest message from `<nick>` in the current buffer, usually with an emoji (`/react alice 👍`). Needs a server with message tags (`+draft/react`); reactions show after the message. |
+| `/unreact` | `/unreact <nick> <reaction>` | Take back a reaction you made to the newest message from `<nick>`. |
 | `/notice` | `/notice <target> <text>` | Send a notice. |
 | `/ctcp` | `/ctcp <target> <command> [arguments]` | Send a CTCP request such as `VERSION`, `PING` or `TIME`. Replies show in the server buffer. Irsty answers other people's requests itself; see `[ctcp]` in [CONFIG.md](CONFIG.md#ctcp). |
 | `/nick` | `/nick <newnick>` | Change your nick on the current network. |
@@ -115,7 +118,7 @@ In an alias, `$*` is everything typed after it, `$1` to `$9` single words, and `
 
 ### Settings
 
-`/set` changes `scrollback`, `logging.enabled`, `logging.dir`, `logging.rotate`, `ui.mouse`, `ui.nicklist`, `ui.timestamp_format`, `ui.keymap`, `ui.nick_colours`, `notifications.method`, `notifications.when_focused`, `notifications.show_text`, `ctcp.replies`, `ctcp.version`, `ctcp.time` and `history.lines` (see [CONFIG.md](CONFIG.md)). `/set` with no arguments lists them with their values. Booleans accept `on`/`off`, `true`/`false` and `yes`/`no`. Logging and mouse changes take effect when Irsty restarts; the rest apply at once.
+`/set` changes `scrollback`, `logging.enabled`, `logging.dir`, `logging.rotate`, `ui.mouse`, `ui.nicklist`, `ui.timestamp_format`, `ui.keymap`, `ui.nick_colours`, `notifications.method`, `notifications.when_focused`, `notifications.show_text`, `ctcp.replies`, `ctcp.version`, `ctcp.time`, `history.lines`, `typing.send` and `typing.show` (see [CONFIG.md](CONFIG.md)). `/set` with no arguments lists them with their values. Booleans accept `on`/`off`, `true`/`false` and `yes`/`no`. Logging and mouse changes take effect when Irsty restarts; the rest apply at once.
 
 ## Leaving
 

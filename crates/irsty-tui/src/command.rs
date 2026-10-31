@@ -56,6 +56,24 @@ pub const COMMANDS: &[Spec] = &[
         "Send an action to the current buffer."
     ),
     spec!(
+        "reply",
+        [],
+        "/reply <nick> <text>",
+        "Reply to the newest message from <nick> here, addressed to them."
+    ),
+    spec!(
+        "react",
+        [],
+        "/react <nick> <reaction>",
+        "React to the newest message from <nick> here, usually with an emoji."
+    ),
+    spec!(
+        "unreact",
+        [],
+        "/unreact <nick> <reaction>",
+        "Take back a reaction to the newest message from <nick> here."
+    ),
+    spec!(
         "notice",
         [],
         "/notice <target> <text>",
@@ -375,6 +393,22 @@ pub enum Command {
     },
     /// `/me`.
     Me(String),
+    /// `/reply`.
+    Reply {
+        /// Whose newest message.
+        nick: String,
+        /// What to say.
+        text: String,
+    },
+    /// `/react` and `/unreact`.
+    React {
+        /// Whose newest message.
+        nick: String,
+        /// The reaction.
+        reaction: String,
+        /// Take it back.
+        remove: bool,
+    },
     /// `/nick`.
     Nick(String),
     /// `/whois`: the arguments as typed.
@@ -619,6 +653,16 @@ pub fn parse(input: &str) -> Result<Command, ParseError> {
             text: opt(tail),
         },
         "me" => Command::Me(need(rest)?),
+        "reply" if !first.is_empty() && !tail.trim().is_empty() => Command::Reply {
+            nick: first.to_owned(),
+            text: tail.to_owned(),
+        },
+        "react" | "unreact" if !first.is_empty() && !tail.trim().is_empty() => Command::React {
+            nick: first.to_owned(),
+            reaction: tail.trim().to_owned(),
+            remove: name == "unreact",
+        },
+        "reply" | "react" | "unreact" => return Err(usage(name)),
         "nick" => Command::Nick(need(first)?),
         "whois" => Command::Whois(need(rest)?),
         "whowas" => Command::Whowas(need(first)?),
@@ -989,6 +1033,23 @@ mod tests {
             })
         );
         assert_eq!(parse("/me waves"), Ok(Command::Me("waves".into())));
+        assert_eq!(
+            parse("/reply alice sounds good"),
+            Ok(Command::Reply {
+                nick: "alice".into(),
+                text: "sounds good".into()
+            })
+        );
+        assert_eq!(
+            parse("/unreact bob 👍 "),
+            Ok(Command::React {
+                nick: "bob".into(),
+                reaction: "👍".into(),
+                remove: true
+            })
+        );
+        assert!(parse("/reply alice").is_err());
+        assert!(parse("/react bob").is_err());
         assert_eq!(parse("/nick new extra"), Ok(Command::Nick("new".into())));
         assert_eq!(
             parse("/quote PRIVMSG #a :x"),
