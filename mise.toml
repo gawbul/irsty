@@ -1,8 +1,187 @@
-# Developer tools for the quality gate. The Rust toolchain itself is pinned in
-# rust-toolchain.toml.
+# Developer tools and tasks. The Rust toolchain itself is pinned in
+# rust-toolchain.toml. List tasks with `mise tasks`; run one with
+# `mise run <task> [args]`. Extra arguments go to the underlying command.
 [tools]
 "cargo:cargo-nextest" = "0.9.150"
 "cargo:cargo-deny" = "0.20.2"
 "cargo:cargo-audit" = "0.22.2"
 "cargo:cargo-fuzz" = "0.13.2"
 "cargo:cargo-llvm-cov" = "0.9.1"
+"cargo:cargo-insta" = "1.49.0"
+"cargo:bacon" = "3.26.0"
+
+# Setup
+
+[tasks.setup]
+description = "Install the pinned tools, the MSRV toolchain and nightly (for fuzzing)"
+run = [
+  "mise install",
+  "rustup toolchain install $(sed -n 's/^rust-version = \"\\(.*\\)\"$/\\1/p' Cargo.toml) --profile minimal",
+  "rustup toolchain install nightly --profile minimal",
+]
+
+# Build and run
+
+[tasks.build]
+description = "Build the workspace (debug)"
+alias = "b"
+run = "cargo build --workspace"
+
+[tasks."build:release"]
+description = "Build the irsty binary (release)"
+run = "cargo build --release -p irsty"
+
+[tasks.check]
+description = "Type-check every crate and target"
+alias = "c"
+run = "cargo check --workspace --all-targets --all-features"
+
+[tasks.run]
+description = "Run Irsty; arguments go to irsty (e.g. mise run run -- -c my.toml)"
+alias = "r"
+run = "cargo run -p irsty --"
+
+[tasks."run:headless"]
+description = "Run Irsty without the UI, printing every buffer's new lines to stdout"
+run = "cargo run -p irsty -- --headless"
+
+[tasks."run:ergo"]
+description = "Run Irsty against the local Ergo server (start it with mise run ergo)"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p target/ergo/logs
+cat >target/ergo/irsty.toml <<EOF
+[logging]
+dir = "$PWD/target/ergo/logs"
+
+[[network]]
+name = "ergo"
+nicks = ["${USER:-irsty}", "${USER:-irsty}_"]
+
+[[network.servers]]
+host = "127.0.0.1"
+port = 16667
+tls = false
+EOF
+cargo run -p irsty -- -c target/ergo/irsty.toml "$@"
+'''
+
+[tasks.watch]
+description = "Recheck on every save (bacon; press t for tests, c for clippy)"
+alias = "w"
+run = "bacon"
+
+# Quality
+
+[tasks.fmt]
+description = "Format all code"
+run = "cargo fmt --all"
+
+[tasks."fmt:check"]
+description = "Check formatting without changing files"
+run = "cargo fmt --all --check"
+
+[tasks.lint]
+description = "Run clippy with warnings denied, as CI does"
+alias = "l"
+run = "cargo clippy --workspace --all-targets --all-features -- -D warnings"
+
+[tasks."lint:fix"]
+description = "Apply clippy's machine-applicable fixes (allows a dirty tree)"
+run = "cargo clippy --workspace --all-targets --all-features --fix --allow-dirty --allow-staged"
+
+[tasks.fix]
+description = "Apply clippy fixes, then format"
+run = [{ task = "lint:fix" }, { task = "fmt" }]
+
+[tasks.gate]
+description = "Run the full quality gate (required before a milestone is done)"
+alias = "g"
+run = "./scripts/gate.sh"
+
+[tasks.deny]
+description = "Check licences, bans, advisories and sources (cargo-deny)"
+run = "cargo deny check"
+
+[tasks.audit]
+description = "Check dependencies against the RustSec database"
+run = "cargo audit --deny warnings"
+
+[tasks.msrv]
+description = "Check the workspace builds on the MSRV toolchain"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
+cargo "+$msrv" check --workspace --all-targets --all-features
+'''
+
+# Tests
+
+[tasks.test]
+description = "Run all tests with nextest; arguments are filters (e.g. mise run test scrollback)"
+alias = "t"
+run = "cargo nextest run --workspace --all-features --no-tests=pass"
+
+[tasks."test:doc"]
+description = "Run the doctests (nextest doesn't)"
+run = "cargo test --workspace --all-features --doc"
+
+[tasks."test:all"]
+description = "Run nextest and the doctests"
+run = [{ task = "test" }, { task = "test:doc" }]
+
+[tasks."test:ergo"]
+description = "Run the integration tests against the local Ergo server (start it with mise run ergo)"
+env = { IRSTY_ERGO_PORT = "16667", IRSTY_ERGO_TLS_PORT = "16697" }
+run = "cargo nextest run -p irsty-core --test ergo"
+
+[tasks.snap]
+description = "Review changed UI snapshots interactively"
+run = "cargo insta review"
+
+[tasks."snap:test"]
+description = "Run the snapshot tests and review any that changed"
+run = "cargo insta test -p irsty-tui --test snapshots --review"
+
+[tasks.cov]
+description = "Coverage report for the workspace in HTML, opened in a browser"
+run = "cargo llvm-cov --workspace --all-features --html --open"
+
+[tasks."cov:proto"]
+description = "Check irsty-proto line coverage is at least 90%, as the gate does"
+run = "cargo llvm-cov -p irsty-proto --fail-under-lines 90 --summary-only"
+
+[tasks.fuzz]
+description = "Run every fuzz target in parallel; argument is seconds (default 600)"
+run = "./scripts/fuzz.sh"
+
+[tasks."fuzz:smoke"]
+description = "Run every fuzz target for 30 seconds"
+run = "./scripts/fuzz.sh 30"
+
+[tasks.bench]
+description = "Run the criterion benchmarks; arguments are filters"
+run = "cargo bench --workspace --"
+
+# Servers
+
+[tasks.ergo]
+description = "Run a local Ergo server on ports 16667 and 16697 (--fresh wipes its database)"
+run = "./scripts/ergo.sh"
+
+# Housekeeping
+
+[tasks.doc]
+description = "Build the API docs and open them"
+run = "cargo doc --workspace --no-deps --all-features --open"
+
+[tasks.update]
+description = "Update Cargo.lock within semver, then re-run deny and audit"
+run = ["cargo update", { tasks = ["deny", "audit"] }]
+
+[tasks.duplicates]
+description = "List iCloud sync duplicates (files named like 'foo 2.rs') in the tree"
+run = "find . -path ./target -prune -o -path ./.git -prune -o -name '* [0-9]*' -print"
+

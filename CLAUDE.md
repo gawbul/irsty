@@ -27,10 +27,10 @@ The dependency direction is strictly `irsty → irsty-tui → irsty-core → irs
 ## Tooling
 
 - The Rust toolchain is pinned in `rust-toolchain.toml`. MSRV is `rust-version` in `Cargo.toml` and trails stable by two releases (ADR 0006).
-- Gate tools (nextest, deny, audit) are pinned in `mise.toml`.
+- Developer tools (nextest, deny, audit, llvm-cov, fuzz, insta, bacon) and tasks live in `mise.toml`; `mise tasks` lists them. Tasks are thin wrappers over `cargo` and `scripts/`, so keep the scripts the source of truth and add a task when you add a script.
 - Lints are set in `[workspace.lints]`, with pedantic enabled. Exceptions are documented in `CONTRIBUTING.md`. Tests may use `unwrap`, `expect`, `panic` and indexing (`clippy.toml`).
 - tracing writes to a file, never to the terminal.
 - UI snapshots live in `crates/irsty-tui/tests/snapshots/`. Review changes with `cargo insta review`, or generate with `INSTA_UPDATE=always` and read every changed `.snap` before committing. Snapshot state uses `State::set_clock` so timestamps are fixed.
 - Never call `Terminal::clear` in the UI: it queries the cursor position, which fails after two seconds on terminals that don't answer. Use `fresh_terminal()` in `run.rs`.
-- Ergo integration tests run when `IRSTY_ERGO_PORT` is set (see `CONTRIBUTING.md`). Local Docker can't pull from ghcr.io on this machine; use the checksum-verified release binary on ports 16667/16697.
+- Ergo integration tests run when `IRSTY_ERGO_PORT` is set (see `CONTRIBUTING.md`). Local Docker can't pull from ghcr.io on this machine; use `mise run ergo` (`scripts/ergo.sh`), which runs the checksum-verified release binary on ports 16667/16697.
 - The repository sits in an iCloud-synced folder. Files named like `foo 2.rs` are sync duplicates, not code; compare them with the originals and move them out of the tree (cargo auto-discovers `tests/` and `benches/`).
