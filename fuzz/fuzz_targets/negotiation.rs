@@ -8,10 +8,21 @@ use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &str| {
     let mut cap = CapNegotiator::new(["server-time", "message-tags", "batch"], true);
-    let mut sasl = Authenticator::new(Mechanism::Plain {
-        account: "fuzz".into(),
-        password: Secret::new("secret"),
-    });
+    let mut sasl = Authenticator::new(
+        Mechanism::Plain {
+            account: "fuzz".into(),
+            password: Secret::new("secret"),
+        },
+        &[],
+    );
+    // A fixed nonce keeps runs reproducible; its base64 is "BwcHBwcHBwcHBwcHBwcHBw==".
+    let mut scram = Authenticator::new(
+        Mechanism::ScramSha256 {
+            account: "fuzz".into(),
+            password: Secret::new("secret"),
+        },
+        &[7; 16],
+    );
     let mut isupport = ISupport::default();
     for line in data.split('\n') {
         let Ok(msg) = MessageRef::parse(line) else {
@@ -20,7 +31,7 @@ fuzz_target!(|data: &str| {
         for out in cap.handle(&msg).send {
             assert!(out.to_wire().is_ok(), "{out:?}");
         }
-        for out in sasl.handle(&msg).send {
+        for out in sasl.handle(&msg).send.into_iter().chain(scram.handle(&msg).send) {
             assert!(out.to_wire().is_ok(), "{out:?}");
         }
         if msg.command() == "005" {

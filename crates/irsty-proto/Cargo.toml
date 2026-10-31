@@ -11,6 +11,10 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+hmac = "0.13.0"
+pbkdf2 = { version = "0.13.0", default-features = false, features = ["hmac"] }
+sha2 = { version = "0.11.1", default-features = false }
+stringprep = "0.1.5"
 base64 = "0.23.1"
 thiserror = "2.0.21"
 unicode-segmentation = "1.13.3"
