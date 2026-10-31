@@ -91,6 +91,6 @@ Gate tools are pinned in `mise.toml`. The integration tests against a real Ergo 
 
 ## Licence
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT licence](LICENSE-MIT), at your option.
+Licensed under the [Apache License, Version 2.0](LICENSE) ([ADR 0009](docs/adr/0009-apache-2-licence.md)).
 
-Unless you explicitly state otherwise, any contribution you intentionally submit for inclusion in this work, as defined in the Apache-2.0 licence, shall be dual licensed as above, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution you intentionally submit for inclusion in this work, as defined in the Apache-2.0 licence, is licensed as above, without any additional terms or conditions.

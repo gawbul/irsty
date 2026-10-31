@@ -12,3 +12,4 @@ Each record is short: the context, the decision, and its consequences. Once acce
 | [0006](0006-msrv-policy.md) | MSRV trails stable by two releases | Accepted |
 | [0007](0007-terminal-protocols-first.md) | OSC 52 and OSC 777 before native clipboard and notifications | Accepted |
 | [0008](0008-luau-scripting.md) | Luau for scripting | Accepted |
+| [0009](0009-apache-2-licence.md) | Licensed under Apache-2.0 only | Accepted |
