@@ -8,7 +8,8 @@ use std::time::Duration;
 use crossterm::event::EventStream;
 use futures::StreamExt;
 use irsty_core::Client;
-use irsty_core::config::UiConfig;
+use irsty_core::config::Config;
+use irsty_core::config_file::ConfigFile;
 use jiff::Timestamp;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -78,10 +79,13 @@ impl Signals {
 }
 
 /// Runs the terminal UI until the user quits, then quits every network.
-pub async fn run(mut client: Client, config: &UiConfig) -> io::Result<()> {
-    let guard = TerminalGuard::enter(config.mouse)?;
+/// `file` lets commands such as `/server` and `/set` save changes.
+pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -> io::Result<()> {
+    let guard = TerminalGuard::enter(config.ui.mouse)?;
     let mut terminal = fresh_terminal()?;
-    let mut ui = Ui::new(config, client.state());
+    let mut ui = Ui::new(&config.ui, client.state());
+    ui.config = config;
+    ui.config_file = file;
     let mut events = EventStream::new();
     let mut signals = Signals::new()?;
     let mut clock = interval(Duration::from_secs(1));

@@ -1715,6 +1715,7 @@ dependencies = [
  "jiff",
  "ratatui",
  "signal-hook 0.4.5",
+ "tempfile",
  "tokio",
  "tracing",
  "unicode-segmentation",

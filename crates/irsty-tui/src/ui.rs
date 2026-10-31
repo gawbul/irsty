@@ -3,8 +3,10 @@
 
 use std::collections::HashMap;
 
-use irsty_core::config::UiConfig;
+use irsty_core::config::{Config, UiConfig};
+use irsty_core::config_file::ConfigFile;
 use irsty_core::event::NetworkId;
+use irsty_core::state::LineKind;
 use irsty_core::state::{BufferId, BufferKind, State};
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
@@ -39,6 +41,12 @@ pub struct Ui {
     pub buffer_list: (Rect, Vec<BufferId>),
     /// Height of the scrollback area at the last draw, for paging.
     pub page: usize,
+    /// The config as last loaded or saved.
+    pub config: Config,
+    /// The config file, for commands that change it. `None` in tests.
+    pub config_file: Option<ConfigFile>,
+    /// Messages shown when there is no buffer yet (before any network).
+    pub status: Vec<(LineKind, String)>,
 }
 
 impl Ui {
@@ -57,6 +65,9 @@ impl Ui {
             pending_switch: None,
             buffer_list: (Rect::default(), Vec::new()),
             page: 20,
+            config: Config::default(),
+            config_file: None,
+            status: Vec::new(),
         };
         ui.active = ui.order(state).first().copied();
         ui
