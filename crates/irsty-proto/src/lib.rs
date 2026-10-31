@@ -16,6 +16,7 @@ pub mod format;
 pub mod isupport;
 pub mod mask;
 pub mod message;
+pub mod multiline;
 pub mod sasl;
 pub mod secret;
 pub mod source;
