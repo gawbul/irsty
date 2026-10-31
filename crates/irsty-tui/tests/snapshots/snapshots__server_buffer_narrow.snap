@@ -1,0 +1,16 @@
+---
+source: crates/irsty-tui/tests/snapshots.rs
+expression: "render(&s, &mut ui, 50, 12).backend()"
+---
+"libera: connected                                 "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"08:59         -- │ Connected to                   "
+"                 │ irc.libera.chat:+6697          "
+"[09:15] [gawbul] [1:libera] [Act: 2,3] [Lag: 1.2s]"
+">                                                 "

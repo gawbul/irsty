@@ -32,3 +32,7 @@ signal-hook = "0.4.5"
 criterion = "0.8.2"
 insta = "1.49.0"
 tokio = { version = "1.54.1", features = ["rt-multi-thread"] }
+
+[[bench]]
+name = "scrollback"
+harness = false
