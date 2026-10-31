@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Registration no longer waits on the output rate limit, so logging in (especially with SCRAM, which sends more lines) takes a fraction of a second instead of several.
+- The gate and `mise run cov` clear old coverage data first, which could skew the numbers.
 - Certificate errors now explain themselves: a name mismatch lists the names the certificate does cover (on macOS and Windows too), and unknown issuers, expiry, not-yet-valid and revocation get plain-English advice. macOS's raw Security framework codes for these are recognised. The explanation appears once per server; retries show a short reminder.
 - Servers show as `host:6697 (TLS)` instead of irssi's `host:+6697`.
 - On macOS the config file now lives at `~/.config/irsty/config.toml` (or under `$XDG_CONFIG_HOME`), the same as on Linux, instead of `~/Library/Application Support/irsty/`. Logs stay in the platform data directory.
@@ -15,6 +17,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- M4, multiple networks and per-network config:
+  - SASL SCRAM-SHA-256 (RFC 7677). The server must prove it knows the password, hostile parameters are rejected, and a mechanism the server doesn't list is never tried or swapped for a weaker one.
+  - CertFP login with SASL EXTERNAL, tested against Ergo.
+  - `perform`: raw lines sent after registration, with `$nick` substitution.
+  - SOCKS5 proxies per network, with optional login. DNS goes through the proxy.
+  - IPv6: addresses are raced Happy Eyeballs style, and bracketed literals work in config.
+- A test keeps the example in docs/CONFIG.md valid.
 - mise tasks for building, running, testing, linting, coverage, fuzzing, benchmarks and snapshot review (`mise tasks` lists them), and `scripts/ergo.sh` (`mise run ergo`) to run a checksum-verified local Ergo server for integration tests.
 - Workspace skeleton: `irsty-proto`, `irsty-core`, `irsty-tui` and the `irsty` binary.
 - CI: fmt, clippy, tests on Linux and macOS, MSRV check, cargo-deny and cargo-audit.

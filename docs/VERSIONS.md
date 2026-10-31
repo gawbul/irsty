@@ -26,7 +26,7 @@ All versions were checked live on **2026-10-30** using `rustup`, `cargo info` an
 | rustls | 0.23.46 | 2026-10-14 | TLS. Latest stable (0.24 is still in `-dev`). Default `aws_lc_rs` provider. |
 | tokio-rustls | 0.26.6 | 2026-09-28 | Async TLS streams. |
 | rustls-platform-verifier | 0.7.1 | 2026-09-24 | Uses the OS trust store (Keychain on macOS), so corporate CAs work. Chosen over `webpki-roots`. |
-| tokio-socks | 0.5.3 | 2026-05-29 | SOCKS5 client (Phase 2). Small and maintained. |
+| tokio-socks | 0.5.3 | 2026-05-29 | Not used: M4 needed only SOCKS5 CONNECT, which is about 100 lines in `net/socks.rs` with exact error messages and guaranteed remote DNS. |
 | serde | 1.0.229 | | Config model. |
 | toml | 1.1.8 | | Config format (TOML 1.1). |
 | directories | 6.0.0 | 2025-01-12 | XDG and platform paths. Stable, low churn. |
@@ -45,7 +45,7 @@ All versions were checked live on **2026-10-30** using `rustup`, `cargo info` an
 | regex | 1.13.1 | | Highlight rules. |
 | linkify | 0.11.0 | 2026-04-12 | URL detection. |
 | signal-hook | 0.4.5 | 2026-10-04 | Handles SIGTSTP and SIGCONT correctly (suspend and resume). Tokio covers INT, TERM and WINCH. |
-| sha2 / hmac / pbkdf2 | 0.11.1 / 0.13.0 / 0.13.0 | | Our own SCRAM-SHA-256 (Phase 2). Replaces the stale `scram` crate. |
+| sha2 / hmac / pbkdf2 | 0.11.1 / 0.13.0 / 0.13.0 | 2026-10-12 / 2026-03-29 / 2026-04-21 | Our own SCRAM-SHA-256 (added in M4). Replaces the stale `scram` crate. |
 | base64 | 0.23.1 | | SASL payloads. |
 | nucleo-matcher | 0.3.1 | 2024-02-20 | Fuzzy buffer switcher (Phase 2). Used by Helix and stable. Licence is MPL-2.0 (file-level copyleft, fine as a dependency). |
 | open | 5.4.5 | 2026-10-22 | Open URLs. More active than `opener`. |
@@ -74,6 +74,13 @@ All versions were checked live on **2026-10-30** using `rustup`, `cargo info` an
 | tempfile | 3.27.0 | Test-only. |
 
 Ergo v2.19.1 (2026-08-05) for integration tests: the container `ghcr.io/ergochat/ergo:v2.19.1` in CI, or the checksum-verified release binary locally.
+
+### Added in M4 (checked 2026-10-31)
+
+| Crate | Version | Why |
+|---|---|---|
+| sha2, hmac, pbkdf2 | 0.11.1, 0.13.0, 0.13.0 | SCRAM-SHA-256 in `irsty-proto`. RustCrypto, current; `hmac` and `sha2` were already in the tree. `pbkdf2` has only its `hmac` feature. |
+| stringprep | 0.1.5 (2024-05-25) | SASLprep for SCRAM names and passwords. No release since 2024, but it implements a frozen spec and is used by sqlx and tokio-postgres (about 74 million recent downloads). |
 
 ### Dev dependencies
 

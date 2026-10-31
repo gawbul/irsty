@@ -778,6 +778,17 @@ mod tests {
         assert!(parse("").unwrap().networks.is_empty());
     }
 
+    /// The complete example in docs/CONFIG.md must stay valid.
+    #[test]
+    fn documented_example_parses() {
+        let doc = include_str!("../../../docs/CONFIG.md");
+        let start = doc.find("```toml\n").unwrap() + "```toml\n".len();
+        let end = start + doc[start..].find("```").unwrap();
+        let config = parse(&doc[start..end]).unwrap();
+        let names: Vec<&str> = config.networks.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, ["libera", "tor-example", "bouncer"]);
+    }
+
     #[test]
     fn accepts_bracketed_ipv6_hosts() {
         let config = parse(

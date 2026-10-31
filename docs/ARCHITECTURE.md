@@ -35,14 +35,14 @@ One task owns `State`. Each event becomes an `Action`. `update` mutates state an
 
 Each network has one connection task (`irsty_core::net::connection`). It:
 
-- opens TCP, then TLS with `rustls` and the OS trust store (`rustls-platform-verifier`, wrapped so rejected certificates can be explained in plain words), optionally presenting a client certificate;
+- opens TCP, racing IPv6 and IPv4 addresses (`net::dial`, a simplified Happy Eyeballs) or going through a SOCKS5 proxy (`net::socks`, which hands host names to the proxy unresolved), then TLS with `rustls` and the OS trust store (`rustls-platform-verifier`, wrapped so rejected certificates can be explained in plain words), optionally presenting a client certificate;
 - registers (`PASS`, `CAP LS 302`, `NICK`, `USER`), walking the nick list on 433 and friends;
-- drives `irsty-proto`'s CAP and SASL state machines, holding `CAP END` until SASL finishes;
+- drives `irsty-proto`'s CAP and SASL state machines, holding `CAP END` until SASL finishes. SCRAM gets its nonce from the TLS provider's secure random source, and a mechanism the server doesn't list is never tried, nor swapped for another;
 - answers `PING` at once, ahead of the queue, and sends its own after 90 s of silence, giving up 60 s later;
-- sends everything else through a token bucket (a burst of 5, then one every 2 s) so servers don't disconnect us for flooding;
+- sends everything else through a token bucket (a burst of 5, then one every 2 s) so servers don't disconnect us for flooding. Registration lines (`CAP`, `AUTHENTICATE`, `PASS`, `NICK`, `USER`) skip it until the server welcomes us, so a SASL login isn't held back by seconds;
 - on failure, rotates to the next server and backs off exponentially with equal jitter (2 s doubling to 5 min, never immediate); a connection that stays registered for a minute resets the backoff.
 
-Joining channels is not its job: on `Registered`, `State::apply` returns `Send` effects for autojoin plus every channel that was joined when the link dropped.
+Joining channels is not its job: on `Registered`, `State::apply` returns `Send` effects for the network's perform lines, then autojoin plus every channel that was joined when the link dropped.
 
 `irsty_core::Client` owns `State`, the event receiver and the per-network command senders. `Client::next` waits for one event, then drains up to 512 more without waiting, applies them, runs the effects, and returns the buffers that changed. It is cancel-safe, so a frontend can `select!` on it alongside terminal input.
 
