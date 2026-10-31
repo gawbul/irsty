@@ -387,7 +387,26 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
     if buffer.is_some_and(|b| b.history_pending) {
         spans.push(Span::raw(" -- fetching history --"));
     }
+    if ui.config.typing.show
+        && let Some(text) = buffer.and_then(|b| typing_text(b, ui.now))
+    {
+        spans.push(Span::styled(
+            format!(" {text}"),
+            Style::default().add_modifier(Modifier::ITALIC),
+        ));
+    }
     frame.render_widget(Paragraph::new(Line::from(spans)).style(theme::bar()), area);
+}
+
+/// Who is typing in a buffer, as the status bar says it.
+fn typing_text(buffer: &irsty_core::state::Buffer, now: jiff::Timestamp) -> Option<String> {
+    let nicks: Vec<&str> = buffer.typing(now).map(|t| t.nick.as_str()).collect();
+    Some(match nicks.as_slice() {
+        [] => return None,
+        [one] => format!("{one} is typing…"),
+        [one, two] => format!("{one} and {two} are typing…"),
+        many => format!("{} people are typing…", many.len()),
+    })
 }
 
 fn render_input(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
@@ -396,8 +415,17 @@ fn render_input(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
         let target = ui
             .target(state)
             .map_or_else(|| "this buffer".to_owned(), |(_, n)| sanitise_identifier(n));
+        let one = ui
+            .target(state)
+            .and_then(|(id, _)| state.network(id))
+            .is_some_and(|n| n.multiline().is_some());
+        let how = if one {
+            "as one message"
+        } else {
+            "a message each"
+        };
         let text = format!(
-            "Paste {} lines to {target}? Enter sends them, J joins them into one line, Esc cancels",
+            "Paste {} lines to {target}? Enter sends them {how}, J joins them into one line, Esc cancels",
             lines.len()
         );
         frame.render_widget(

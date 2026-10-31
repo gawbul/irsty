@@ -59,8 +59,9 @@ pub async fn until(
     }
 }
 
-/// A server that registers the client as `tester`, answers joins with
-/// `names` in the channel, and passes on every other line it receives.
+/// A server that registers the client as `tester` (offering only
+/// `message-tags`), answers joins with `names` in the channel, and passes on
+/// every other line it receives.
 pub async fn mock_server(
     listener: TcpListener,
     names: String,
@@ -71,7 +72,9 @@ pub async fn mock_server(
     let mut read = BufReader::new(read).lines();
     while let Ok(Some(line)) = read.next_line().await {
         let reply = if line.starts_with("CAP LS") {
-            Some(":srv CAP * LS :".to_owned())
+            Some(":srv CAP * LS :message-tags".to_owned())
+        } else if let Some(caps) = line.strip_prefix("CAP REQ ") {
+            Some(format!(":srv CAP * ACK {caps}"))
         } else if line == "CAP END" {
             Some(":srv 001 tester :Welcome".to_owned())
         } else if let Some(channel) = line.strip_prefix("JOIN ") {

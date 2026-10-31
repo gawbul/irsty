@@ -72,7 +72,7 @@ Tab completes the word before the cursor; pressing it again cycles through the o
 
 ### Pasting several lines
 
-A paste with more than one line doesn't go into the input. Irsty asks first: **Enter** (or Y) sends each line as its own message, **J** joins them into the input as one line to edit, and **Esc** (or N) cancels. Pasted lines are always sent as text, never run as commands, so pasting `/quit` sends the words "/quit". This needs a terminal with bracketed paste, which almost all have.
+A paste with more than one line doesn't go into the input. Irsty asks first: **Enter** (or Y) sends the lines as one multi-line message where the server supports it (`draft/multiline`, as Ergo does), and as a message per line otherwise (the prompt says which), **J** joins them into the input as one line to edit, and **Esc** (or N) cancels. Pasted lines are always sent as text, never run as commands, so pasting `/quit` sends the words "/quit". This needs a terminal with bracketed paste, which almost all have.
 
 ### Formatting
 

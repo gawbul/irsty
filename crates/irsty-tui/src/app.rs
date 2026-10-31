@@ -37,6 +37,27 @@ pub const QUIT_MESSAGE: &str = "Leaving";
 
 /// Handles one terminal event.
 pub fn handle_event(event: Event, client: &mut Client, ui: &mut Ui) -> Flow {
+    let before = ui.input.text().to_owned();
+    let flow = dispatch(event, client, ui);
+    if ui.input.text() != before {
+        typed(client, ui);
+    }
+    flow
+}
+
+/// The input changed: tell the current channel or query whether we are
+/// typing a message (commands don't count). The client decides whether and
+/// how often to actually send it (`typing.send`).
+fn typed(client: &mut Client, ui: &Ui) {
+    let Some((id, target)) = ui.target(client.state()).map(|(id, t)| (id, t.to_owned())) else {
+        return;
+    };
+    let text = ui.input.text();
+    let message = !text.starts_with('/') || text.starts_with("//");
+    client.typing(id, &target, message && !text.is_empty());
+}
+
+fn dispatch(event: Event, client: &mut Client, ui: &mut Ui) -> Flow {
     match event {
         Event::Key(key) if key.is_press() || key.is_repeat() => handle_key(key, client, ui),
         Event::Paste(text) => {
@@ -271,14 +292,11 @@ fn paste_key(key: KeyEvent, client: &mut Client, ui: &mut Ui) -> Flow {
         return Flow::Continue;
     };
     match key.code {
+        // Pasted text is never run as commands. It goes as one multi-line
+        // message where the server takes them, and a message per line
+        // otherwise.
         KeyCode::Enter | KeyCode::Char('y' | 'Y') => {
-            for line in lines.iter().filter(|l| !l.trim().is_empty()) {
-                // Pasted text is never run as commands.
-                let flow = execute(Command::Say(line.clone()), client, ui);
-                if flow != Flow::Continue {
-                    return flow;
-                }
-            }
+            return execute(Command::Say(lines.join("\n")), client, ui);
         }
         KeyCode::Char('j' | 'J') => ui.input.insert(&lines.join(" ")),
         KeyCode::Esc | KeyCode::Char('n' | 'N') => {}
@@ -517,6 +535,48 @@ fn run(cmd: Command, client: &mut Client, ui: &mut Ui) -> Outcome {
                 .ok_or("/me needs a channel or query")?;
             client
                 .say(id, &target, &text, true)
+                .map_err(|e| e.to_string())?;
+        }
+        Command::Reply { nick, text } => {
+            let buffer = here(ui)?;
+            let (id, target) = ui
+                .target(client.state())
+                .map(|(id, t)| (id, t.to_owned()))
+                .ok_or("/reply needs a channel or query")?;
+            let parent = client.state().last_message_from(buffer, &nick);
+            let msgid = parent.and_then(|l| l.msgid.clone());
+            // In a channel, address them by name, as people do anyway.
+            let is_query = client
+                .state()
+                .buffer(buffer)
+                .is_some_and(|b| b.kind == BufferKind::Query);
+            let text = if is_query {
+                text
+            } else {
+                let name = parent.and_then(|l| l.sender.clone()).unwrap_or(nick);
+                format!("{name}: {text}")
+            };
+            match msgid {
+                Some(msgid) => client.reply(id, &target, &msgid, &text),
+                None => client.say(id, &target, &text, false),
+            }
+            .map_err(|e| e.to_string())?;
+        }
+        Command::React {
+            nick,
+            reaction,
+            remove,
+        } => {
+            let buffer = here(ui)?;
+            let msgid = client
+                .state()
+                .last_message_from(buffer, &nick)
+                .and_then(|l| l.msgid.clone())
+                .ok_or_else(|| {
+                    format!("No message from {nick} here to react to (the server must give messages ids)")
+                })?;
+            client
+                .react(buffer, &msgid, &reaction, remove)
                 .map_err(|e| e.to_string())?;
         }
         Command::Join { channels, keys } => {

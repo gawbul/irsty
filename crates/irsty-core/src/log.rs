@@ -248,6 +248,9 @@ mod tests {
             delivery: Delivery::Delivered,
             highlight: false,
             msgid: None,
+            reply: None,
+            reactions: Vec::new(),
+            continued: false,
         }
     }
 

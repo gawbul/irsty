@@ -13,7 +13,7 @@ use irsty_proto::isupport::ModeKind;
 use irsty_proto::{ISupport, MAX_BODY_LEN, Message, Source};
 use jiff::Timestamp;
 
-use crate::batch::{Batch, Batches, Routed};
+use crate::batch::{Batch, Batches, Item, Routed};
 use crate::config::{CtcpConfig, HighlightConfig, IgnoreKind, IgnoreRule, PerformLine};
 use crate::event::{NetEvent, NetworkId};
 
@@ -114,7 +114,58 @@ pub struct Line {
     /// The server's id for the message (`message-tags`), used to avoid
     /// showing a message twice when history overlaps what we have.
     pub msgid: Option<String>,
+    /// The message this one replies to (`+reply`).
+    pub reply: Option<Reply>,
+    /// Reactions to it (`+draft/react`), in the order they first arrived.
+    pub reactions: Vec<Reaction>,
+    /// It continues the line before as part of one multi-line message
+    /// (`draft/multiline`), so the sender needn't be shown again.
+    pub continued: bool,
 }
+
+/// What a line replies to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reply {
+    /// The msgid of the message replied to.
+    pub msgid: String,
+    /// Who sent it and how it starts (sanitised), if it was in the buffer
+    /// when the reply arrived.
+    pub parent: Option<(String, String)>,
+}
+
+/// One reaction to a line and who reacted with it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reaction {
+    /// The reaction (sanitised): usually an emoji.
+    pub text: String,
+    /// Who reacted (sanitised), oldest first.
+    pub nicks: Vec<String>,
+}
+
+/// Someone typing in a buffer (`+typing`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Typing {
+    /// Their nick (sanitised).
+    pub nick: String,
+    /// They paused rather than typing actively.
+    pub paused: bool,
+    /// When we heard, by our clock.
+    pub since: Timestamp,
+}
+
+/// How long `typing=active` lasts without another notification.
+pub const TYPING_ACTIVE: Duration = Duration::from_secs(6);
+/// How long `typing=paused` lasts without another notification.
+pub const TYPING_PAUSED: Duration = Duration::from_secs(30);
+/// Most reactions kept per line, and most nicks per reaction.
+const MAX_REACTIONS: usize = 20;
+const MAX_REACTORS: usize = 64;
+/// Longest reaction kept, in bytes.
+const MAX_REACTION_LEN: usize = 64;
+/// How much of a parent message a reply shows, in characters.
+const REPLY_EXCERPT: usize = 30;
+/// Most people shown typing in one buffer.
+const MAX_TYPING: usize = 32;
 
 /// A buffer: a window of scrollback.
 #[derive(Clone, Debug)]
@@ -141,12 +192,27 @@ pub struct Buffer {
     pub history_pending: bool,
     /// The server has no older history for this buffer.
     pub history_done: bool,
+    /// Who is typing here; see [`Buffer::typing`].
+    typing: Vec<Typing>,
 }
 
 impl Buffer {
     /// The lines currently held, oldest first.
     pub fn lines(&self) -> &VecDeque<Line> {
         &self.lines
+    }
+
+    /// Who is typing at `now`: notifications expire after
+    /// [`TYPING_ACTIVE`] or, once paused, [`TYPING_PAUSED`].
+    pub fn typing(&self, now: Timestamp) -> impl Iterator<Item = &Typing> {
+        self.typing.iter().filter(move |t| {
+            let lasts = if t.paused {
+                TYPING_PAUSED
+            } else {
+                TYPING_ACTIVE
+            };
+            now.duration_since(t.since).unsigned_abs() < lasts
+        })
     }
 
     /// The line numbered `seq` (see [`Effect::Line`]), if it is still held.
@@ -252,6 +318,8 @@ pub struct Network {
     pub isupport: ISupport,
     /// Enabled capabilities.
     pub caps: Vec<String>,
+    /// Values of enabled capabilities that have one.
+    cap_values: Vec<(String, String)>,
     /// Latest round-trip time.
     pub lag: Option<Duration>,
     /// Account we are logged in as.
@@ -305,6 +373,27 @@ impl Network {
     /// Whether a capability is enabled.
     pub fn has_cap(&self, cap: &str) -> bool {
         self.caps.iter().any(|c| c == cap)
+    }
+
+    /// The value of an enabled capability, if it has one.
+    pub fn cap_value(&self, cap: &str) -> Option<&str> {
+        self.cap_values
+            .iter()
+            .find(|(c, _)| c == cap)
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// Whether client-only tags reach others: `message-tags` is on.
+    pub fn has_client_tags(&self) -> bool {
+        self.has_cap("message-tags")
+    }
+
+    /// The limits for multi-line messages, if the server takes them.
+    pub fn multiline(&self) -> Option<irsty_proto::multiline::Limits> {
+        if !self.has_cap("batch") || !self.has_cap(irsty_proto::multiline::CAP) {
+            return None;
+        }
+        irsty_proto::multiline::Limits::parse(self.cap_value(irsty_proto::multiline::CAP)?)
     }
 
     /// What we know about a user who shares a channel with us.
@@ -520,6 +609,7 @@ impl State {
                 status: Status::Disconnected,
                 isupport: ISupport::default(),
                 caps: Vec::new(),
+                cap_values: Vec::new(),
                 lag: None,
                 account: None,
                 insecure: false,
@@ -766,6 +856,9 @@ impl State {
                 delivery: Delivery::Delivered,
                 highlight: false,
                 msgid: None,
+                reply: None,
+                reactions: Vec::new(),
+                continued: false,
             };
             self.push_line(buffer, line, &mut effects);
         }
@@ -793,6 +886,20 @@ impl State {
         kind: LineKind,
         text: &str,
     ) -> OwnMessage {
+        self.own_lines(id, target, kind, &[text], None)
+    }
+
+    /// Records a message of one or more lines, as [`State::own_message`]
+    /// does: several lines are one multi-line message (`draft/multiline`)
+    /// sharing a label. `reply` is the msgid of a message it replies to.
+    pub fn own_lines(
+        &mut self,
+        id: NetworkId,
+        target: &str,
+        kind: LineKind,
+        lines: &[&str],
+        reply: Option<&str>,
+    ) -> OwnMessage {
         let mut own = OwnMessage::default();
         let Some(net) = self.networks.get_mut(&id) else {
             return own;
@@ -816,23 +923,29 @@ impl State {
             own.label = None;
             return own;
         };
-        let line = Line {
-            time: (self.clock)(),
-            kind,
-            sender: Some(nick),
-            text: StyledText::parse(text),
-            raw: text.to_owned(),
-            delivery: if echo {
-                Delivery::Pending {
-                    label: own.label.clone(),
-                }
-            } else {
-                Delivery::Delivered
-            },
-            highlight: false,
-            msgid: None,
-        };
-        self.push_line(buffer, line, &mut own.effects);
+        let reply = reply.map(|msgid| self.reply_to(buffer, msgid));
+        for (i, text) in lines.iter().enumerate() {
+            let line = Line {
+                time: (self.clock)(),
+                kind,
+                sender: Some(nick.clone()),
+                text: StyledText::parse(text),
+                raw: (*text).to_owned(),
+                delivery: if echo {
+                    Delivery::Pending {
+                        label: own.label.clone(),
+                    }
+                } else {
+                    Delivery::Delivered
+                },
+                highlight: false,
+                msgid: None,
+                reply: if i == 0 { reply.clone() } else { None },
+                reactions: Vec::new(),
+                continued: i > 0,
+            };
+            self.push_line(buffer, line, &mut own.effects);
+        }
         if echo {
             // Logged when the echo confirms it, not now.
             for effect in &mut own.effects {
@@ -849,17 +962,224 @@ impl State {
         own
     }
 
-    /// Marks the newest line in `buffer` as failed: the message
-    /// [`State::own_message`] just recorded could not be queued.
-    pub fn fail_newest(&mut self, buffer: BufferId, reason: &str) {
-        if let Some(line) = self
+    /// Records our own reaction, when the server won't echo it back
+    /// (without `echo-message`). Returns whether anything changed.
+    pub fn own_reaction(
+        &mut self,
+        buffer: BufferId,
+        msgid: &str,
+        text: &str,
+        remove: bool,
+    ) -> bool {
+        let Some(nick) = self
             .buffers
-            .get_mut(&buffer)
-            .and_then(|b| b.lines.back_mut())
+            .get(&buffer)
+            .and_then(|b| self.networks.get(&b.network))
+            .map(|n| n.nick.clone())
+        else {
+            return false;
+        };
+        self.react(buffer, msgid, &nick, text, remove)
+    }
+
+    /// The newest message from `nick` in `buffer` that the server gave an
+    /// id, so it can be replied or reacted to.
+    pub fn last_message_from(&self, buffer: BufferId, nick: &str) -> Option<&Line> {
+        let buf = self.buffers.get(&buffer)?;
+        let mapping = self.mapping(buf.network);
+        buf.lines.iter().rev().find(|l| {
+            l.msgid.is_some()
+                && !l.continued
+                && matches!(
+                    l.kind,
+                    LineKind::Message | LineKind::Action | LineKind::Notice
+                )
+                && l.sender.as_deref().is_some_and(|s| mapping.eq(s, nick))
+        })
+    }
+
+    /// Marks the newest `count` lines in `buffer` as failed: the message
+    /// [`State::own_lines`] just recorded could not be queued.
+    pub fn fail_newest(&mut self, buffer: BufferId, count: usize, reason: &str) {
+        let reason = StyledText::plain(reason).to_plain();
+        if let Some(buf) = self.buffers.get_mut(&buffer) {
+            for line in buf.lines.iter_mut().rev().take(count) {
+                line.delivery = Delivery::Failed {
+                    reason: reason.clone(),
+                };
+            }
+        }
+    }
+
+    /// What a reply to `msgid` in `buffer` refers to.
+    fn reply_to(&self, buffer: BufferId, msgid: &str) -> Reply {
+        let collected = match &self.replay {
+            Replay::Prepend(lines) => lines.as_slice(),
+            _ => &[],
+        };
+        let parent = collected
+            .iter()
+            .filter(|(b, _)| *b == buffer)
+            .map(|(_, l)| l)
+            .chain(
+                self.buffers
+                    .get(&buffer)
+                    .into_iter()
+                    .flat_map(|b| b.lines.iter()),
+            )
+            .find(|l| l.msgid.as_deref() == Some(msgid))
+            .map(|l| {
+                let text = l.text.to_plain();
+                let mut excerpt: String = text.chars().take(REPLY_EXCERPT).collect();
+                if excerpt.len() < text.len() {
+                    excerpt.push('…');
+                }
+                (l.sender.clone().unwrap_or_default(), excerpt)
+            });
+        Reply {
+            msgid: msgid.to_owned(),
+            parent,
+        }
+    }
+
+    /// Adds `nick`'s reaction to the message `msgid` in `buffer`, or with
+    /// `remove` takes it away. Returns whether anything changed. Reactions to
+    /// messages we don't have are dropped.
+    fn react(
+        &mut self,
+        buffer: BufferId,
+        msgid: &str,
+        nick: &str,
+        text: &str,
+        remove: bool,
+    ) -> bool {
+        let text = StyledText::parse(text).to_plain();
+        let mut text = text.trim().to_owned();
+        if text.len() > MAX_REACTION_LEN {
+            let mut end = MAX_REACTION_LEN;
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+        }
+        if text.is_empty() {
+            return false;
+        }
+        let Some(network) = self.buffers.get(&buffer).map(|b| b.network) else {
+            return false;
+        };
+        let mapping = self.mapping(network);
+        let nick = format::sanitise_identifier(nick);
+        let has = |l: &Line| l.msgid.as_deref() == Some(msgid);
+        let collected = match &mut self.replay {
+            Replay::Prepend(lines) => lines
+                .iter_mut()
+                .filter(|(b, _)| *b == buffer)
+                .map(|(_, l)| l)
+                .find(|l| has(l)),
+            _ => None,
+        };
+        let line = collected.or_else(|| {
+            self.buffers
+                .get_mut(&buffer)?
+                .lines
+                .iter_mut()
+                .rev()
+                .find(|l| has(l))
+        });
+        let Some(line) = line else {
+            return false;
+        };
+        let at = line.reactions.iter().position(|r| r.text == text);
+        match (at.and_then(|i| line.reactions.get_mut(i)), remove) {
+            (Some(reaction), true) => {
+                let before = reaction.nicks.len();
+                reaction.nicks.retain(|n| !mapping.eq(n, &nick));
+                let changed = reaction.nicks.len() != before;
+                line.reactions.retain(|r| !r.nicks.is_empty());
+                changed
+            }
+            (None, true) => false,
+            (Some(reaction), false) => {
+                if reaction.nicks.len() >= MAX_REACTORS
+                    || reaction.nicks.iter().any(|n| mapping.eq(n, &nick))
+                {
+                    return false;
+                }
+                reaction.nicks.push(nick);
+                true
+            }
+            (None, false) => {
+                if line.reactions.len() >= MAX_REACTIONS {
+                    return false;
+                }
+                line.reactions.push(Reaction {
+                    text,
+                    nicks: vec![nick],
+                });
+                true
+            }
+        }
+    }
+
+    /// Records a `+typing` notification from `nick`. Returns whether anything
+    /// changed.
+    fn set_typing(&mut self, buffer: BufferId, nick: &str, value: &str) -> bool {
+        let now = (self.clock)();
+        let Some(network) = self.buffers.get(&buffer).map(|b| b.network) else {
+            return false;
+        };
+        let mapping = self.mapping(network);
+        let Some(buf) = self.buffers.get_mut(&buffer) else {
+            return false;
+        };
+        let nick = format::sanitise_identifier(nick);
+        // Forget anyone whose notification has run out anyway.
+        buf.typing
+            .retain(|t| now.duration_since(t.since).unsigned_abs() < TYPING_PAUSED);
+        let at = buf.typing.iter().position(|t| mapping.eq(&t.nick, &nick));
+        match value {
+            "active" | "paused" => {
+                let entry = Typing {
+                    nick,
+                    paused: value == "paused",
+                    since: now,
+                };
+                if let Some(existing) = at.and_then(|i| buf.typing.get_mut(i)) {
+                    *existing = entry;
+                } else if buf.typing.len() < MAX_TYPING {
+                    buf.typing.push(entry);
+                } else {
+                    return false;
+                }
+                true
+            }
+            "done" => at.map(|i| buf.typing.remove(i)).is_some(),
+            _ => false,
+        }
+    }
+
+    /// `nick` stopped typing: they sent a message, left or quit. Only in
+    /// `buffer` if given, otherwise anywhere on the network.
+    fn stop_typing(
+        &mut self,
+        id: NetworkId,
+        nick: &str,
+        buffer: Option<BufferId>,
+        effects: &mut Vec<Effect>,
+    ) {
+        let mapping = self.mapping(id);
+        let nick = format::sanitise_identifier(nick);
+        for buf in self
+            .buffers
+            .values_mut()
+            .filter(|b| b.network == id && buffer.is_none_or(|only| only == b.id))
         {
-            line.delivery = Delivery::Failed {
-                reason: StyledText::plain(reason).to_plain(),
-            };
+            let before = buf.typing.len();
+            buf.typing.retain(|t| !mapping.eq(&t.nick, &nick));
+            if buf.typing.len() != before {
+                effects.push(Effect::Updated(buf.id));
+            }
         }
     }
 
@@ -972,6 +1292,7 @@ impl State {
                 read_marker: None,
                 history_pending: false,
                 history_done: false,
+                typing: Vec::new(),
             },
         );
         id
@@ -1111,6 +1432,9 @@ impl State {
             delivery: Delivery::Delivered,
             highlight: false,
             msgid: None,
+            reply: None,
+            reactions: Vec::new(),
+            continued: false,
         };
         match event {
             NetEvent::Connecting { server } => {
@@ -1135,9 +1459,10 @@ impl State {
             }
             NetEvent::Registered { nick } => self.on_registered(id, nick, &mut effects),
             NetEvent::Message(msg) => self.route(id, msg, &mut effects),
-            NetEvent::Caps { enabled } => {
+            NetEvent::Caps { enabled, values } => {
                 if let Some(net) = self.networks.get_mut(&id) {
                     net.caps = enabled;
+                    net.cap_values = values;
                 }
             }
             NetEvent::Sasl(result) => {
@@ -1382,9 +1707,7 @@ impl State {
         } else {
             Replay::Append
         };
-        for msg in &batch.messages {
-            self.on_message(id, msg, None, effects);
-        }
+        self.on_items(id, batch, None, effects);
         let replay = std::mem::take(&mut self.replay);
         let Some(buffer) = older else {
             return;
@@ -1514,6 +1837,7 @@ impl State {
         };
         net.lag = None;
         net.caps.clear();
+        net.cap_values.clear();
         net.users.clear();
         net.batches.clear();
         net.labels.clear();
@@ -1527,7 +1851,8 @@ impl State {
         // Anything still waiting for its echo never made it.
         let network = net.id;
         for buf in self.buffers.values_mut().filter(|b| b.network == network) {
-            let mut changed = false;
+            let mut changed = !buf.typing.is_empty();
+            buf.typing.clear();
             for line in &mut buf.lines {
                 if matches!(line.delivery, Delivery::Pending { .. }) {
                     line.delivery = Delivery::Failed {
@@ -1571,6 +1896,9 @@ impl State {
                 delivery: Delivery::Delivered,
                 highlight: false,
                 msgid: None,
+                reply: None,
+                reactions: Vec::new(),
+                continued: false,
             };
             self.push_line(buffer, line, effects);
         }
@@ -1649,26 +1977,173 @@ impl State {
                         delivery: Delivery::Delivered,
                         highlight: false,
                         msgid: None,
+                        reply: None,
+                        reactions: Vec::new(),
+                        continued: false,
                     };
                     self.push_line(buffer, line, effects);
                 }
             }
             "chathistory" | "znc.in/playback" => self.on_history_batch(id, batch, effects),
+            irsty_proto::multiline::CAP => self.on_multiline(id, batch, effects),
             "draft/chathistory-targets" => self.on_history_targets(id, batch, effects),
             "labeled-response" => {
-                for msg in &batch.messages {
-                    self.on_message(id, msg, batch.label.as_deref(), effects);
-                }
+                self.on_items(id, batch, batch.label.as_deref(), effects);
                 if let Some(label) = &batch.label {
                     self.forget_label(id, label);
                 }
             }
-            // Anything else (chathistory arrives in M9): handle in order.
-            _ => {
-                for msg in &batch.messages {
-                    self.on_message(id, msg, None, effects);
-                }
+            // Anything else: handle in order.
+            _ => self.on_items(id, batch, None, effects),
+        }
+    }
+
+    /// Handles a batch's messages and nested batches in order.
+    fn on_items(
+        &mut self,
+        id: NetworkId,
+        batch: &Batch,
+        label: Option<&str>,
+        effects: &mut Vec<Effect>,
+    ) {
+        for item in batch.items() {
+            match item {
+                Item::Message(msg) => self.on_message(id, msg, label, effects),
+                Item::Batch(inner) => self.on_batch(id, inner, effects),
             }
+        }
+    }
+
+    /// A multi-line message (`draft/multiline`): its lines become lines of
+    /// scrollback, the first with the batch's msgid and tags, the rest marked
+    /// as continuing it, with one notification at most. A batch that isn't a
+    /// well-formed multi-line message is handled line by line.
+    fn on_multiline(&mut self, id: NetworkId, batch: &Batch, effects: &mut Vec<Effect>) {
+        let label = batch.label.as_deref();
+        let target = batch.params.first();
+        let first = batch.messages.first();
+        let command = first.map(|m| m.command.to_ascii_uppercase());
+        let body = |m: &Message| m.params.get(1).map_or("", String::as_str).to_owned();
+        let well_formed = matches!(command.as_deref(), Some("PRIVMSG" | "NOTICE"))
+            && batch.messages.iter().all(|m| {
+                Some(m.command.to_ascii_uppercase()) == command
+                    && m.params.first() == target
+                    && m.source == first.and_then(|f| f.source.clone())
+                    && Ctcp::parse(&body(m)).is_none()
+            });
+        let (Some(target), Some(first), Some(command), true) =
+            (target, first, command, well_formed)
+        else {
+            self.on_items(id, batch, label, effects);
+            return;
+        };
+        let lines = irsty_proto::multiline::assemble(batch.messages.iter().map(|m| {
+            (
+                m.params.get(1).map_or("", String::as_str),
+                m.tags.get(irsty_proto::multiline::CONCAT).is_some(),
+            )
+        }));
+        let time = batch
+            .tags
+            .get("time")
+            .and_then(|t| t.parse().ok())
+            .or_else(|| msg_time(first))
+            .unwrap_or_else(self.clock);
+        let mut added = Vec::new();
+        for (i, text) in lines.iter().enumerate() {
+            let mut msg = Message::new(command.as_str()).param(target).param(text);
+            msg.source.clone_from(&first.source);
+            if i == 0 {
+                msg.tags = batch.tags.clone();
+                msg.tags.remove("batch");
+                msg.tags.remove("label");
+                self.learn_from_tags(id, &msg);
+            }
+            self.on_privmsg(id, &msg, time, label, i > 0, &mut added);
+        }
+        // One notification for the whole message.
+        let mut notified = false;
+        for effect in added {
+            if matches!(effect, Effect::Notify(_)) {
+                if notified {
+                    continue;
+                }
+                notified = true;
+            }
+            effects.push(effect);
+        }
+    }
+
+    /// `TAGMSG`: typing notifications and reactions. Nothing is shown as a
+    /// line, and no buffer is opened for one.
+    fn on_tagmsg(
+        &mut self,
+        id: NetworkId,
+        msg: &Message,
+        label: Option<&str>,
+        effects: &mut Vec<Effect>,
+    ) {
+        if let Some(label) = label {
+            self.forget_label(id, label);
+        }
+        let Some(net) = self.networks.get(&id) else {
+            return;
+        };
+        let Some(nick) = msg
+            .source
+            .as_deref()
+            .map(|s| Source::parse(s).nick.to_owned())
+        else {
+            return;
+        };
+        let target = msg.params.first().map_or("", String::as_str);
+        let channel = net.isupport.split_statusmsg(target).1.to_owned();
+        let is_channel = net.isupport.is_channel(&channel);
+        let from_me = net.is_me(&nick);
+        let buffer = if is_channel {
+            self.find_buffer(id, &channel)
+        } else if from_me {
+            self.find_buffer(id, target)
+        } else {
+            self.find_buffer(id, &nick)
+        };
+        let Some(buffer) = buffer else {
+            return;
+        };
+        if nick.is_empty()
+            || self.hides(
+                id,
+                msg,
+                is_channel.then_some(channel.as_str()),
+                IgnoreKind::Messages,
+            )
+        {
+            return;
+        }
+        let mut changed = false;
+        if let Some(value) = msg.tags.get("+typing")
+            && !from_me
+            && matches!(self.replay, Replay::Live)
+        {
+            changed |= self.set_typing(buffer, &nick, value);
+        }
+        if let Some(parent) = reply_tag(msg) {
+            changed |= self.reaction_in(msg, buffer, parent, &nick);
+        }
+        if changed {
+            effects.push(Effect::Updated(buffer));
+        }
+    }
+
+    /// Applies a `+draft/react` or `+draft/unreact` tag on `msg`, if it has
+    /// one. Returns whether anything changed.
+    fn reaction_in(&mut self, msg: &Message, buffer: BufferId, parent: &str, nick: &str) -> bool {
+        if let Some(text) = msg.tags.get("+draft/react") {
+            self.react(buffer, parent, nick, text, false)
+        } else if let Some(text) = msg.tags.get("+draft/unreact") {
+            self.react(buffer, parent, nick, text, true)
+        } else {
+            false
         }
     }
 
@@ -1714,6 +2189,9 @@ impl State {
             delivery: Delivery::Delivered,
             highlight: false,
             msgid: None,
+            reply: None,
+            reactions: Vec::new(),
+            continued: false,
         };
         let event = |text: StyledText| {
             let raw = text.to_plain();
@@ -1721,7 +2199,10 @@ impl State {
         };
 
         match command.as_str() {
-            "PRIVMSG" | "NOTICE" => self.on_privmsg(id, msg, time, label.as_deref(), effects),
+            "PRIVMSG" | "NOTICE" => {
+                self.on_privmsg(id, msg, time, label.as_deref(), false, effects);
+            }
+            "TAGMSG" => self.on_tagmsg(id, msg, label.as_deref(), effects),
             "ACK" => {
                 if let Some(label) = &label {
                     self.forget_label(id, label);
@@ -1875,6 +2356,7 @@ impl State {
                 if let Some(net) = self.networks.get_mut(&id) {
                     net.forget_if_gone(&nick);
                 }
+                self.stop_typing(id, &nick, Some(buffer), effects);
                 if self.hides(id, msg, Some(&channel), IgnoreKind::Events) {
                     return;
                 }
@@ -1908,6 +2390,7 @@ impl State {
                 if let Some(net) = self.networks.get_mut(&id) {
                     net.forget_if_gone(&victim);
                 }
+                self.stop_typing(id, &victim, Some(buffer), effects);
                 if self.hides(id, msg, Some(&channel), IgnoreKind::Events) {
                     return;
                 }
@@ -1928,6 +2411,7 @@ impl State {
             }
             "QUIT" => {
                 let reason = StyledText::parse(param(0));
+                self.stop_typing(id, &nick, None, effects);
                 let buffers = self.remove_everywhere(id, &nick);
                 if let Some(net) = self.networks.get_mut(&id) {
                     net.users.remove(&net.key(&nick));
@@ -2345,6 +2829,9 @@ impl State {
                     delivery: Delivery::Delivered,
                     highlight: false,
                     msgid: None,
+                    reply: None,
+                    reactions: Vec::new(),
+                    continued: false,
                 };
                 self.push_line(buffer, line, effects);
             }
@@ -2368,6 +2855,9 @@ impl State {
             delivery: Delivery::Delivered,
             highlight: false,
             msgid: None,
+            reply: None,
+            reactions: Vec::new(),
+            continued: false,
         };
         self.push_line(buffer, line, effects);
     }
@@ -2496,6 +2986,9 @@ impl State {
                 delivery: Delivery::Delivered,
                 highlight: false,
                 msgid: None,
+                reply: None,
+                reactions: Vec::new(),
+                continued: false,
             };
             self.push_line(buffer, line, effects);
         }
@@ -2514,6 +3007,7 @@ impl State {
         msg: &Message,
         time: Timestamp,
         label: Option<&str>,
+        continued: bool,
         effects: &mut Vec<Effect>,
     ) {
         let Some(net) = self.networks.get(&id) else {
@@ -2585,6 +3079,16 @@ impl State {
         let Some(buffer) = buffer else {
             return;
         };
+        if !nick.is_empty() && matches!(self.replay, Replay::Live) {
+            self.stop_typing(id, &nick, Some(buffer), effects);
+        }
+        let reply = reply_tag(msg);
+        // A reaction with text: shown as a message, and counted too.
+        if let Some(parent) = reply
+            && self.reaction_in(msg, buffer, parent, &nick)
+        {
+            effects.push(Effect::Updated(buffer));
+        }
         let msgid = msg.tags.get("msgid");
         if echo && self.confirm_echo(buffer, (label, msgid), kind, &raw, time, effects) {
             if let Some(label) = label {
@@ -2602,6 +3106,9 @@ impl State {
             delivery: Delivery::Delivered,
             highlight: false,
             msgid: msg.tags.get("msgid").map(str::to_owned),
+            reply: reply.map(|parent| self.reply_to(buffer, parent)),
+            reactions: Vec::new(),
+            continued,
         };
         self.push_line(buffer, line, effects);
     }
@@ -2650,6 +3157,9 @@ impl State {
             delivery: Delivery::Delivered,
             highlight: false,
             msgid: None,
+            reply: None,
+            reactions: Vec::new(),
+            continued: false,
         };
         self.push_line(server_buffer, line, effects);
     }
@@ -2732,6 +3242,9 @@ impl State {
                 delivery: Delivery::Delivered,
                 highlight: false,
                 msgid: None,
+                reply: None,
+                reactions: Vec::new(),
+                continued: false,
             };
             self.push_line(buffer, line, effects);
         }
@@ -2776,6 +3289,9 @@ impl State {
             delivery: Delivery::Delivered,
             highlight: false,
             msgid: None,
+            reply: None,
+            reactions: Vec::new(),
+            continued: false,
         };
         self.push_line(buffer, line, effects);
     }
@@ -2809,6 +3325,15 @@ fn history_ref(time: Timestamp) -> String {
 }
 
 /// The `server-time` of a message, if it has one.
+/// The msgid a message replies to: `+reply`, or the older `+draft/reply`.
+/// Implausibly long ones are ignored.
+fn reply_tag(msg: &Message) -> Option<&str> {
+    msg.tags
+        .get("+reply")
+        .or_else(|| msg.tags.get("+draft/reply"))
+        .filter(|id| !id.is_empty() && id.len() <= 256)
+}
+
 fn msg_time(msg: &Message) -> Option<Timestamp> {
     msg.tags.get("time").and_then(|t| t.parse().ok())
 }
@@ -3276,6 +3801,7 @@ mod tests {
             NET,
             NetEvent::Caps {
                 enabled: vec!["draft/chathistory".into()],
+                values: Vec::new(),
             },
         );
         feed(&mut s, ":srv 005 me CHATHISTORY=50 :are supported");
@@ -3305,6 +3831,7 @@ mod tests {
             NET,
             NetEvent::Caps {
                 enabled: Vec::new(),
+                values: Vec::new(),
             },
         );
         assert!(latest(feed(&mut s, ":me!u@h JOIN #c")).is_empty());
@@ -3408,6 +3935,7 @@ mod tests {
             NET,
             NetEvent::Caps {
                 enabled: vec!["server-time".into()],
+                values: Vec::new(),
             },
         );
         s.apply(NET, NetEvent::Lag(Duration::from_millis(42)));
@@ -3709,5 +4237,380 @@ mod tests {
         let total: usize = msgs.iter().map(|m| m.params[0].split(',').count()).sum();
         assert_eq!(total, 100);
         assert!(join_messages(&["bad name".into(), String::new()]).is_empty());
+    }
+
+    fn lines_of(state: &State, buffer: BufferId) -> Vec<Line> {
+        state
+            .buffer(buffer)
+            .unwrap()
+            .lines()
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    fn typing_now(state: &State, buffer: BufferId, now: Timestamp) -> Vec<(String, bool)> {
+        state
+            .buffer(buffer)
+            .unwrap()
+            .typing(now)
+            .map(|t| (t.nick.clone(), t.paused))
+            .collect()
+    }
+
+    #[test]
+    fn typing_notifications_come_and_go() {
+        let mut s = state();
+        s.set_clock(fixed);
+        feed(&mut s, ":me!u@h JOIN #c");
+        let c = channel_buffer(&s, "#c");
+        s.clear_buffer(c);
+        let effects = feed(&mut s, "@+typing=active :alice!a@h TAGMSG #c");
+        assert!(effects.contains(&Effect::Updated(c)));
+        feed(&mut s, "@+typing=paused :bob!b@h TAGMSG #c");
+        let now = fixed();
+        assert_eq!(
+            typing_now(&s, c, now),
+            [("alice".into(), false), ("bob".into(), true)]
+        );
+        // Active runs out after 6 seconds, paused after 30.
+        let later = now + jiff::SignedDuration::from_secs(7);
+        assert_eq!(typing_now(&s, c, later), [("bob".into(), true)]);
+        let much_later = now + jiff::SignedDuration::from_secs(31);
+        assert!(typing_now(&s, c, much_later).is_empty());
+
+        // A message, done, or leaving each end it.
+        feed(&mut s, ":alice!a@h PRIVMSG #c :hello");
+        feed(&mut s, "@+typing=done :bob!b@h TAGMSG #c");
+        assert!(typing_now(&s, c, now).is_empty());
+        feed(&mut s, "@+typing=active :carol!c@h TAGMSG #c");
+        feed(&mut s, "@+typing=active :dave!d@h TAGMSG #c");
+        feed(&mut s, ":carol!c@h PART #c");
+        feed(&mut s, ":dave!d@h QUIT :bye");
+        assert!(typing_now(&s, c, now).is_empty());
+
+        // Our own (echoed) and nonsense values are ignored; no line is shown,
+        // and no buffer opens for a stranger typing at us.
+        feed(&mut s, "@+typing=active :me!u@h TAGMSG #c");
+        feed(&mut s, "@+typing=sleepy :erin!e@h TAGMSG #c");
+        feed(&mut s, "@+typing=active :erin!e@h TAGMSG me");
+        assert!(typing_now(&s, c, now).is_empty());
+        assert!(s.find_buffer(NET, "erin").is_none());
+        assert!(
+            lines_of(&s, c)
+                .iter()
+                .all(|l| !l.text.to_plain().is_empty()),
+            "no empty lines from TAGMSG"
+        );
+        let server = s.network(NET).unwrap().server_buffer;
+        assert!(lines_of(&s, server).is_empty(), "TAGMSG never shows");
+
+        // A disconnect forgets everyone.
+        feed(&mut s, "@+typing=active :alice!a@h TAGMSG #c");
+        s.apply(
+            NET,
+            NetEvent::Disconnected {
+                reason: "gone".into(),
+                reconnect_in: None,
+            },
+        );
+        assert!(typing_now(&s, c, now).is_empty());
+    }
+
+    #[test]
+    fn replies_and_reactions() {
+        let mut s = state();
+        feed(&mut s, ":me!u@h JOIN #c");
+        let c = channel_buffer(&s, "#c");
+        s.clear_buffer(c);
+        feed(
+            &mut s,
+            "@msgid=p1 :alice!a@h PRIVMSG #c :what does everyone think of the new release notes, honestly? Be blunt.",
+        );
+        feed(
+            &mut s,
+            "@msgid=r1;+reply=p1 :bob!b@h PRIVMSG #c :alice: looks good",
+        );
+        feed(
+            &mut s,
+            "@msgid=r2;+draft/reply=gone :bob!b@h PRIVMSG #c :to something old",
+        );
+        let lines = lines_of(&s, c);
+        let reply = lines[1].reply.clone().unwrap();
+        assert_eq!(reply.msgid, "p1");
+        let (sender, excerpt) = reply.parent.unwrap();
+        assert_eq!(sender, "alice");
+        assert!(
+            excerpt.ends_with('…') && excerpt.chars().count() == REPLY_EXCERPT + 1,
+            "{excerpt}"
+        );
+        assert_eq!(
+            lines[2].reply.as_ref().unwrap().parent,
+            None,
+            "unknown parent"
+        );
+
+        // Reactions gather on the message, one per nick.
+        let effects = feed(&mut s, "@+reply=p1;+draft/react=👍 :bob!b@h TAGMSG #c");
+        assert!(effects.contains(&Effect::Updated(c)));
+        feed(&mut s, "@+reply=p1;+draft/react=👍 :BOB!b@h TAGMSG #c");
+        feed(&mut s, "@+reply=p1;+draft/react=👍 :carol!c@h TAGMSG #c");
+        feed(
+            &mut s,
+            "@+reply=p1;+draft/react=\x1b[31mlol :carol!c@h TAGMSG #c",
+        );
+        let reactions = |s: &State| -> Vec<(String, Vec<String>)> {
+            lines_of(s, c)[0]
+                .reactions
+                .iter()
+                .map(|r| (r.text.clone(), r.nicks.clone()))
+                .collect()
+        };
+        assert_eq!(
+            reactions(&s),
+            [
+                ("👍".into(), vec!["bob".into(), "carol".into()]),
+                ("␛[31mlol".into(), vec!["carol".into()]),
+            ],
+            "deduplicated by nick, and escapes neutralised"
+        );
+        feed(&mut s, "@+reply=p1;+draft/unreact=👍 :bob!b@h TAGMSG #c");
+        feed(
+            &mut s,
+            "@+reply=p1;+draft/unreact=\x1b[31mlol :carol!c@h TAGMSG #c",
+        );
+        assert_eq!(reactions(&s), [("👍".into(), vec!["carol".into()])]);
+        // A reaction with text is a message too.
+        feed(
+            &mut s,
+            "@msgid=x;+reply=p1;+draft/react=ha :dave!d@h PRIVMSG #c :ha",
+        );
+        assert_eq!(reactions(&s).len(), 2);
+        assert_eq!(last_text(&s, c), "ha");
+        // Reactions to messages we don't have, empty ones and ignored users'
+        // are dropped.
+        feed(&mut s, "@+reply=nope;+draft/react=x :dave!d@h TAGMSG #c");
+        feed(&mut s, "@+reply=p1;+draft/react= :dave!d@h TAGMSG #c");
+        s.set_rules(
+            vec![IgnoreRule {
+                mask: "troll".into(),
+                what: IgnoreKind::ALL.to_vec(),
+                networks: Vec::new(),
+                channels: Vec::new(),
+            }],
+            &HighlightConfig::default(),
+        );
+        feed(&mut s, "@+reply=p1;+draft/react=💩 :troll!t@h TAGMSG #c");
+        assert_eq!(reactions(&s).len(), 2);
+
+        // The newest message from someone, for /reply and /react.
+        assert_eq!(
+            s.last_message_from(c, "BOB").unwrap().msgid.as_deref(),
+            Some("r2")
+        );
+        assert!(s.last_message_from(c, "nobody").is_none());
+        // Our own reaction, without echo-message.
+        assert!(s.own_reaction(c, "p1", "🎉", false));
+        assert!(!s.own_reaction(c, "p1", "🎉", false), "once");
+        assert!(s.own_reaction(c, "p1", "🎉", true));
+    }
+
+    #[test]
+    fn reactions_are_capped() {
+        let mut s = state();
+        feed(&mut s, ":me!u@h JOIN #c");
+        let c = channel_buffer(&s, "#c");
+        s.clear_buffer(c);
+        feed(&mut s, "@msgid=p :alice!a@h PRIVMSG #c :hi");
+        for i in 0..MAX_REACTIONS + 5 {
+            feed(
+                &mut s,
+                &format!("@+reply=p;+draft/react=r{i} :bob!b@h TAGMSG #c"),
+            );
+        }
+        for i in 0..MAX_REACTORS + 5 {
+            feed(
+                &mut s,
+                &format!("@+reply=p;+draft/react=r0 :n{i}!b@h TAGMSG #c"),
+            );
+        }
+        let long = "x".repeat(200);
+        feed(
+            &mut s,
+            &format!("@+reply=p;+draft/react={long} :bob!b@h TAGMSG #c"),
+        );
+        let line = &lines_of(&s, c)[0];
+        assert_eq!(line.reactions.len(), MAX_REACTIONS);
+        assert_eq!(line.reactions[0].nicks.len(), MAX_REACTORS);
+        assert!(
+            line.reactions
+                .iter()
+                .all(|r| r.text.len() <= MAX_REACTION_LEN)
+        );
+    }
+
+    #[test]
+    fn multiline_messages_arrive_as_one() {
+        let mut s = state();
+        s.apply(
+            NET,
+            NetEvent::Caps {
+                enabled: vec!["batch".into(), "draft/multiline".into()],
+                values: vec![(
+                    "draft/multiline".into(),
+                    "max-bytes=4096,max-lines=24".into(),
+                )],
+            },
+        );
+        assert_eq!(
+            s.network(NET).unwrap().multiline(),
+            Some(irsty_proto::multiline::Limits {
+                max_bytes: 4096,
+                max_lines: Some(24)
+            })
+        );
+        feed(&mut s, ":me!u@h JOIN #c");
+        let c = channel_buffer(&s, "#c");
+        s.clear_buffer(c);
+        feed(
+            &mut s,
+            "@msgid=m1;time=2026-10-31T10:00:00.000Z;+reply=old BATCH +ml draft/multiline #c",
+        );
+        feed(&mut s, "@batch=ml :alice!a@h PRIVMSG #c :first, me: look");
+        feed(&mut s, "@batch=ml :alice!a@h PRIVMSG #c :");
+        feed(&mut s, "@batch=ml :alice!a@h PRIVMSG #c :second ");
+        feed(
+            &mut s,
+            "@batch=ml;draft/multiline-concat :alice!a@h PRIVMSG #c :continued me again",
+        );
+        let effects = feed(&mut s, "BATCH -ml");
+        let notifications = effects
+            .iter()
+            .filter(|e| matches!(e, Effect::Notify(_)))
+            .count();
+        assert_eq!(notifications, 1, "one notification per message");
+        let lines = lines_of(&s, c);
+        let texts: Vec<String> = lines.iter().map(|l| l.text.to_plain()).collect();
+        assert_eq!(texts, ["first, me: look", "", "second continued me again"]);
+        assert_eq!(lines[0].msgid.as_deref(), Some("m1"));
+        assert!(lines[0].reply.is_some() && !lines[0].continued);
+        assert!(lines[1].continued && lines[2].continued);
+        assert!(lines[1].msgid.is_none());
+        assert_eq!(lines[2].time.to_string(), "2026-10-31T10:00:00Z");
+
+        // Not a proper multi-line message: handled line by line.
+        feed(&mut s, "BATCH +bad draft/multiline #c");
+        feed(&mut s, "@batch=bad :alice!a@h PRIVMSG #c :one");
+        feed(&mut s, "@batch=bad :alice!a@h NOTICE #c :two");
+        feed(&mut s, "BATCH -bad");
+        let lines = lines_of(&s, c);
+        assert_eq!(lines.len(), 5);
+        assert!(!lines[4].continued);
+    }
+
+    #[test]
+    fn own_multiline_messages_are_confirmed_by_their_echo() {
+        let mut s = state();
+        s.apply(
+            NET,
+            NetEvent::Caps {
+                enabled: vec![
+                    "batch".into(),
+                    "echo-message".into(),
+                    "labeled-response".into(),
+                ],
+                values: Vec::new(),
+            },
+        );
+        feed(&mut s, ":me!u@h JOIN #c");
+        let c = channel_buffer(&s, "#c");
+        s.clear_buffer(c);
+        let own = s.own_lines(NET, "#c", LineKind::Message, &["one", "two"], None);
+        let label = own.label.clone().unwrap();
+        assert!(
+            lines_of(&s, c)
+                .iter()
+                .all(|l| matches!(l.delivery, Delivery::Pending { .. }))
+        );
+        feed(
+            &mut s,
+            &format!("@label={label};msgid=e1 BATCH +e draft/multiline #c"),
+        );
+        feed(&mut s, "@batch=e :me!u@h PRIVMSG #c one");
+        feed(&mut s, "@batch=e :me!u@h PRIVMSG #c two");
+        let effects = feed(&mut s, "BATCH -e");
+        let lines = lines_of(&s, c);
+        assert_eq!(lines.len(), 2, "confirmed, not added again");
+        assert!(lines.iter().all(|l| l.delivery == Delivery::Delivered));
+        assert_eq!(lines[0].msgid.as_deref(), Some("e1"));
+        assert!(lines[1].continued);
+        let logged = effects
+            .iter()
+            .filter(|e| matches!(e, Effect::Log(..)))
+            .count();
+        assert_eq!(logged, 2);
+        // A failure marks every line.
+        s.own_lines(NET, "#c", LineKind::Message, &["a", "b"], None);
+        s.fail_newest(c, 2, "send queue full");
+        let lines = lines_of(&s, c);
+        assert!(
+            lines[2..]
+                .iter()
+                .all(|l| matches!(l.delivery, Delivery::Failed { .. }))
+        );
+    }
+
+    #[test]
+    fn multiline_history_and_reactions_in_older_history() {
+        let mut s = state();
+        s.apply(
+            NET,
+            NetEvent::Caps {
+                enabled: vec!["batch".into(), "draft/chathistory".into()],
+                values: Vec::new(),
+            },
+        );
+        feed(&mut s, ":srv 005 me CHATHISTORY=50 :are supported");
+        feed(&mut s, ":me!u@h JOIN #c");
+        let c = channel_buffer(&s, "#c");
+        s.clear_buffer(c);
+        feed(
+            &mut s,
+            "@time=2026-10-31T12:00:00.000Z;msgid=now :bob!b@h PRIVMSG #c :now",
+        );
+        s.request_older(c);
+        feed(&mut s, "BATCH +h chathistory #c");
+        feed(
+            &mut s,
+            "@batch=h;time=2026-10-31T10:00:00.000Z;msgid=o1 :alice!a@h PRIVMSG #c :old",
+        );
+        feed(
+            &mut s,
+            "@batch=h;msgid=o2;time=2026-10-31T10:01:00.000Z BATCH +m draft/multiline #c",
+        );
+        feed(&mut s, "@batch=m :alice!a@h PRIVMSG #c :me: line one");
+        feed(&mut s, "@batch=m :alice!a@h PRIVMSG #c :line two");
+        feed(&mut s, "@batch=h BATCH -m");
+        feed(
+            &mut s,
+            "@batch=h;time=2026-10-31T10:02:00.000Z :bob!b@h TAGMSG #c +reply=o1",
+        );
+        feed(
+            &mut s,
+            "@batch=h;time=2026-10-31T10:02:00.000Z;+reply=o1;+draft/react=👍 :bob!b@h TAGMSG #c",
+        );
+        let effects = feed(&mut s, "BATCH -h");
+        assert!(
+            !effects.iter().any(|e| matches!(e, Effect::Notify(_))),
+            "history never notifies, multi-line included"
+        );
+        let lines = lines_of(&s, c);
+        let texts: Vec<String> = lines.iter().map(|l| l.text.to_plain()).collect();
+        assert_eq!(texts, ["old", "me: line one", "line two", "now"]);
+        assert_eq!(
+            lines[0].reactions.len(),
+            1,
+            "reaction found among older lines"
+        );
     }
 }

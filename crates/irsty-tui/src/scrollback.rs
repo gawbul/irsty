@@ -94,14 +94,42 @@ fn fit_right(text: &str, width: usize) -> String {
     format!("{}{out}+", " ".repeat(width.saturating_sub(used + 1)))
 }
 
-/// The styled pieces of a line's text. Our messages still waiting for the
-/// server's echo are dimmed; ones that never made it say why.
-fn pieces<'a>(line: &'a Line, colours: &theme::NickColours) -> Vec<Piece<'a>> {
+/// How many reacted with each of a line's reactions, as text, for
+/// [`pieces`] to borrow.
+fn reaction_counts(line: &Line) -> Vec<String> {
+    line.reactions
+        .iter()
+        .map(|r| r.nicks.len().to_string())
+        .collect()
+}
+
+/// The styled pieces of a line's text: what it replies to, the text, then
+/// its reactions with how many reacted (`counts`, from
+/// [`reaction_counts`]). Our messages still waiting for the server's echo
+/// are dimmed; ones that never made it say why.
+fn pieces<'a>(
+    line: &'a Line,
+    colours: &theme::NickColours,
+    counts: &'a [String],
+) -> Vec<Piece<'a>> {
     let mut base = theme::line_style(line.kind);
     if matches!(line.delivery, Delivery::Pending { .. }) {
         base = base.patch(theme::dim());
     }
     let mut out = Vec::new();
+    if let Some(reply) = &line.reply {
+        let dim = theme::dim();
+        out.push(("↪ ", dim));
+        match &reply.parent {
+            Some((nick, excerpt)) => {
+                out.push((nick.as_str(), dim.fg(colours.colour(nick))));
+                out.push((": ", dim));
+                out.push((excerpt.as_str(), dim.add_modifier(Modifier::ITALIC)));
+            }
+            None => out.push(("an earlier message", dim.add_modifier(Modifier::ITALIC))),
+        }
+        out.push(("  ", base));
+    }
     if line.kind == LineKind::Action
         && let Some(nick) = &line.sender
     {
@@ -123,7 +151,17 @@ fn pieces<'a>(line: &'a Line, colours: &theme::NickColours) -> Vec<Piece<'a>> {
         let red = Style::default().fg(Color::LightRed);
         out.extend([(" [not sent: ", red), (reason.as_str(), red), ("]", red)]);
     }
-    underline_urls(out)
+    let mut out = underline_urls(out);
+    for (reaction, count) in line.reactions.iter().zip(counts) {
+        let style = Style::default().add_modifier(Modifier::REVERSED);
+        out.extend([
+            ("  ", Style::default()),
+            (reaction.text.as_str(), style),
+            (" ", style),
+            (count.as_str(), style),
+        ]);
+    }
+    out
 }
 
 /// Splits pieces so URLs in them are underlined.
@@ -235,7 +273,8 @@ impl Widget for Scrollback<'_> {
             if y <= area.top() {
                 break;
             }
-            let pieces = pieces(line, self.colours);
+            let counts = reaction_counts(line);
+            let pieces = pieces(line, self.colours, &counts);
             let rows = wrap(&pieces, text_width);
             for (index, row) in rows.iter().enumerate().rev() {
                 if y <= area.top() {
@@ -249,6 +288,15 @@ impl Widget for Scrollback<'_> {
                     let sep_x =
                         text_x.saturating_sub(u16::try_from(SEPARATOR.width()).unwrap_or(0));
                     draw_pieces(cells, sep_x, y, max_x, &[(SEPARATOR, theme::dim())]);
+                } else if line.continued {
+                    // The rest of a multi-line message: one block, under
+                    // the first line's time and nick.
+                    let blank = " ".repeat(time_width + 1 + nick_width);
+                    let gutter_pieces = [
+                        (blank.as_str(), Style::default()),
+                        (SEPARATOR, theme::dim()),
+                    ];
+                    draw_pieces(cells, area.x, y, max_x, &gutter_pieces);
                 } else {
                     let time = line
                         .time

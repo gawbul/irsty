@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use irsty_proto::Message;
+use irsty_proto::{Message, Tags};
 
 /// Most batches open at once.
 pub const MAX_OPEN: usize = 32;
@@ -39,6 +39,13 @@ fn size(msg: &Message) -> usize {
             .sum::<usize>()
 }
 
+/// The bytes a batch holds, nested batches included.
+fn held_by(batch: &Batch) -> usize {
+    batch.cost
+        + batch.messages.iter().map(size).sum::<usize>()
+        + batch.nested.iter().map(|(_, b)| held_by(b)).sum::<usize>()
+}
+
 /// A batch that has ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Batch {
@@ -48,8 +55,42 @@ pub struct Batch {
     pub params: Vec<String>,
     /// The `label` tag on its start, for `labeled-response`.
     pub label: Option<String>,
+    /// Every tag on its start (a multi-line message's `msgid`, say).
+    pub tags: Tags,
     /// The messages it held, in order.
     pub messages: Vec<Message>,
+    /// Batches that ended inside this one, each with the number of messages
+    /// held before it, so they can be handled in order.
+    pub nested: Vec<(usize, Batch)>,
+    /// The batch this one is inside, if any.
+    parent: Option<String>,
+    /// What its start costs to hold.
+    cost: usize,
+}
+
+/// A message or nested batch, in the order they arrived.
+#[derive(Debug)]
+pub enum Item<'a> {
+    /// A message.
+    Message(&'a Message),
+    /// A batch that ended inside this one.
+    Batch(&'a Batch),
+}
+
+impl Batch {
+    /// Its messages and nested batches, in order.
+    pub fn items(&self) -> Vec<Item<'_>> {
+        let mut out = Vec::with_capacity(self.messages.len() + self.nested.len());
+        let mut nested = self.nested.iter().peekable();
+        for (i, msg) in self.messages.iter().enumerate() {
+            while let Some((_, batch)) = nested.next_if(|(at, _)| *at <= i) {
+                out.push(Item::Batch(batch));
+            }
+            out.push(Item::Message(msg));
+        }
+        out.extend(nested.map(|(_, b)| Item::Batch(b)));
+        out
+    }
 }
 
 /// What to do with a message.
@@ -77,8 +118,15 @@ impl Batches {
         if msg.command.eq_ignore_ascii_case("BATCH") {
             let reference = msg.params.first().cloned().unwrap_or_default();
             if let Some(id) = reference.strip_prefix('+') {
-                if !id.is_empty() && self.open.len() < MAX_OPEN {
+                let cost = size(&msg);
+                if !id.is_empty() && self.open.len() < MAX_OPEN && self.held + cost <= MAX_BYTES {
                     let label = msg.tags.get("label").map(str::to_owned);
+                    let parent = msg
+                        .tags
+                        .get("batch")
+                        .filter(|p| self.open.contains_key(*p))
+                        .map(str::to_owned);
+                    self.held += cost;
                     let mut params = msg.params.into_iter().skip(1);
                     let kind = params.next().unwrap_or_default();
                     self.open.insert(
@@ -87,18 +135,27 @@ impl Batches {
                             kind,
                             params: params.collect(),
                             label,
+                            tags: msg.tags,
                             messages: Vec::new(),
+                            nested: Vec::new(),
+                            parent,
+                            cost,
                         },
                     );
                 }
                 return Routed::Held;
             }
             if let Some(id) = reference.strip_prefix('-') {
-                let Some(batch) = self.open.remove(id) else {
+                let Some(mut batch) = self.open.remove(id) else {
                     return Routed::Held;
                 };
-                let freed: usize = batch.messages.iter().map(size).sum();
-                self.held = self.held.saturating_sub(freed);
+                // Inside a batch that is still open: it goes there, in order,
+                // and its bytes stay held until that one ends.
+                if let Some(parent) = batch.parent.take().and_then(|p| self.open.get_mut(&p)) {
+                    parent.nested.push((parent.messages.len(), batch));
+                    return Routed::Held;
+                }
+                self.held = self.held.saturating_sub(held_by(&batch));
                 return Routed::Ended(batch);
             }
             return Routed::Held;
@@ -166,6 +223,36 @@ mod tests {
             panic!();
         };
         assert_eq!(batch.label.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn nested_batches_stay_inside_and_in_order() {
+        let mut b = Batches::default();
+        b.route(msg("BATCH +h chathistory #c"));
+        b.route(msg("@batch=h :a!a@h PRIVMSG #c :before"));
+        b.route(msg("@batch=h;msgid=m1 BATCH +m draft/multiline #c"));
+        b.route(msg("@batch=m :a!a@h PRIVMSG #c :one"));
+        b.route(msg("@batch=m :a!a@h PRIVMSG #c :two"));
+        assert_eq!(b.route(msg("@batch=h BATCH -m")), Routed::Held);
+        b.route(msg("@batch=h :a!a@h PRIVMSG #c :after"));
+        let Routed::Ended(batch) = b.route(msg("BATCH -h")) else {
+            panic!();
+        };
+        let order: Vec<String> = batch
+            .items()
+            .iter()
+            .map(|item| match item {
+                Item::Message(m) => m.params[1].clone(),
+                Item::Batch(inner) => format!(
+                    "{} {} ({} lines)",
+                    inner.kind,
+                    inner.tags.get("msgid").unwrap(),
+                    inner.messages.len()
+                ),
+            })
+            .collect();
+        assert_eq!(order, ["before", "draft/multiline m1 (2 lines)", "after"]);
+        assert_eq!(b.held, 0, "everything freed");
     }
 
     #[test]

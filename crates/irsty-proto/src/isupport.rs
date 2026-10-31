@@ -209,6 +209,26 @@ impl ISupport {
         self.raw.remove(name);
     }
 
+    /// Reports whether the server relays the client-only tag `name` (without
+    /// its `+`), going by `CLIENTTAGDENY`: a comma-separated list of denied
+    /// tags, where `*` denies all and `-name` exempts one from that.
+    pub fn client_tag_allowed(&self, name: &str) -> bool {
+        let Some(deny) = self.raw.get("CLIENTTAGDENY") else {
+            return true;
+        };
+        let mut all = false;
+        let mut exempt = false;
+        for entry in deny.split(',') {
+            match entry {
+                "*" => all = true,
+                e if e == name => return false,
+                e if e.strip_prefix('-') == Some(name) => exempt = true,
+                _ => {}
+            }
+        }
+        !all || exempt
+    }
+
     /// Reports whether `target` is a channel name.
     pub fn is_channel(&self, target: &str) -> bool {
         target
@@ -287,6 +307,19 @@ mod tests {
             .chain(std::iter::once("are supported by this server"))
             .collect();
         isupport.apply(&tokens);
+    }
+
+    #[test]
+    fn client_tag_deny() {
+        let mut i = ISupport::default();
+        assert!(i.client_tag_allowed("typing"), "nothing denied by default");
+        apply(&mut i, "CLIENTTAGDENY=typing,draft/react");
+        assert!(!i.client_tag_allowed("typing"));
+        assert!(!i.client_tag_allowed("draft/react"));
+        assert!(i.client_tag_allowed("reply"));
+        apply(&mut i, "CLIENTTAGDENY=*,-reply");
+        assert!(i.client_tag_allowed("reply"), "exempted");
+        assert!(!i.client_tag_allowed("typing"), "all denied");
     }
 
     #[test]

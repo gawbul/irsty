@@ -160,6 +160,7 @@ fn pending_and_failed_own_messages() {
         NET,
         NetEvent::Caps {
             enabled: vec!["echo-message".into()],
+            values: Vec::new(),
         },
     );
     let own = s.own_message(
@@ -175,7 +176,7 @@ fn pending_and_failed_own_messages() {
         irsty_core::state::LineKind::Message,
         "lost one",
     );
-    s.fail_newest(own.buffer.unwrap(), "send queue full");
+    s.fail_newest(own.buffer.unwrap(), 1, "send queue full");
     let mut ui = ui(&s, "#irsty");
     insta::assert_debug_snapshot!(render(&s, &mut ui, 80, 8).backend());
 }
@@ -204,4 +205,41 @@ fn away_users_are_dimmed_in_the_nick_list() {
     };
     assert_eq!(colour_of("carol"), ratatui::style::Color::DarkGray);
     assert_ne!(colour_of("dave_"), ratatui::style::Color::DarkGray);
+}
+
+/// A reply shows what it answers, reactions follow their message, a
+/// multi-line message reads as one block, and the status bar says who is
+/// typing.
+#[test]
+fn replies_reactions_multiline_and_typing() {
+    let mut s = state();
+    s.apply(
+        NET,
+        NetEvent::Caps {
+            enabled: vec!["batch".into(), "draft/multiline".into()],
+            values: vec![("draft/multiline".into(), "max-bytes=4096".into())],
+        },
+    );
+    let lines = [
+        "@time=2026-10-30T09:11:00Z;msgid=q1 :alice!a@host PRIVMSG #irsty :shall we tag a release today, or wait for the docs?",
+        "@time=2026-10-30T09:12:00Z;msgid=r1;+reply=q1 :carol!c@host PRIVMSG #irsty :alice: after the docs land",
+        "@+reply=q1;+draft/react=👍 :carol!c@host TAGMSG #irsty",
+        "@+reply=q1;+draft/react=👍 :eve!e@host TAGMSG #irsty",
+        "@+reply=q1;+draft/react=🎉 :dave_!d@host TAGMSG #irsty",
+        "@time=2026-10-30T09:13:00Z;+reply=gone :eve!e@host PRIVMSG #irsty :replying to something long gone",
+        "@time=2026-10-30T09:14:00Z;msgid=ml BATCH +m draft/multiline #irsty",
+        "@batch=m :dave_!d@host PRIVMSG #irsty :release checklist:",
+        "@batch=m :dave_!d@host PRIVMSG #irsty :- docs",
+        "@batch=m :dave_!d@host PRIVMSG #irsty :- changelog",
+        "BATCH -m",
+        "@+typing=active :eve!e@host TAGMSG #irsty",
+        "@+typing=paused :carol!c@host TAGMSG #irsty",
+    ];
+    for line in lines {
+        s.apply(NET, NetEvent::Message(Message::parse(line).unwrap()));
+    }
+    let mut ui = ui(&s, "#irsty");
+    // Two seconds after the typing notifications arrived.
+    ui.now = fixed_clock() + jiff::SignedDuration::from_secs(2);
+    insta::assert_snapshot!(render(&s, &mut ui, 100, 14).backend());
 }
