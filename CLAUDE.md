@@ -11,7 +11,7 @@ A modern terminal IRC client in Rust (ratatui). Spiritual successor to irssi and
 - Keep core logic UI-free. The render loop never blocks. Every feature ships with tests and docs.
 - Run `./scripts/gate.sh` (fmt, clippy with warnings denied, nextest, doctests, deny, audit, MSRV) before declaring a milestone done. Report what passed; don't claim anything works without running it.
 - Prefer boring, maintained crates. Don't add a dependency when 20 lines will do. Flag unmaintained crates.
-- Use Conventional Commits and small, focused commits, with one milestone per PR. Start every piece of work on a fresh branch from an up-to-date `main`.
+- Use Conventional Commits and small, focused commits, with one milestone per PR. Start every piece of work on a fresh branch from an up-to-date `main`. Once a PR is merged, switch to an updated `main` and delete the merged local branch with `git branch -d` (never `-D`; if it refuses, ask).
 - Irsty is licensed under Apache-2.0 only (ADR 0009). New files need no licence header.
 - Before raising a PR, update `README.md` and this file wherever the branch's changes make them stale, and commit those updates on the same branch.
 
