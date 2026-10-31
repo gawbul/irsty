@@ -14,7 +14,7 @@ use irsty_proto::{ISupport, MAX_BODY_LEN, Message, Source};
 use jiff::Timestamp;
 
 use crate::batch::{Batch, Batches, Routed};
-use crate::config::PerformLine;
+use crate::config::{HighlightConfig, IgnoreKind, IgnoreRule, PerformLine};
 use crate::event::{NetEvent, NetworkId};
 
 /// Identifies a buffer for the lifetime of the process.
@@ -256,6 +256,7 @@ pub struct Network {
     /// each belongs to.
     labels: VecDeque<(String, BufferId)>,
     next_label: u64,
+    awaiting: Vec<(Awaiting, BufferId)>,
     monitor_sent: bool,
 }
 
@@ -346,6 +347,24 @@ pub struct OwnMessage {
     pub effects: Vec<Effect>,
 }
 
+/// A command whose replies should go to the buffer it was typed in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Awaiting {
+    /// `WHOIS <nick>`.
+    Whois(String),
+    /// `WHOWAS <nick>`.
+    Whowas(String),
+    /// `WHO <mask>`.
+    Who(String),
+    /// `NAMES <channel>`, shown as a list rather than just a count.
+    Names(String),
+    /// `LIST`.
+    List,
+}
+
+/// Most commands awaiting replies; older ones are forgotten.
+const MAX_AWAITING: usize = 64;
+
 /// Most labels awaiting a response; older ones are forgotten.
 const MAX_LABELS: usize = 256;
 
@@ -364,6 +383,9 @@ pub struct State {
     next_buffer: u64,
     scrollback: usize,
     clock: fn() -> Timestamp,
+    ignores: Vec<IgnoreRule>,
+    highlight_words: Vec<String>,
+    highlight_regex: Vec<regex::Regex>,
 }
 
 impl State {
@@ -375,6 +397,9 @@ impl State {
             next_buffer: 0,
             scrollback: scrollback.max(1),
             clock: Timestamp::now,
+            ignores: Vec::new(),
+            highlight_words: Vec::new(),
+            highlight_regex: Vec::new(),
         }
     }
 
@@ -415,10 +440,18 @@ impl State {
                 batches: Batches::default(),
                 labels: VecDeque::new(),
                 next_label: 0,
+                awaiting: Vec::new(),
                 monitor_sent: false,
             },
         );
         server_buffer
+    }
+
+    /// Sets the channels a network joins after registration.
+    pub fn set_autojoin(&mut self, id: NetworkId, autojoin: Vec<String>) {
+        if let Some(net) = self.networks.get_mut(&id) {
+            net.autojoin = autojoin;
+        }
     }
 
     /// Sets the lines a network sends after registration.
@@ -426,6 +459,121 @@ impl State {
         if let Some(net) = self.networks.get_mut(&id) {
             net.perform = perform;
         }
+    }
+
+    /// Sets the ignore rules and highlight words. Regexes that don't compile
+    /// are skipped (the config is validated before it gets here).
+    pub fn set_rules(&mut self, ignores: Vec<IgnoreRule>, highlight: &HighlightConfig) {
+        self.ignores = ignores;
+        self.highlight_words.clone_from(&highlight.words);
+        self.highlight_regex = highlight
+            .regex
+            .iter()
+            .filter_map(|r| {
+                regex::RegexBuilder::new(r)
+                    .case_insensitive(true)
+                    .build()
+                    .ok()
+            })
+            .collect();
+    }
+
+    /// Changes how many lines each buffer keeps, trimming any over the limit.
+    pub fn set_scrollback(&mut self, lines: usize) {
+        self.scrollback = lines.max(1);
+        for buffer in self.buffers.values_mut() {
+            while buffer.lines.len() > self.scrollback {
+                buffer.lines.pop_front();
+            }
+        }
+    }
+
+    /// Empties a buffer's scrollback (`/clear`).
+    pub fn clear_buffer(&mut self, id: BufferId) {
+        if let Some(buffer) = self.buffers.get_mut(&id) {
+            buffer.lines.clear();
+            buffer.unread = 0;
+            buffer.activity = Activity::None;
+        }
+    }
+
+    /// Removes a network and all its buffers.
+    pub fn remove_network(&mut self, id: NetworkId) {
+        self.networks.remove(&id);
+        self.buffers.retain(|_, b| b.network != id);
+    }
+
+    /// Notes that replies to a command typed in `buffer` should go there.
+    pub fn expect_reply(&mut self, id: NetworkId, awaiting: Awaiting, buffer: BufferId) {
+        if let Some(net) = self.networks.get_mut(&id) {
+            if net.awaiting.len() >= MAX_AWAITING {
+                net.awaiting.remove(0);
+            }
+            net.awaiting.push((awaiting, buffer));
+        }
+    }
+
+    /// Whether `source` (`nick!user@host`) is ignored for `kind` in `channel`
+    /// (`None` for private messages) on network `id`.
+    pub fn is_ignored(
+        &self,
+        id: NetworkId,
+        source: &str,
+        channel: Option<&str>,
+        kind: IgnoreKind,
+    ) -> bool {
+        let Some(net) = self.networks.get(&id) else {
+            return false;
+        };
+        // Never hide our own lines.
+        if source.is_empty() || net.is_me(Source::parse(source).nick) {
+            return false;
+        }
+        let mapping = net.isupport.casemapping;
+        self.ignores.iter().any(|rule| {
+            rule.what.contains(&kind)
+                && (rule.networks.is_empty()
+                    || rule
+                        .networks
+                        .iter()
+                        .any(|n| n.eq_ignore_ascii_case(&net.name)))
+                && (rule.channels.is_empty()
+                    || channel.is_some_and(|c| rule.channels.iter().any(|r| mapping.eq(r, c))))
+                && irsty_proto::mask::matches(&rule.full_mask(), source, mapping)
+        })
+    }
+
+    /// [`State::is_ignored`] for a message's source.
+    fn hides(&self, id: NetworkId, msg: &Message, channel: Option<&str>, kind: IgnoreKind) -> bool {
+        msg.source
+            .as_deref()
+            .is_some_and(|s| self.is_ignored(id, s, channel, kind))
+    }
+
+    /// The channel name of a buffer, for channel-limited ignore rules.
+    fn channel_of(&self, buffer: BufferId) -> Option<&str> {
+        self.buffers
+            .get(&buffer)
+            .filter(|b| b.kind == BufferKind::Channel)
+            .map(|b| b.name.as_str())
+    }
+
+    /// Whether `text` is a highlight: it mentions our nick, a highlight word,
+    /// or matches a highlight regex.
+    fn is_highlight(&self, network: NetworkId, text: &str) -> bool {
+        let Some(net) = self.networks.get(&network) else {
+            return false;
+        };
+        let mapping = net.isupport.casemapping;
+        mentions_nick(text, &net.nick, mapping)
+            || self
+                .highlight_words
+                .iter()
+                .any(|w| mentions_nick(text, w, CaseMapping::Ascii))
+            || {
+                let plain = format::strip_formatting(text);
+                self.highlight_regex.iter().any(|r| r.is_match(&plain))
+            }
     }
 
     /// Sets the nicks a network watches with `MONITOR`.
@@ -690,10 +838,7 @@ impl State {
         };
         let activity = match line.kind {
             LineKind::Message | LineKind::Action | LineKind::Notice => {
-                let mentions = self
-                    .networks
-                    .get(&buf.network)
-                    .is_some_and(|n| mentions_nick(&line.raw, &n.nick, n.isupport.casemapping));
+                let mentions = self.is_highlight(buf.network, &line.raw);
                 if buf.kind == BufferKind::Query || mentions {
                     Activity::Highlight
                 } else {
@@ -885,6 +1030,7 @@ impl State {
         net.users.clear();
         net.batches.clear();
         net.labels.clear();
+        net.awaiting.clear();
         net.monitor_sent = false;
         for watch in &mut net.watches {
             watch.online = None;
@@ -1100,6 +1246,7 @@ impl State {
                     _ => user.realname = Some(param(0).to_owned()),
                 }
             }
+            "INVITE" if self.hides(id, msg, Some(param(1)), IgnoreKind::Invites) => {}
             "INVITE" => {
                 let (target, channel) = (param(0).to_owned(), param(1).to_owned());
                 let to_me = net.is_me(&target);
@@ -1174,6 +1321,9 @@ impl State {
                 let Some(buffer) = self.on_join(id, msg) else {
                     return;
                 };
+                if self.hides(id, msg, Some(&channel), IgnoreKind::Events) {
+                    return;
+                }
                 let text = Builder::default()
                     .push(&shown_nick, bold())
                     .push(
@@ -1203,6 +1353,9 @@ impl State {
                 let buffer = chan.buffer;
                 if let Some(net) = self.networks.get_mut(&id) {
                     net.forget_if_gone(&nick);
+                }
+                if self.hides(id, msg, Some(&channel), IgnoreKind::Events) {
+                    return;
                 }
                 let mut b = Builder::default()
                     .push(&shown_nick, bold())
@@ -1234,6 +1387,9 @@ impl State {
                 if let Some(net) = self.networks.get_mut(&id) {
                     net.forget_if_gone(&victim);
                 }
+                if self.hides(id, msg, Some(&channel), IgnoreKind::Events) {
+                    return;
+                }
                 let b = Builder::default()
                     .push(&format::sanitise_identifier(&victim), bold())
                     .push(" was kicked from ", Style::default())
@@ -1256,6 +1412,9 @@ impl State {
                     net.users.remove(&net.key(&nick));
                 }
                 for buffer in buffers {
+                    if self.hides(id, msg, self.channel_of(buffer), IgnoreKind::Events) {
+                        continue;
+                    }
                     let b = Builder::default()
                         .push(&shown_nick, bold())
                         .push(" has quit (", Style::default());
@@ -1264,7 +1423,10 @@ impl State {
                     self.push_line(buffer, l, effects);
                 }
             }
-            "NICK" => self.on_nick(id, &nick, param(0), time, effects),
+            "NICK" => {
+                let source = msg.source.clone().unwrap_or_default();
+                self.on_nick(id, &nick, param(0), &source, time, effects);
+            }
             "MODE" => self.on_mode(id, msg, &shown_nick, time, effects),
             "TOPIC" => {
                 let channel = param(0).to_owned();
@@ -1378,9 +1540,86 @@ impl State {
                 let buffer = chan.buffer;
                 let text = StyledText::plain(&format!("{channel}: {count} users"));
                 self.push_line(buffer, event(text), effects);
+                let mapping = self.mapping(id);
+                let wanted = self.awaited(
+                    id,
+                    |a| matches!(a, Awaiting::Names(c) if mapping.eq(c, &channel)),
+                );
+                if let Some((target, index)) = wanted {
+                    self.forget_awaiting(id, index);
+                    let names = self.names_line(id, &channel);
+                    self.push_line(target, event(StyledText::plain(&names)), effects);
+                }
             }
             // Handled by the connection task; nothing to show.
             "CAP" | "AUTHENTICATE" | "900" | "903" | "908" => {}
+            c if crate::replies::WHOIS.contains(&c)
+                || crate::replies::WHOWAS.contains(&c)
+                || c == crate::replies::END_OF_WHOIS
+                || c == crate::replies::END_OF_WHOWAS =>
+            {
+                self.on_whois_reply(id, c, msg, reply_buffer, time, effects);
+            }
+            "401" | "406" if self.awaited_nick(id, param(1)).is_some() => {
+                let nick = param(1).to_owned();
+                if let Some((buffer, index)) = self.awaited_nick(id, &nick) {
+                    self.forget_awaiting(id, index);
+                    let text = StyledText::plain(&format!("No such nick: {nick}"));
+                    let mut l = event(text);
+                    l.kind = LineKind::Error;
+                    self.push_line(buffer, l, effects);
+                }
+            }
+            "352" => {
+                let nick = param(5).to_owned();
+                let (user, host, flags) = (param(2), param(3), param(6));
+                if let Some(net) = self.networks.get_mut(&id)
+                    && let Some(u) = net.users.get_mut(&net.key(&nick))
+                {
+                    u.userhost = Some(format!("{user}@{host}"));
+                    if flags.starts_with('G') {
+                        u.away.get_or_insert_with(String::new);
+                    } else {
+                        u.away = None;
+                    }
+                }
+                let buffer = self
+                    .awaited(id, |a| matches!(a, Awaiting::Who(_)))
+                    .map_or(reply_buffer, |(b, _)| b);
+                let text = StyledText::parse(&crate::replies::who(&msg.params));
+                self.push_line(buffer, event(text), effects);
+            }
+            "315" => {
+                if let Some((_, index)) = self.awaited(id, |a| matches!(a, Awaiting::Who(_))) {
+                    self.forget_awaiting(id, index);
+                }
+            }
+            "321" => {}
+            "322" => {
+                let buffer = self
+                    .awaited(id, |a| *a == Awaiting::List)
+                    .map_or(reply_buffer, |(b, _)| b);
+                let text = StyledText::parse(&crate::replies::list_entry(&msg.params));
+                self.push_line(buffer, event(text), effects);
+            }
+            "323" => {
+                let awaited = self.awaited(id, |a| *a == Awaiting::List);
+                if let Some((_, index)) = awaited {
+                    self.forget_awaiting(id, index);
+                }
+                let buffer = awaited.map_or(reply_buffer, |(b, _)| b);
+                self.push_line(
+                    buffer,
+                    event(StyledText::plain("End of channel list")),
+                    effects,
+                );
+            }
+            c @ ("324" | "329" | "331" | "341" | "367" | "368") => {
+                if let Some((channel, text)) = crate::replies::channel_info(c, &msg.params) {
+                    let buffer = self.find_buffer(id, &channel).unwrap_or(reply_buffer);
+                    self.push_line(buffer, event(StyledText::parse(&text)), effects);
+                }
+            }
             command => {
                 // Numerics and anything else: show in the server buffer.
                 let is_error = command.starts_with(['4', '5']) || command == "ERROR";
@@ -1605,6 +1844,133 @@ impl State {
         self.push_line(buffer, line, effects);
     }
 
+    /// The first command awaiting replies that `wanted` accepts: its buffer and
+    /// its index.
+    fn awaited(
+        &self,
+        id: NetworkId,
+        wanted: impl Fn(&Awaiting) -> bool,
+    ) -> Option<(BufferId, usize)> {
+        let net = self.networks.get(&id)?;
+        net.awaiting
+            .iter()
+            .position(|(a, _)| wanted(a))
+            .and_then(|i| net.awaiting.get(i).map(|&(_, b)| (b, i)))
+    }
+
+    /// A WHOIS or WHOWAS awaiting replies about `nick`.
+    fn awaited_nick(&self, id: NetworkId, nick: &str) -> Option<(BufferId, usize)> {
+        let mapping = self.mapping(id);
+        self.awaited(
+            id,
+            |a| matches!(a, Awaiting::Whois(n) | Awaiting::Whowas(n) if mapping.eq(n, nick)),
+        )
+    }
+
+    fn forget_awaiting(&mut self, id: NetworkId, index: usize) {
+        if let Some(net) = self.networks.get_mut(&id)
+            && index < net.awaiting.len()
+        {
+            net.awaiting.remove(index);
+        }
+    }
+
+    /// `Names on #c: @op +voice user`, ranked as in the nick list.
+    fn names_line(&self, id: NetworkId, channel: &str) -> String {
+        let Some(net) = self.networks.get(&id) else {
+            return String::new();
+        };
+        let Some(chan) = net.channel(channel) else {
+            return String::new();
+        };
+        let isupport = &net.isupport;
+        let mut members: Vec<&Member> = chan.members().collect();
+        members.sort_by_cached_key(|m| {
+            let rank = m
+                .modes
+                .chars()
+                .next()
+                .map_or(usize::MAX, |c| isupport.mode_rank(c));
+            (rank, isupport.casemapping.fold(&m.nick).into_owned())
+        });
+        let names: Vec<String> = members
+            .iter()
+            .map(|m| {
+                let symbol = m
+                    .modes
+                    .chars()
+                    .next()
+                    .and_then(|c| isupport.symbol_for_mode(c))
+                    .map(String::from)
+                    .unwrap_or_default();
+                format!("{symbol}{}", format::sanitise_identifier(&m.nick))
+            })
+            .collect();
+        format!("Names on {channel}: {}", names.join(" "))
+    }
+
+    /// A WHOIS or WHOWAS reply: shown in the buffer the command came from, and
+    /// what it says about the user remembered.
+    fn on_whois_reply(
+        &mut self,
+        id: NetworkId,
+        command: &str,
+        msg: &Message,
+        reply_buffer: BufferId,
+        time: Timestamp,
+        effects: &mut Vec<Effect>,
+    ) {
+        let nick = msg.params.get(1).map_or("", String::as_str).to_owned();
+        let awaited = self.awaited_nick(id, &nick);
+        if let Some(net) = self.networks.get_mut(&id)
+            && let Some(user) = net.users.get_mut(&net.key(&nick))
+        {
+            let p = |i: usize| msg.params.get(i).cloned().unwrap_or_default();
+            match command {
+                "311" => {
+                    user.userhost = Some(format!("{}@{}", p(2), p(3)));
+                    user.realname = msg.params.last().cloned();
+                }
+                "330" => user.account = Some(p(2)),
+                "301" => user.away = msg.params.last().cloned(),
+                _ => {}
+            }
+        }
+        if command == crate::replies::END_OF_WHOIS || command == crate::replies::END_OF_WHOWAS {
+            if let Some((_, index)) = awaited {
+                self.forget_awaiting(id, index);
+            }
+            return;
+        }
+        let buffer = match awaited {
+            Some((buffer, _)) => buffer,
+            // 301 outside a WHOIS answers a message to someone away: say so
+            // in the conversation with them.
+            None if command == "301" => {
+                let text = format!(
+                    "{nick} is away: {}",
+                    msg.params.last().map_or("", String::as_str)
+                );
+                let buffer = self.find_buffer(id, &nick).unwrap_or(reply_buffer);
+                self.note_into(buffer, LineKind::Info, &text, effects);
+                return;
+            }
+            None => reply_buffer,
+        };
+        if let Some(text) = crate::replies::whois(command, &msg.params) {
+            let text = StyledText::parse(&text);
+            let line = Line {
+                time,
+                kind: LineKind::Info,
+                sender: None,
+                raw: text.to_plain(),
+                text,
+                delivery: Delivery::Delivered,
+            };
+            self.push_line(buffer, line, effects);
+        }
+    }
+
     fn mapping(&self, id: NetworkId) -> CaseMapping {
         self.networks
             .get(&id)
@@ -1638,6 +2004,16 @@ impl State {
         let ctcp = Ctcp::parse(body);
         let (kind, raw) = match ctcp {
             Some(c) if c.is_action() => (LineKind::Action, c.params.unwrap_or_default().to_owned()),
+            Some(_)
+                if self.hides(
+                    id,
+                    msg,
+                    is_channel.then_some(channel.as_str()),
+                    IgnoreKind::Ctcps,
+                ) =>
+            {
+                return;
+            }
             Some(c) => {
                 // Replies arrive in M8; for now, report requests and replies.
                 let what = if notice { "reply" } else { "request" };
@@ -1669,6 +2045,13 @@ impl State {
             raw
         };
         let echo = from_me && net.has_cap("echo-message");
+        let ignore_kind = match kind {
+            LineKind::Notice => IgnoreKind::Notices,
+            _ => IgnoreKind::Messages,
+        };
+        if self.hides(id, msg, is_channel.then_some(channel.as_str()), ignore_kind) {
+            return;
+        }
 
         let buffer = if is_channel {
             self.channel_mut(id, &channel).map(|c| c.buffer)
@@ -1723,6 +2106,7 @@ impl State {
         id: NetworkId,
         old: &str,
         new: &str,
+        source: &str,
         time: Timestamp,
         effects: &mut Vec<Effect>,
     ) {
@@ -1761,6 +2145,9 @@ impl State {
             buffers.push(net.server_buffer);
         }
         for buffer in buffers {
+            if self.is_ignored(id, source, self.channel_of(buffer), IgnoreKind::Events) {
+                continue;
+            }
             let text = Builder::default()
                 .push(&format::sanitise_identifier(old), bold())
                 .push(" is now known as ", Style::default())
@@ -2304,6 +2691,183 @@ mod tests {
                 .buffer
                 .is_none()
         );
+    }
+
+    fn texts(state: &State, buffer: BufferId) -> Vec<String> {
+        state
+            .buffer(buffer)
+            .unwrap()
+            .lines()
+            .iter()
+            .map(|l| l.text.to_plain())
+            .collect()
+    }
+
+    #[test]
+    fn whois_replies_go_where_they_were_asked_for() {
+        let mut s = state();
+        feed(&mut s, ":me!u@h JOIN #c");
+        feed(&mut s, ":alice!a@h JOIN #c");
+        let channel = channel_buffer(&s, "#c");
+        let server = s.network(NET).unwrap().server_buffer;
+        s.expect_reply(NET, Awaiting::Whois("ALICE".into()), channel);
+        for line in [
+            ":srv 311 me alice a host.example * :Alice Liddell",
+            ":srv 312 me alice irc.example.net :Example",
+            ":srv 330 me alice alice_acct :is logged in as",
+            ":srv 301 me alice :lunch",
+            ":srv 318 me alice :End of /WHOIS list.",
+        ] {
+            feed(&mut s, line);
+        }
+        let lines = texts(&s, channel);
+        assert_eq!(
+            lines[lines.len() - 4..],
+            [
+                "alice is a@host.example (Alice Liddell)",
+                "  server: irc.example.net (Example)",
+                "  account: alice_acct",
+                "  away: lunch",
+            ]
+        );
+        let alice = s.network(NET).unwrap().user("alice").unwrap().clone();
+        assert_eq!(alice.account.as_deref(), Some("alice_acct"));
+        assert_eq!(alice.realname.as_deref(), Some("Alice Liddell"));
+        // The WHOIS is over, so the next reply lands in the server buffer.
+        feed(&mut s, ":srv 312 me alice irc.example.net :Example");
+        assert_eq!(last_text(&s, server), "  server: irc.example.net (Example)");
+        // An unknown nick ends the wait with an error where it was asked.
+        s.expect_reply(NET, Awaiting::Whois("ghost".into()), channel);
+        feed(&mut s, ":srv 401 me ghost :No such nick/channel");
+        assert_eq!(last_text(&s, channel), "No such nick: ghost");
+        // A 301 outside a WHOIS answers a message to someone away.
+        s.query_buffer(NET, "alice");
+        feed(&mut s, ":srv 301 me alice :gone fishing");
+        let query = s.find_buffer(NET, "alice").unwrap();
+        assert_eq!(last_text(&s, query), "alice is away: gone fishing");
+    }
+
+    #[test]
+    fn names_and_list_replies() {
+        let mut s = state();
+        feed(&mut s, ":srv 005 me PREFIX=(ov)@+ :are supported");
+        feed(&mut s, ":me!u@h JOIN #c");
+        let channel = channel_buffer(&s, "#c");
+        s.expect_reply(NET, Awaiting::Names("#C".into()), channel);
+        feed(&mut s, ":srv 353 me = #c :+bob @me alice");
+        feed(&mut s, ":srv 366 me #c :End of /NAMES list.");
+        assert_eq!(last_text(&s, channel), "Names on #c: @me +bob alice");
+        s.expect_reply(NET, Awaiting::List, channel);
+        feed(&mut s, ":srv 321 me Channel :Users Name");
+        feed(&mut s, ":srv 322 me #rust 1200 :All about Rust");
+        feed(&mut s, ":srv 323 me :End of /LIST");
+        let lines = texts(&s, channel);
+        assert_eq!(
+            lines[lines.len() - 2..],
+            ["#rust (1200): All about Rust", "End of channel list"]
+        );
+        feed(&mut s, ":srv 324 me #c +nt");
+        assert_eq!(last_text(&s, channel), "Modes for #c: +nt");
+    }
+
+    #[test]
+    fn ignored_users_are_hidden_but_tracked() {
+        let mut s = state();
+        s.set_rules(
+            vec![
+                IgnoreRule {
+                    mask: "spammer".into(),
+                    what: IgnoreKind::ALL.to_vec(),
+                    networks: Vec::new(),
+                    channels: Vec::new(),
+                },
+                IgnoreRule {
+                    mask: "*!*@noisy.example".into(),
+                    what: vec![IgnoreKind::Events],
+                    networks: vec!["TEST".into()],
+                    channels: vec!["#c".into()],
+                },
+            ],
+            &HighlightConfig::default(),
+        );
+        feed(&mut s, ":me!u@h JOIN #c");
+        let channel = channel_buffer(&s, "#c");
+        let before = texts(&s, channel).len();
+        feed(&mut s, ":spammer!x@y JOIN #c");
+        feed(&mut s, ":spammer!x@y PRIVMSG #c :buy now");
+        feed(&mut s, ":spammer!x@y PRIVMSG me :psst");
+        feed(&mut s, ":chatty!c@noisy.example JOIN #c");
+        assert_eq!(texts(&s, channel).len(), before, "{:?}", texts(&s, channel));
+        assert_eq!(s.find_buffer(NET, "spammer"), None, "no query opened");
+        let members = s
+            .network(NET)
+            .unwrap()
+            .channel("#c")
+            .unwrap()
+            .members()
+            .count();
+        assert_eq!(members, 3, "membership still tracked");
+        // Only events are hidden for the second rule; messages still show.
+        feed(&mut s, ":chatty!c@noisy.example PRIVMSG #c :hello");
+        assert_eq!(last_text(&s, channel), "hello");
+        // Our own lines are never hidden.
+        assert!(!s.is_ignored(NET, "me!u@h", None, IgnoreKind::Messages));
+    }
+
+    #[test]
+    fn highlight_words_and_patterns() {
+        let mut s = state();
+        s.set_rules(
+            Vec::new(),
+            &HighlightConfig {
+                words: vec!["irsty".into()],
+                regex: vec![r"\bsteve\b".into()],
+            },
+        );
+        feed(&mut s, ":me!u@h JOIN #c");
+        let channel = channel_buffer(&s, "#c");
+        let activity = |s: &mut State, line: &str| {
+            s.mark_read(channel);
+            feed(s, line);
+            s.buffer(channel).unwrap().activity
+        };
+        assert_eq!(
+            activity(&mut s, ":a!a@h PRIVMSG #c :nothing here"),
+            Activity::Messages
+        );
+        assert_eq!(
+            activity(&mut s, ":a!a@h PRIVMSG #c :I love IRSTY!"),
+            Activity::Highlight
+        );
+        assert_eq!(
+            activity(&mut s, ":a!a@h PRIVMSG #c :irstyx is not it"),
+            Activity::Messages
+        );
+        assert_eq!(
+            activity(&mut s, ":a!a@h PRIVMSG #c :ask Steve"),
+            Activity::Highlight
+        );
+        assert_eq!(
+            activity(&mut s, ":a!a@h PRIVMSG #c :me: hi"),
+            Activity::Highlight
+        );
+    }
+
+    #[test]
+    fn clearing_removing_and_shrinking() {
+        let mut s = state();
+        feed(&mut s, ":me!u@h JOIN #c");
+        let channel = channel_buffer(&s, "#c");
+        for i in 0..10 {
+            feed(&mut s, &format!(":a!a@h PRIVMSG #c :{i}"));
+        }
+        s.set_scrollback(3);
+        assert_eq!(texts(&s, channel), ["7", "8", "9"]);
+        s.clear_buffer(channel);
+        assert!(texts(&s, channel).is_empty());
+        s.remove_network(NET);
+        assert!(s.network(NET).is_none());
+        assert_eq!(s.buffers().count(), 0);
     }
 
     #[test]
