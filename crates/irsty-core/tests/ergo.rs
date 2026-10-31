@@ -365,3 +365,154 @@ async fn tls_verification_is_on_by_default() {
     );
     client.quit(None).await;
 }
+
+#[tokio::test]
+async fn sasl_scram_against_ergo() {
+    let Some(ergo) = ergo() else { return };
+    let nick = unique("scram");
+    let password = unique("pw");
+    register_account(&ergo, &nick, &password).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let net = |nick: &str, password: &str| {
+        format!(
+            r#"
+            [[network]]
+            name = "ergo"
+            nicks = ["{nick}"]
+            [[network.servers]]
+            host = "{{host}}"
+            port = {{port}}
+            tls = false
+            [network.sasl]
+            mechanism = "scram-sha-256"
+            account = "{account}"
+            password = {{ plain = "{password}" }}
+            "#,
+            account = nick.trim_end_matches('x'),
+        )
+    };
+    let mut client = Client::start(
+        &config(&ergo, &net(&nick, &password), dir.path()),
+        None,
+        None,
+    );
+    until(&mut client, "registration", |c| {
+        network(c, "ergo").status == Status::Registered
+    })
+    .await;
+    assert_eq!(
+        network(&client, "ergo").account.as_deref(),
+        Some(nick.as_str())
+    );
+    client.quit(None).await;
+
+    // A wrong password fails, and registration still completes.
+    let wrong = config(&ergo, &net(&format!("{nick}x"), "not-it"), dir.path());
+    let mut client = Client::start(&wrong, None, None);
+    until(&mut client, "registration", |c| {
+        network(c, "ergo").status == Status::Registered
+    })
+    .await;
+    assert!(network(&client, "ergo").account.is_none());
+    assert!(
+        texts(&client, "ergo", None)
+            .iter()
+            .any(|l| l.starts_with("SASL authentication failed")),
+        "{:?}",
+        texts(&client, "ergo", None)
+    );
+    client.quit(None).await;
+}
+
+/// CertFP: attach a client certificate to an account, then log in with it
+/// through SASL EXTERNAL. Ergo's test certificate is self-signed, hence
+/// `tls_verify = false`.
+#[tokio::test]
+async fn certfp_login_against_ergo() {
+    let Some(ergo) = ergo() else { return };
+    if ergo.tls_port.is_none() {
+        eprintln!("IRSTY_ERGO_TLS_PORT not set; skipping CertFP test");
+        return;
+    }
+    let nick = unique("cfp");
+    let password = unique("pw");
+    register_account(&ergo, &nick, &password).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let key = rcgen::KeyPair::generate().unwrap();
+    let cert = rcgen::CertificateParams::new(vec![nick.clone()])
+        .unwrap()
+        .self_signed(&key)
+        .unwrap();
+    let (cert_path, key_path) = (dir.path().join("cert.pem"), dir.path().join("key.pem"));
+    std::fs::write(&cert_path, cert.pem()).unwrap();
+    std::fs::write(&key_path, key.serialize_pem()).unwrap();
+    let net = |nick: &str, sasl: &str| {
+        format!(
+            r#"
+            [[network]]
+            name = "ergo"
+            nicks = ["{nick}"]
+            [[network.servers]]
+            host = "{{host}}"
+            port = {{tls_port}}
+            tls_verify = false
+            [network.client_cert]
+            cert = "{cert}"
+            key = "{key}"
+            [network.sasl]
+            {sasl}
+            "#,
+            cert = cert_path.display(),
+            key = key_path.display(),
+        )
+    };
+
+    // Log in with the password, presenting the certificate, and add it.
+    let plain = format!(
+        "mechanism = \"plain\"\naccount = \"{nick}\"\npassword = {{ plain = \"{password}\" }}"
+    );
+    let mut client = Client::start(&config(&ergo, &net(&nick, &plain), dir.path()), None, None);
+    until(&mut client, "registration", |c| {
+        network(c, "ergo").status == Status::Registered
+    })
+    .await;
+    let id = network(&client, "ergo").id;
+    client
+        .send(
+            id,
+            Message::new("PRIVMSG").param("NickServ").param("CERT ADD"),
+        )
+        .unwrap();
+    // NickServ answers in a query buffer.
+    until(&mut client, "NickServ confirms CERT ADD", |c| {
+        c.state().buffers().any(|b| {
+            b.name == "NickServ"
+                && b.lines()
+                    .iter()
+                    .any(|l| l.text.to_plain().contains("successfully added"))
+        })
+    })
+    .await;
+    client.quit(None).await;
+
+    // Now the certificate alone logs in.
+    let external = "mechanism = \"external\"";
+    let mut client = Client::start(
+        &config(&ergo, &net(&format!("{nick}e"), external), dir.path()),
+        None,
+        None,
+    );
+    until(&mut client, "registration", |c| {
+        network(c, "ergo").status == Status::Registered
+    })
+    .await;
+    assert_eq!(
+        network(&client, "ergo").account.as_deref(),
+        Some(nick.as_str()),
+        "{:?}",
+        texts(&client, "ergo", None)
+    );
+    client.quit(None).await;
+}
