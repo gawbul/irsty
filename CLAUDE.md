@@ -13,7 +13,7 @@ A modern terminal IRC client in Rust (ratatui). Spiritual successor to irssi and
 - Prefer boring, maintained crates. Don't add a dependency when 20 lines will do. Flag unmaintained crates.
 - Use Conventional Commits and small, focused commits, with one milestone per PR. Start every piece of work on a fresh branch from an up-to-date `main`. Once a PR is merged, switch to an updated `main` and delete the merged local branch with `git branch -d` (never `-D`; if it refuses, ask).
 - Irsty is licensed under Apache-2.0 only (ADR 0009). New files need no licence header.
-- Before raising a PR, update `README.md` and this file wherever the branch's changes make them stale, and commit those updates on the same branch.
+- After making any change, and always before opening a PR, update `README.md`, this file and every other document the change affects (`docs/` such as ARCHITECTURE, CONFIG, COMMANDS, KEYBINDINGS and VERSIONS, plus `CONTRIBUTING.md`, `PLAN.md`, `CHANGELOG.md`, and doc comments), checked against the code rather than against older docs. Commit those updates on the same branch.
 
 ## Layout
 
