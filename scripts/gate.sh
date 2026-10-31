@@ -7,6 +7,12 @@ msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
 
 step() { printf '\n==> %s\n' "$*"; }
 
+step "no sync duplicates"
+# iCloud makes copies such as "dial 2.rs"; they must never be committed.
+if git ls-files | grep -E ' [0-9]+(\.[^/]*)?$'; then
+    echo "remove the iCloud duplicates above"
+    exit 1
+fi
 step "fmt";      cargo fmt --all --check
 step "clippy";   cargo clippy --workspace --all-targets --all-features -- -D warnings
 step "nextest";  cargo nextest run --workspace --all-features --no-tests=pass
