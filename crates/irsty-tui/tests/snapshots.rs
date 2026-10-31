@@ -150,3 +150,58 @@ fn no_networks() {
     let mut ui = ui(&s, "");
     insta::assert_snapshot!(render(&s, &mut ui, 60, 8).backend());
 }
+
+/// With echo-message, our lines wait for the server's echo; one that couldn't
+/// be sent says why.
+#[test]
+fn pending_and_failed_own_messages() {
+    let mut s = state();
+    s.apply(
+        NET,
+        NetEvent::Caps {
+            enabled: vec!["echo-message".into()],
+        },
+    );
+    let own = s.own_message(
+        NET,
+        "#irsty",
+        irsty_core::state::LineKind::Message,
+        "on my way",
+    );
+    assert!(own.buffer.is_some());
+    let own = s.own_message(
+        NET,
+        "#irsty",
+        irsty_core::state::LineKind::Message,
+        "lost one",
+    );
+    s.fail_newest(own.buffer.unwrap(), "send queue full");
+    let mut ui = ui(&s, "#irsty");
+    insta::assert_debug_snapshot!(render(&s, &mut ui, 80, 8).backend());
+}
+
+/// away-notify: away users are dimmed in the nick list.
+#[test]
+fn away_users_are_dimmed_in_the_nick_list() {
+    let mut s = state();
+    s.apply(
+        NET,
+        NetEvent::Message(Message::parse(":carol!c@host AWAY :gone fishing").unwrap()),
+    );
+    let mut ui = ui(&s, "#irsty");
+    let terminal = render(&s, &mut ui, 120, 24);
+    let buffer = terminal.backend().buffer();
+    let colour_of = |nick: &str| {
+        (0..buffer.area.height)
+            .find_map(|y| {
+                let row: String = (100..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect();
+                row.find(nick)
+                    .map(|col| buffer[(100 + u16::try_from(col).unwrap(), y)].fg)
+            })
+            .unwrap()
+    };
+    assert_eq!(colour_of("carol"), ratatui::style::Color::DarkGray);
+    assert_ne!(colour_of("dave_"), ratatui::style::Color::DarkGray);
+}

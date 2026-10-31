@@ -13,6 +13,7 @@ use irsty_proto::isupport::ModeKind;
 use irsty_proto::{ISupport, MAX_BODY_LEN, Message, Source};
 use jiff::Timestamp;
 
+use crate::batch::{Batch, Batches, Routed};
 use crate::config::PerformLine;
 use crate::event::{NetEvent, NetworkId};
 
@@ -74,6 +75,25 @@ pub enum LineKind {
     Error,
 }
 
+/// Whether a line we sent has reached the server.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Delivery {
+    /// Shown as normal. Everything not sent by us, and our own lines when the
+    /// server doesn't echo them.
+    #[default]
+    Delivered,
+    /// Sent, waiting for the server's echo (`echo-message`). Not logged yet.
+    Pending {
+        /// Ties the echo or an error to this line (`labeled-response`).
+        label: Option<String>,
+    },
+    /// The server refused it, or the connection dropped first.
+    Failed {
+        /// Why, sanitised.
+        reason: String,
+    },
+}
+
 /// One line of scrollback.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line {
@@ -87,6 +107,8 @@ pub struct Line {
     pub text: StyledText,
     /// The original text, formatting codes included, for logs.
     pub raw: String,
+    /// Whether it reached the server, for our own messages.
+    pub delivery: Delivery,
 }
 
 /// A buffer: a window of scrollback.
@@ -115,6 +137,31 @@ impl Buffer {
     pub fn lines(&self) -> &VecDeque<Line> {
         &self.lines
     }
+}
+
+/// What we know about a user, from IRCv3 extensions and their messages.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct User {
+    /// The nick as sent.
+    pub nick: String,
+    /// `user@host`, if known.
+    pub userhost: Option<String>,
+    /// The services account they are logged in to (`account-tag`,
+    /// `account-notify`, `extended-join`); `None` if logged out or unknown.
+    pub account: Option<String>,
+    /// Real name (`extended-join`, `setname`).
+    pub realname: Option<String>,
+    /// Away message (`away-notify`); `Some` while away.
+    pub away: Option<String>,
+}
+
+/// Whether a monitored nick is online (`MONITOR`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Watch {
+    /// The nick as configured.
+    pub nick: String,
+    /// `None` until the server says.
+    pub online: Option<bool>,
 }
 
 /// A channel member.
@@ -199,8 +246,17 @@ pub struct Network {
     pub autojoin: Vec<String>,
     /// Raw lines sent on every registration, before autojoin.
     pub perform: Vec<PerformLine>,
+    /// Nicks to watch with `MONITOR`.
+    pub watches: Vec<Watch>,
     channels: HashMap<CaseKey, Channel>,
     queries: HashMap<CaseKey, BufferId>,
+    users: HashMap<CaseKey, User>,
+    batches: Batches,
+    /// Labels awaiting a response, oldest first, with the buffer of the line
+    /// each belongs to.
+    labels: VecDeque<(String, BufferId)>,
+    next_label: u64,
+    monitor_sent: bool,
 }
 
 impl Network {
@@ -224,8 +280,30 @@ impl Network {
     }
 
     /// Re-keys every map after a casemapping change.
+    /// Whether a capability is enabled.
+    pub fn has_cap(&self, cap: &str) -> bool {
+        self.caps.iter().any(|c| c == cap)
+    }
+
+    /// What we know about a user who shares a channel with us.
+    pub fn user(&self, nick: &str) -> Option<&User> {
+        self.users.get(&self.key(nick))
+    }
+
+    /// Forgets a user once they share no channel with us.
+    fn forget_if_gone(&mut self, nick: &str) {
+        let key = self.key(nick);
+        if !self.channels.values().any(|c| c.members.contains_key(&key)) {
+            self.users.remove(&key);
+        }
+    }
+
     fn rekey(&mut self) {
         let mapping = self.isupport.casemapping;
+        self.users = std::mem::take(&mut self.users)
+            .into_values()
+            .map(|u| (CaseKey::new(mapping, &u.nick), u))
+            .collect();
         let channels = std::mem::take(&mut self.channels);
         for (_, mut channel) in channels {
             let members = std::mem::take(&mut channel.members);
@@ -251,6 +329,31 @@ pub enum Effect {
     Send(NetworkId, Message),
     /// A line was added to a buffer (log it, show it).
     Line(BufferId),
+    /// A buffer changed without gaining a loggable line (show it).
+    Updated(BufferId),
+    /// Log this line, which is already in the buffer (a confirmed echo).
+    Log(BufferId, Box<Line>),
+}
+
+/// The result of [`State::own_message`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OwnMessage {
+    /// The buffer the line went to.
+    pub buffer: Option<BufferId>,
+    /// A label to tag the outgoing message with, if `labeled-response` is on.
+    pub label: Option<String>,
+    /// What to do next.
+    pub effects: Vec<Effect>,
+}
+
+/// Most labels awaiting a response; older ones are forgotten.
+const MAX_LABELS: usize = 256;
+
+fn remember_label(net: &mut Network, label: String, buffer: BufferId) {
+    if net.labels.len() >= MAX_LABELS {
+        net.labels.pop_front();
+    }
+    net.labels.push_back((label, buffer));
 }
 
 /// All client state.
@@ -305,8 +408,14 @@ impl State {
                 server_buffer,
                 autojoin,
                 perform: Vec::new(),
+                watches: Vec::new(),
                 channels: HashMap::new(),
                 queries: HashMap::new(),
+                users: HashMap::new(),
+                batches: Batches::default(),
+                labels: VecDeque::new(),
+                next_label: 0,
+                monitor_sent: false,
             },
         );
         server_buffer
@@ -316,6 +425,16 @@ impl State {
     pub fn set_perform(&mut self, id: NetworkId, perform: Vec<PerformLine>) {
         if let Some(net) = self.networks.get_mut(&id) {
             net.perform = perform;
+        }
+    }
+
+    /// Sets the nicks a network watches with `MONITOR`.
+    pub fn set_monitor(&mut self, id: NetworkId, nicks: Vec<String>) {
+        if let Some(net) = self.networks.get_mut(&id) {
+            net.watches = nicks
+                .into_iter()
+                .map(|nick| Watch { nick, online: None })
+                .collect();
         }
     }
 
@@ -358,6 +477,7 @@ impl State {
                 sender: None,
                 raw: text.to_plain(),
                 text,
+                delivery: Delivery::Delivered,
             };
             self.push_line(buffer, line, &mut effects);
         }
@@ -372,19 +492,28 @@ impl State {
         }
     }
 
-    /// Records a message we sent, in the channel or query buffer for `target`.
-    /// It does not count as unread.
+    /// Records a message we are about to send, in the channel or query buffer
+    /// for `target`. It does not count as unread.
+    ///
+    /// With `echo-message` the line stays pending until the server echoes it,
+    /// and with `labeled-response` too, the returned label (to put on the
+    /// outgoing message) ties the echo to it.
     pub fn own_message(
         &mut self,
         id: NetworkId,
         target: &str,
         kind: LineKind,
         text: &str,
-    ) -> (Option<BufferId>, Vec<Effect>) {
-        let mut effects = Vec::new();
-        let Some(net) = self.networks.get(&id) else {
-            return (None, effects);
+    ) -> OwnMessage {
+        let mut own = OwnMessage::default();
+        let Some(net) = self.networks.get_mut(&id) else {
+            return own;
         };
+        let echo = net.has_cap("echo-message");
+        if echo && net.has_cap("labeled-response") {
+            net.next_label += 1;
+            own.label = Some(format!("irsty{}", net.next_label));
+        }
         let nick = format::sanitise_identifier(&net.nick);
         let is_channel = net
             .isupport
@@ -396,7 +525,8 @@ impl State {
             self.query_buffer(id, target)
         };
         let Some(buffer) = buffer else {
-            return (None, effects);
+            own.label = None;
+            return own;
         };
         let line = Line {
             time: (self.clock)(),
@@ -404,10 +534,107 @@ impl State {
             sender: Some(nick),
             text: StyledText::parse(text),
             raw: text.to_owned(),
+            delivery: if echo {
+                Delivery::Pending {
+                    label: own.label.clone(),
+                }
+            } else {
+                Delivery::Delivered
+            },
         };
-        self.push_line(buffer, line, &mut effects);
+        self.push_line(buffer, line, &mut own.effects);
+        if echo {
+            // Logged when the echo confirms it, not now.
+            for effect in &mut own.effects {
+                if *effect == Effect::Line(buffer) {
+                    *effect = Effect::Updated(buffer);
+                }
+            }
+            if let (Some(label), Some(net)) = (&own.label, self.networks.get_mut(&id)) {
+                remember_label(net, label.clone(), buffer);
+            }
+        }
         self.mark_read(buffer);
-        (Some(buffer), effects)
+        own.buffer = Some(buffer);
+        own
+    }
+
+    /// Marks the newest line in `buffer` as failed: the message
+    /// [`State::own_message`] just recorded could not be queued.
+    pub fn fail_newest(&mut self, buffer: BufferId, reason: &str) {
+        if let Some(line) = self
+            .buffers
+            .get_mut(&buffer)
+            .and_then(|b| b.lines.back_mut())
+        {
+            line.delivery = Delivery::Failed {
+                reason: StyledText::plain(reason).to_plain(),
+            };
+        }
+    }
+
+    /// Confirms a pending line from its echo: by label, or else the oldest
+    /// pending line of the same kind and text. Returns whether one matched.
+    fn confirm_echo(
+        &mut self,
+        buffer: BufferId,
+        label: Option<&str>,
+        kind: LineKind,
+        raw: &str,
+        time: Timestamp,
+        effects: &mut Vec<Effect>,
+    ) -> bool {
+        let Some(buf) = self.buffers.get_mut(&buffer) else {
+            return false;
+        };
+        let found = buf.lines.iter_mut().find(|l| match &l.delivery {
+            Delivery::Pending { label: Some(own) } if label.is_some() => {
+                label == Some(own.as_str())
+            }
+            Delivery::Pending { .. } => label.is_none() && l.kind == kind && l.raw == raw,
+            _ => false,
+        });
+        let Some(line) = found else {
+            return false;
+        };
+        line.delivery = Delivery::Delivered;
+        line.time = time;
+        let logged = Box::new(line.clone());
+        effects.push(Effect::Updated(buffer));
+        effects.push(Effect::Log(buffer, logged));
+        true
+    }
+
+    /// Marks the line a label belongs to as failed.
+    fn fail_label(&mut self, id: NetworkId, label: &str, reason: &str, effects: &mut Vec<Effect>) {
+        let Some(buffer) = self.label_buffer(id, label) else {
+            return;
+        };
+        if let Some(line) = self.buffers.get_mut(&buffer).and_then(|b| {
+            b.lines.iter_mut().find(
+                |l| matches!(&l.delivery, Delivery::Pending { label: Some(own) } if own == label),
+            )
+        }) {
+            line.delivery = Delivery::Failed {
+                reason: StyledText::plain(reason).to_plain(),
+            };
+            effects.push(Effect::Updated(buffer));
+        }
+    }
+
+    fn label_buffer(&self, id: NetworkId, label: &str) -> Option<BufferId> {
+        self.networks
+            .get(&id)?
+            .labels
+            .iter()
+            .find(|(l, _)| l == label)
+            .map(|&(_, b)| b)
+    }
+
+    fn forget_label(&mut self, id: NetworkId, label: &str) {
+        if let Some(net) = self.networks.get_mut(&id) {
+            net.labels.retain(|(l, _)| l != label);
+        }
     }
 
     /// Removes a channel or query buffer. Server buffers stay. Returns whether
@@ -533,6 +760,7 @@ impl State {
             sender: None,
             raw: text.to_plain(),
             text,
+            delivery: Delivery::Delivered,
         };
         match event {
             NetEvent::Connecting { server } => {
@@ -556,7 +784,7 @@ impl State {
                 }
             }
             NetEvent::Registered { nick } => self.on_registered(id, nick, &mut effects),
-            NetEvent::Message(msg) => self.on_message(id, &msg, &mut effects),
+            NetEvent::Message(msg) => self.route(id, msg, &mut effects),
             NetEvent::Caps { enabled } => {
                 if let Some(net) = self.networks.get_mut(&id) {
                     net.caps = enabled;
@@ -654,7 +882,33 @@ impl State {
         };
         net.lag = None;
         net.caps.clear();
+        net.users.clear();
+        net.batches.clear();
+        net.labels.clear();
+        net.monitor_sent = false;
+        for watch in &mut net.watches {
+            watch.online = None;
+        }
         let server_buffer = net.server_buffer;
+        // Anything still waiting for its echo never made it.
+        let network = net.id;
+        for buf in self.buffers.values_mut().filter(|b| b.network == network) {
+            let mut changed = false;
+            for line in &mut buf.lines {
+                if matches!(line.delivery, Delivery::Pending { .. }) {
+                    line.delivery = Delivery::Failed {
+                        reason: "not delivered: disconnected".into(),
+                    };
+                    changed = true;
+                }
+            }
+            if changed {
+                effects.push(Effect::Updated(buf.id));
+            }
+        }
+        let Some(net) = self.networks.get_mut(&id) else {
+            return;
+        };
         let mut affected = Vec::new();
         for channel in net.channels.values_mut() {
             if channel.joined {
@@ -680,25 +934,133 @@ impl State {
                 sender: None,
                 raw: text.to_plain(),
                 text,
+                delivery: Delivery::Delivered,
             };
             self.push_line(buffer, line, effects);
         }
     }
 
+    /// Holds batched messages until their batch ends; handles the rest.
+    fn route(&mut self, id: NetworkId, msg: Message, effects: &mut Vec<Effect>) {
+        let Some(net) = self.networks.get_mut(&id) else {
+            return;
+        };
+        match net.batches.route(msg) {
+            Routed::Now(msg) => self.on_message(id, &msg, None, effects),
+            Routed::Held => {}
+            Routed::Ended(batch) => self.on_batch(id, &batch, effects),
+        }
+    }
+
+    fn on_batch(&mut self, id: NetworkId, batch: &Batch, effects: &mut Vec<Effect>) {
+        let param = |i: usize| batch.params.get(i).map_or("", String::as_str).to_owned();
+        match batch.kind.as_str() {
+            // One summary line per channel instead of a line per user.
+            kind @ ("netsplit" | "netjoin") => {
+                let split = kind == "netsplit";
+                let mut seen: Vec<(BufferId, Vec<String>)> = Vec::new();
+                let mut note = |buffer: BufferId, nick: &str| {
+                    let nick = format::sanitise_identifier(nick);
+                    match seen.iter_mut().find(|(b, _)| *b == buffer) {
+                        Some((_, nicks)) => nicks.push(nick),
+                        None => seen.push((buffer, vec![nick])),
+                    }
+                };
+                let mut time = None;
+                for msg in &batch.messages {
+                    let nick = msg
+                        .source
+                        .as_deref()
+                        .map(|s| Source::parse(s).nick.to_owned())
+                        .unwrap_or_default();
+                    time = time.or_else(|| msg_time(msg));
+                    match msg.command.to_ascii_uppercase().as_str() {
+                        "QUIT" if split => {
+                            for buffer in self.remove_everywhere(id, &nick) {
+                                note(buffer, &nick);
+                            }
+                            if let Some(net) = self.networks.get_mut(&id) {
+                                net.users.remove(&net.key(&nick));
+                            }
+                        }
+                        "JOIN" if !split => {
+                            if let Some(buffer) = self.on_join(id, msg) {
+                                note(buffer, &nick);
+                            }
+                        }
+                        _ => self.on_message(id, msg, None, effects),
+                    }
+                }
+                let (what, kind) = if split {
+                    ("Netsplit", LineKind::Quit)
+                } else {
+                    ("Netjoin", LineKind::Join)
+                };
+                let servers =
+                    format::sanitise_identifier(&format!("{} <-> {}", param(0), param(1)));
+                for (buffer, nicks) in seen {
+                    let text = StyledText::plain(&format!(
+                        "{what} {servers}: {} ({})",
+                        nicks.join(", "),
+                        nicks.len()
+                    ));
+                    let line = Line {
+                        time: time.unwrap_or_else(self.clock),
+                        kind,
+                        sender: None,
+                        raw: text.to_plain(),
+                        text,
+                        delivery: Delivery::Delivered,
+                    };
+                    self.push_line(buffer, line, effects);
+                }
+            }
+            "labeled-response" => {
+                for msg in &batch.messages {
+                    self.on_message(id, msg, batch.label.as_deref(), effects);
+                }
+                if let Some(label) = &batch.label {
+                    self.forget_label(id, label);
+                }
+            }
+            // Anything else (chathistory arrives in M9): handle in order.
+            _ => {
+                for msg in &batch.messages {
+                    self.on_message(id, msg, None, effects);
+                }
+            }
+        }
+    }
+
+    /// Handles a message. `batch_label` is the label of the labeled-response
+    /// batch it came in, if any.
     #[allow(
         clippy::too_many_lines,
         reason = "one arm per command reads better than indirection"
     )]
-    fn on_message(&mut self, id: NetworkId, msg: &Message, effects: &mut Vec<Effect>) {
+    fn on_message(
+        &mut self,
+        id: NetworkId,
+        msg: &Message,
+        batch_label: Option<&str>,
+        effects: &mut Vec<Effect>,
+    ) {
+        let label = msg.tags.get("label").or(batch_label).map(str::to_owned);
+        self.learn_from_tags(id, msg);
+        let command = msg.command.to_ascii_uppercase();
+        if matches!(command.as_str(), "376" | "422") {
+            self.monitor_unsupported(id, effects);
+        }
         let Some(net) = self.networks.get(&id) else {
             return;
         };
+        // A labelled reply goes where the labelled message was typed.
+        let reply_buffer = label
+            .as_deref()
+            .and_then(|l| net.labels.iter().find(|(own, _)| own == l))
+            .map_or(net.server_buffer, |&(_, b)| b);
         let server_buffer = net.server_buffer;
-        let time = msg
-            .tags
-            .get("time")
-            .and_then(|t| t.parse::<Timestamp>().ok())
-            .unwrap_or_else(self.clock);
+        let time = msg_time(msg).unwrap_or_else(self.clock);
         let source = msg.source.as_deref().map(Source::parse);
         let nick = source.map_or("", |s| s.nick).to_owned();
         let shown_nick = format::sanitise_identifier(&nick);
@@ -709,37 +1071,109 @@ impl State {
             sender,
             text,
             raw,
+            delivery: Delivery::Delivered,
         };
         let event = |text: StyledText| {
             let raw = text.to_plain();
             line(LineKind::Info, text, raw, None)
         };
 
-        match msg.command.to_ascii_uppercase().as_str() {
-            "PRIVMSG" | "NOTICE" => self.on_privmsg(id, msg, time, effects),
-            "JOIN" => {
-                let channel = param(0).to_owned();
-                let is_me = net.is_me(&nick);
-                let mapping = net.isupport.casemapping;
-                let host =
-                    source.map(|s| format!("{}@{}", s.user.unwrap_or("?"), s.host.unwrap_or("?")));
-                let Some(chan) = self.channel_mut(id, &channel) else {
+        match command.as_str() {
+            "PRIVMSG" | "NOTICE" => self.on_privmsg(id, msg, time, label.as_deref(), effects),
+            "ACK" => {
+                if let Some(label) = &label {
+                    self.forget_label(id, label);
+                }
+            }
+            "AWAY" | "ACCOUNT" | "CHGHOST" | "SETNAME" => {
+                let Some(net) = self.networks.get_mut(&id) else {
                     return;
                 };
-                if is_me {
-                    chan.joined = true;
-                    chan.rejoin = false;
-                    chan.members.clear();
+                let key = net.key(&nick);
+                let Some(user) = net.users.get_mut(&key) else {
+                    return;
+                };
+                match command.as_str() {
+                    "AWAY" => user.away = msg.params.first().cloned(),
+                    "ACCOUNT" => user.account = Some(param(0).to_owned()).filter(|a| a != "*"),
+                    "CHGHOST" => user.userhost = Some(format!("{}@{}", param(0), param(1))),
+                    _ => user.realname = Some(param(0).to_owned()),
                 }
-                // A JOIN for someone already listed (a bouncer replay, or state
-                // that drifted) must not wipe their modes.
-                chan.members
-                    .entry(CaseKey::new(mapping, &nick))
-                    .or_insert_with(|| Member {
-                        nick: nick.clone(),
-                        modes: String::new(),
-                    });
-                let buffer = chan.buffer;
+            }
+            "INVITE" => {
+                let (target, channel) = (param(0).to_owned(), param(1).to_owned());
+                let to_me = net.is_me(&target);
+                let buffer = if to_me {
+                    Some(server_buffer)
+                } else {
+                    self.find_buffer(id, &channel)
+                };
+                let Some(buffer) = buffer else {
+                    return;
+                };
+                let whom = if to_me {
+                    "you".to_owned()
+                } else {
+                    format::sanitise_identifier(&target)
+                };
+                let text = Builder::default()
+                    .push(&shown_nick, bold())
+                    .push(&format!(" invited {whom} to "), Style::default())
+                    .push(&format::sanitise_identifier(&channel), bold())
+                    .finish();
+                self.push_line(buffer, event(text), effects);
+            }
+            "FAIL" | "WARN" | "NOTE" => {
+                // <type> <command> <code> [<context>...] <description>
+                let failed = command == "FAIL";
+                if failed && let Some(label) = &label {
+                    self.fail_label(
+                        id,
+                        label,
+                        param(msg.params.len().saturating_sub(1)),
+                        effects,
+                    );
+                }
+                let about = match param(0) {
+                    "*" | "" => "Server".to_owned(),
+                    other => other.to_owned(),
+                };
+                let verdict = match command.as_str() {
+                    "FAIL" => "failed",
+                    "WARN" => "warning",
+                    _ => "note",
+                };
+                let description = msg.params.last().map_or("", String::as_str);
+                let raw = format!("{about} {verdict}: {description} ({})", param(1));
+                let kind = if failed {
+                    LineKind::Error
+                } else {
+                    LineKind::Info
+                };
+                self.push_line(
+                    reply_buffer,
+                    line(kind, StyledText::parse(&raw), raw.clone(), None),
+                    effects,
+                );
+            }
+            "730" | "731" => self.on_monitor(id, param(1), command == "730", time, effects),
+            "734" => {
+                let text = StyledText::plain(&format!(
+                    "The server's MONITOR list is full (limit {}); not watching {}",
+                    param(1),
+                    param(2)
+                ));
+                let mut l = event(text);
+                l.kind = LineKind::Error;
+                self.push_line(server_buffer, l, effects);
+            }
+            "JOIN" => {
+                let channel = param(0).to_owned();
+                let host =
+                    source.map(|s| format!("{}@{}", s.user.unwrap_or("?"), s.host.unwrap_or("?")));
+                let Some(buffer) = self.on_join(id, msg) else {
+                    return;
+                };
                 let text = Builder::default()
                     .push(&shown_nick, bold())
                     .push(
@@ -767,6 +1201,9 @@ impl State {
                     chan.members.remove(&CaseKey::new(mapping, &nick));
                 }
                 let buffer = chan.buffer;
+                if let Some(net) = self.networks.get_mut(&id) {
+                    net.forget_if_gone(&nick);
+                }
                 let mut b = Builder::default()
                     .push(&shown_nick, bold())
                     .push(" has left ", Style::default())
@@ -794,6 +1231,9 @@ impl State {
                     chan.members.clear();
                 }
                 let buffer = chan.buffer;
+                if let Some(net) = self.networks.get_mut(&id) {
+                    net.forget_if_gone(&victim);
+                }
                 let b = Builder::default()
                     .push(&format::sanitise_identifier(&victim), bold())
                     .push(" was kicked from ", Style::default())
@@ -812,6 +1252,9 @@ impl State {
             "QUIT" => {
                 let reason = StyledText::parse(param(0));
                 let buffers = self.remove_everywhere(id, &nick);
+                if let Some(net) = self.networks.get_mut(&id) {
+                    net.users.remove(&net.key(&nick));
+                }
                 for buffer in buffers {
                     let b = Builder::default()
                         .push(&shown_nick, bold())
@@ -850,6 +1293,7 @@ impl State {
                         net.rekey();
                     }
                 }
+                self.send_monitor(id, effects);
             }
             "332" => {
                 let channel = param(1).to_owned();
@@ -885,6 +1329,7 @@ impl State {
                     chan.names_pending = true;
                     chan.members.clear();
                 }
+                let mut users = Vec::new();
                 for entry in names.split(' ').filter(|e| !e.is_empty()) {
                     let (symbols, rest) = isupport.split_prefixes(entry);
                     // userhost-in-names sends nick!user@host.
@@ -892,6 +1337,11 @@ impl State {
                     if nick.is_empty() {
                         continue;
                     }
+                    let parsed = Source::parse(rest);
+                    let userhost = parsed
+                        .user
+                        .zip(parsed.host)
+                        .map(|(u, h)| format!("{u}@{h}"));
                     let mut modes: Vec<char> = symbols
                         .chars()
                         .filter_map(|s| isupport.mode_for_symbol(s))
@@ -904,6 +1354,18 @@ impl State {
                             modes: modes.into_iter().collect(),
                         },
                     );
+                    users.push((nick.to_owned(), userhost));
+                }
+                if let Some(net) = self.networks.get_mut(&id) {
+                    for (nick, userhost) in users {
+                        let user = net.users.entry(net.key(&nick)).or_insert_with(|| User {
+                            nick: nick.clone(),
+                            ..User::default()
+                        });
+                        if userhost.is_some() {
+                            user.userhost = userhost;
+                        }
+                    }
                 }
             }
             "366" => {
@@ -924,6 +1386,14 @@ impl State {
                 let is_error = command.starts_with(['4', '5']) || command == "ERROR";
                 let skip = usize::from(command.bytes().all(|b| b.is_ascii_digit()));
                 let raw = msg.params.get(skip..).unwrap_or_default().join(" ");
+                if is_error && let Some(label) = &label {
+                    self.fail_label(
+                        id,
+                        label,
+                        msg.params.last().map_or("", String::as_str),
+                        effects,
+                    );
+                }
                 let kind = if is_error {
                     LineKind::Error
                 } else {
@@ -931,12 +1401,208 @@ impl State {
                 };
                 let sender = (!shown_nick.is_empty()).then_some(shown_nick);
                 self.push_line(
-                    server_buffer,
+                    reply_buffer,
                     line(kind, StyledText::parse(&raw), raw.clone(), sender),
                     effects,
                 );
             }
         }
+    }
+
+    /// Applies a JOIN to channel and user state. Returns the channel's buffer.
+    fn on_join(&mut self, id: NetworkId, msg: &Message) -> Option<BufferId> {
+        let source = msg.source.as_deref().map(Source::parse)?;
+        let nick = source.nick.to_owned();
+        let channel = msg.params.first()?.clone();
+        let net = self.networks.get(&id)?;
+        let is_me = net.is_me(&nick);
+        let mapping = net.isupport.casemapping;
+        // extended-join: JOIN <channel> <account> :<realname>
+        let extended = net.has_cap("extended-join") && msg.params.len() >= 3;
+        let chan = self.channel_mut(id, &channel)?;
+        if is_me {
+            chan.joined = true;
+            chan.rejoin = false;
+            chan.members.clear();
+        }
+        // A JOIN for someone already listed (a bouncer replay, or state that
+        // drifted) must not wipe their modes.
+        chan.members
+            .entry(CaseKey::new(mapping, &nick))
+            .or_insert_with(|| Member {
+                nick: nick.clone(),
+                modes: String::new(),
+            });
+        let buffer = chan.buffer;
+        let net = self.networks.get_mut(&id)?;
+        let user = net.users.entry(net.key(&nick)).or_insert_with(|| User {
+            nick: nick.clone(),
+            ..User::default()
+        });
+        if let (Some(u), Some(h)) = (source.user, source.host) {
+            user.userhost = Some(format!("{u}@{h}"));
+        }
+        if extended {
+            let account = msg.params.get(1).map_or("*", String::as_str);
+            user.account = (account != "*").then(|| account.to_owned());
+            user.realname = msg.params.get(2).cloned();
+        }
+        Some(buffer)
+    }
+
+    /// `account-tag`: any message may say which account its sender uses.
+    fn learn_from_tags(&mut self, id: NetworkId, msg: &Message) {
+        let Some(account) = msg.tags.get("account") else {
+            return;
+        };
+        let Some(nick) = msg.source.as_deref().map(|s| Source::parse(s).nick) else {
+            return;
+        };
+        let Some(net) = self.networks.get_mut(&id) else {
+            return;
+        };
+        if let Some(user) = net
+            .users
+            .get_mut(&CaseKey::new(net.isupport.casemapping, nick))
+        {
+            user.account = (account != "*").then(|| account.to_owned());
+        }
+    }
+
+    /// Sends `MONITOR +` for the watch list once the server says it supports it.
+    fn send_monitor(&mut self, id: NetworkId, effects: &mut Vec<Effect>) {
+        let Some(net) = self.networks.get_mut(&id) else {
+            return;
+        };
+        let Some(limit) = net.isupport.monitor else {
+            return;
+        };
+        if net.monitor_sent || net.watches.is_empty() {
+            return;
+        }
+        net.monitor_sent = true;
+        let nicks: Vec<&str> = net.watches.iter().map(|w| w.nick.as_str()).collect();
+        let (wanted, dropped) = nicks.split_at(limit.unwrap_or(usize::MAX).min(nicks.len()));
+        // Keep each line well inside 512 bytes.
+        let mut chunk = String::new();
+        let mut lines = Vec::new();
+        for nick in wanted {
+            if !chunk.is_empty() && chunk.len() + nick.len() > 400 {
+                lines.push(std::mem::take(&mut chunk));
+            }
+            if !chunk.is_empty() {
+                chunk.push(',');
+            }
+            chunk.push_str(nick);
+        }
+        if !chunk.is_empty() {
+            lines.push(chunk);
+        }
+        let dropped = dropped.join(", ");
+        let server_buffer = net.server_buffer;
+        for line in lines {
+            effects.push(Effect::Send(
+                id,
+                Message::new("MONITOR").param("+").param(line),
+            ));
+        }
+        if !dropped.is_empty() {
+            self.note_into(
+                server_buffer,
+                LineKind::Error,
+                &format!("The server's MONITOR limit is too small to watch: {dropped}"),
+                effects,
+            );
+        }
+    }
+
+    /// At the end of the MOTD, says so if the server can't watch nicks for us.
+    fn monitor_unsupported(&mut self, id: NetworkId, effects: &mut Vec<Effect>) {
+        let Some(net) = self.networks.get_mut(&id) else {
+            return;
+        };
+        if net.monitor_sent || net.watches.is_empty() || net.isupport.monitor.is_some() {
+            return;
+        }
+        net.monitor_sent = true;
+        let server_buffer = net.server_buffer;
+        self.note_into(
+            server_buffer,
+            LineKind::Error,
+            "This server doesn't support MONITOR, so Irsty can't tell you when watched nicks come online",
+            effects,
+        );
+    }
+
+    /// 730 and 731: watched nicks came online or went offline.
+    fn on_monitor(
+        &mut self,
+        id: NetworkId,
+        targets: &str,
+        online: bool,
+        time: Timestamp,
+        effects: &mut Vec<Effect>,
+    ) {
+        let Some(net) = self.networks.get_mut(&id) else {
+            return;
+        };
+        let mapping = net.isupport.casemapping;
+        let mut changed = Vec::new();
+        for target in targets.split(',').filter(|t| !t.is_empty()) {
+            let nick = Source::parse(target).nick;
+            let Some(watch) = net.watches.iter_mut().find(|w| mapping.eq(&w.nick, nick)) else {
+                continue;
+            };
+            let was = watch.online.replace(online);
+            // Say when someone comes online, and when someone we saw online
+            // leaves; an initial "offline" is not news.
+            if was != Some(online) && (online || was == Some(true)) {
+                changed.push(nick.to_owned());
+            }
+        }
+        for nick in changed {
+            let mut buffers = vec![self.networks.get(&id).map(|n| n.server_buffer)];
+            buffers.push(
+                self.networks
+                    .get(&id)
+                    .and_then(|n| n.queries.get(&n.key(&nick)).copied()),
+            );
+            let state = if online { "online" } else { "offline" };
+            for buffer in buffers.into_iter().flatten() {
+                let text = Builder::default()
+                    .push(&format::sanitise_identifier(&nick), bold())
+                    .push(&format!(" is {state}"), Style::default())
+                    .finish();
+                let line = Line {
+                    time,
+                    kind: LineKind::Info,
+                    sender: None,
+                    raw: text.to_plain(),
+                    text,
+                    delivery: Delivery::Delivered,
+                };
+                self.push_line(buffer, line, effects);
+            }
+        }
+    }
+
+    fn note_into(
+        &mut self,
+        buffer: BufferId,
+        kind: LineKind,
+        text: &str,
+        effects: &mut Vec<Effect>,
+    ) {
+        let text = StyledText::plain(text);
+        let line = Line {
+            time: (self.clock)(),
+            kind,
+            sender: None,
+            raw: text.to_plain(),
+            text,
+            delivery: Delivery::Delivered,
+        };
+        self.push_line(buffer, line, effects);
     }
 
     fn mapping(&self, id: NetworkId) -> CaseMapping {
@@ -951,6 +1617,7 @@ impl State {
         id: NetworkId,
         msg: &Message,
         time: Timestamp,
+        label: Option<&str>,
         effects: &mut Vec<Effect>,
     ) {
         let Some(net) = self.networks.get(&id) else {
@@ -986,6 +1653,7 @@ impl State {
                     sender: None,
                     raw: text.to_plain(),
                     text,
+                    delivery: Delivery::Delivered,
                 };
                 self.push_line(server_buffer, line, effects);
                 return;
@@ -993,6 +1661,14 @@ impl State {
             None if notice => (LineKind::Notice, body.to_owned()),
             None => (LineKind::Message, body.to_owned()),
         };
+        // Our own messages come back with echo-message or from a bouncer; never
+        // show or log a services password we typed.
+        let raw = if from_me {
+            crate::redact::services_text(&target, &raw)
+        } else {
+            raw
+        };
+        let echo = from_me && net.has_cap("echo-message");
 
         let buffer = if is_channel {
             self.channel_mut(id, &channel).map(|c| c.buffer)
@@ -1007,6 +1683,12 @@ impl State {
         let Some(buffer) = buffer else {
             return;
         };
+        if echo && self.confirm_echo(buffer, label, kind, &raw, time, effects) {
+            if let Some(label) = label {
+                self.forget_label(id, label);
+            }
+            return;
+        }
         let sender = (!nick.is_empty()).then(|| format::sanitise_identifier(&nick));
         let line = Line {
             time,
@@ -1014,6 +1696,7 @@ impl State {
             sender,
             text: StyledText::parse(&raw),
             raw,
+            delivery: Delivery::Delivered,
         };
         self.push_line(buffer, line, effects);
     }
@@ -1063,6 +1746,10 @@ impl State {
                 buffers.push(channel.buffer);
             }
         }
+        if let Some(mut user) = net.users.remove(&old_key) {
+            new.clone_into(&mut user.nick);
+            net.users.insert(new_key.clone(), user);
+        }
         if let Some(query) = net.queries.remove(&old_key) {
             net.queries.insert(new_key, query);
             if let Some(buffer) = self.buffers.get_mut(&query) {
@@ -1085,6 +1772,7 @@ impl State {
                 sender: None,
                 raw: text.to_plain(),
                 text,
+                delivery: Delivery::Delivered,
             };
             self.push_line(buffer, line, effects);
         }
@@ -1126,9 +1814,15 @@ impl State {
             sender: None,
             raw: text.to_plain(),
             text,
+            delivery: Delivery::Delivered,
         };
         self.push_line(buffer, line, effects);
     }
+}
+
+/// The `server-time` of a message, if it has one.
+fn msg_time(msg: &Message) -> Option<Timestamp> {
+    msg.tags.get("time").and_then(|t| t.parse().ok())
 }
 
 /// Reports whether `text` mentions `nick` as a whole word.
@@ -1582,9 +2276,10 @@ mod tests {
     #[test]
     fn own_messages_and_closing() {
         let mut s = state();
-        let (buffer, effects) = s.own_message(NET, "#c", LineKind::Message, "hi \x02there");
-        let buffer = buffer.unwrap();
-        assert_eq!(effects, [Effect::Line(buffer)]);
+        let own = s.own_message(NET, "#c", LineKind::Message, "hi \x02there");
+        let buffer = own.buffer.unwrap();
+        assert_eq!(own.effects, [Effect::Line(buffer)]);
+        assert_eq!(own.label, None, "no labels without echo-message");
         let b = s.buffer(buffer).unwrap();
         assert_eq!((b.unread, b.activity), (0, Activity::None));
         let line = b.lines().back().unwrap();
@@ -1592,8 +2287,10 @@ mod tests {
             (line.sender.as_deref(), line.text.to_plain().as_str()),
             (Some("me"), "hi there")
         );
-        let (query, _) = s.own_message(NET, "bob", LineKind::Action, "waves");
-        let query = query.unwrap();
+        let query = s
+            .own_message(NET, "bob", LineKind::Action, "waves")
+            .buffer
+            .unwrap();
         assert_eq!(s.find_buffer(NET, "BOB"), Some(query));
         assert!(s.remove_buffer(query));
         assert!(!s.remove_buffer(query));
@@ -1604,7 +2301,7 @@ mod tests {
         assert!(!s.remove_buffer(server), "server buffers stay");
         assert!(
             s.own_message(NetworkId(9), "#x", LineKind::Message, "x")
-                .0
+                .buffer
                 .is_none()
         );
     }

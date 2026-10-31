@@ -318,6 +318,9 @@ pub struct NetworkConfig {
     /// replaced with the current nick.
     #[serde(default)]
     pub perform: Vec<PerformLine>,
+    /// Nicks to watch: Irsty says when they come online or leave (`MONITOR`).
+    #[serde(default)]
+    pub monitor: Vec<String>,
     /// Connect at startup. Defaults to true.
     #[serde(default = "default_true")]
     pub autoconnect: bool,
@@ -481,6 +484,16 @@ impl Config {
             {
                 return invalid(format!(
                     "network {:?} needs at least one valid nick",
+                    net.name
+                ));
+            }
+            if net
+                .monitor
+                .iter()
+                .any(|n| n.is_empty() || n.contains([' ', ',', '!', '@', '\r', '\n']))
+            {
+                return invalid(format!(
+                    "network {:?}: monitor entries must be nicks",
                     net.name
                 ));
             }

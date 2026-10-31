@@ -44,6 +44,13 @@ Each network has one connection task (`irsty_core::net::connection`). It:
 
 Joining channels is not its job: on `Registered`, `State::apply` returns `Send` effects for the network's perform lines, then autojoin plus every channel that was joined when the link dropped.
 
+## IRCv3
+
+- **Batches** (`irsty_core::batch`): messages tagged with an open batch are held until `BATCH -ref`, then handled together. Netsplits and netjoins become one line per channel; labelled batches are handled with their label; other types are handled in order. Open batches and batch sizes are capped, so a hostile server can't make us hold messages forever.
+- **Our own messages** with `echo-message`: `State::own_message` records the line as `Delivery::Pending` and, with `labeled-response`, returns a label for the outgoing message. The echo (matched by label, or else by kind and text, oldest first) confirms it in place with the server's time; a labelled error, or a disconnect, marks it `Failed`. Pending lines are logged only once confirmed (`Effect::Log`); `Effect::Updated` redraws without logging. Echoes of services passwords are redacted like the lines we typed.
+- **Users**: `Network::user` keeps account, `user@host`, real name and away message for people who share a channel with us, fed by `extended-join`, `account-tag`, `account-notify`, `chghost`, `setname`, `away-notify` and `userhost-in-names`, and forgotten when we no longer share a channel.
+- **`MONITOR`**: the per-network watch list is sent once `RPL_ISUPPORT` advertises it; 730 and 731 update `Network::watches`.
+
 `irsty_core::Client` owns `State`, the event receiver and the per-network command senders. `Client::next` waits for one event, then drains up to 512 more without waiting, applies them, runs the effects, and returns the buffers that changed. It is cancel-safe, so a frontend can `select!` on it alongside terminal input.
 
 ## Terminal UI
