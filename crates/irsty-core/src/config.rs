@@ -458,6 +458,28 @@ impl Default for HistoryConfig {
     }
 }
 
+/// Typing notifications (`+typing`).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TypingConfig {
+    /// Tell others when we are typing. Off by default: it shows when you are
+    /// at the keyboard.
+    #[serde(default)]
+    pub send: bool,
+    /// Show who is typing in the status bar. Defaults to true.
+    #[serde(default = "default_true")]
+    pub show: bool,
+}
+
+impl Default for TypingConfig {
+    fn default() -> Self {
+        Self {
+            send: false,
+            show: true,
+        }
+    }
+}
+
 /// Notifications.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -700,6 +722,9 @@ pub struct Config {
     /// Chat history.
     #[serde(default)]
     pub history: HistoryConfig,
+    /// Typing notifications.
+    #[serde(default)]
+    pub typing: TypingConfig,
 }
 
 impl Default for Config {
@@ -718,6 +743,7 @@ impl Default for Config {
             notifications: NotifyConfig::default(),
             ctcp: CtcpConfig::default(),
             history: HistoryConfig::default(),
+            typing: TypingConfig::default(),
         }
     }
 }

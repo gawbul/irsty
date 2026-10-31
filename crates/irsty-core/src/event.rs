@@ -35,6 +35,9 @@ pub enum NetEvent {
     Caps {
         /// Every enabled capability.
         enabled: Vec<String>,
+        /// The values the server gave enabled capabilities, where not empty
+        /// (such as `draft/multiline`'s limits).
+        values: Vec<(String, String)>,
     },
     /// SASL finished.
     Sasl(Result<Option<String>, String>),

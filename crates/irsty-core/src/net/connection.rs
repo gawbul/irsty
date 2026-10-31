@@ -32,6 +32,7 @@ pub const DEFAULT_CAPS: &[&str] = &[
     "cap-notify",
     "chghost",
     "draft/chathistory",
+    "draft/multiline",
     "draft/read-marker",
     "echo-message",
     "extended-join",
@@ -681,8 +682,15 @@ impl<'a> Session<'a> {
             }
         }
         if caps_changed {
-            let enabled = self.cap.enabled().map(str::to_owned).collect();
-            self.emit(NetEvent::Caps { enabled }).await?;
+            let enabled: Vec<String> = self.cap.enabled().map(str::to_owned).collect();
+            let values = enabled
+                .iter()
+                .filter_map(|c| {
+                    let value = self.cap.value(c).filter(|v| !v.is_empty())?;
+                    Some((c.clone(), value.to_owned()))
+                })
+                .collect();
+            self.emit(NetEvent::Caps { enabled, values }).await?;
         }
         Ok(())
     }

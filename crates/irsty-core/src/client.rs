@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use irsty_proto::sasl::Mechanism;
-use irsty_proto::{Message, ctcp, split};
+use irsty_proto::{Message, ctcp, multiline, split};
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio::task::JoinSet;
 
@@ -16,7 +16,7 @@ use crate::event::{NetCommand, NetEvent, NetworkId};
 use crate::log::LogWriter;
 use crate::net::connection::{self, EventSender, Proxy, Server, Settings};
 use crate::state::{
-    BouncerNetwork, BufferId, BufferKind, Effect, Line, LineKind, Notification, State,
+    BouncerNetwork, BufferId, BufferKind, Effect, Line, LineKind, Notification, OwnMessage, State,
 };
 
 /// Events buffered between connection tasks and the app loop.
@@ -30,6 +30,9 @@ const MAX_BATCH: usize = 512;
 
 /// Shortest gap between read-marker updates for the buffer on screen.
 const READ_SYNC: Duration = Duration::from_secs(15);
+
+/// Shortest gap between typing notifications to one target (the spec's).
+const TYPING_GAP: Duration = Duration::from_secs(3);
 
 /// Text from the bouncer, made safe to show.
 fn sanitise(text: &str) -> String {
@@ -63,6 +66,9 @@ pub enum SendError {
     /// Messages cannot be sent to a server buffer.
     #[error("this is a server buffer; use /msg or /join")]
     ServerBuffer,
+    /// The server doesn't support what this needs.
+    #[error("the server doesn't support {0}")]
+    Unsupported(&'static str),
 }
 
 /// Lets tests and alternative frontends tweak connection settings.
@@ -90,6 +96,12 @@ pub struct Client {
     /// The next network id. Ids are never reused, so late events from a
     /// removed network's connection can't land on a new one.
     next_network: u32,
+    /// Send typing notifications (`typing.send`).
+    send_typing: bool,
+    /// When we last told each target we were typing.
+    typing_sent: std::collections::HashMap<(NetworkId, String), std::time::Instant>,
+    /// The next multi-line batch reference.
+    next_batch: u64,
 }
 
 impl std::fmt::Debug for Client {
@@ -123,6 +135,9 @@ impl Client {
             notifications: Vec::new(),
             bouncer_children: std::collections::HashMap::new(),
             last_read: None,
+            send_typing: config.typing.send,
+            typing_sent: std::collections::HashMap::new(),
+            next_batch: 0,
         };
         client.state.set_history(config.history.lines);
         client.state.set_ctcp(config.ctcp.clone());
@@ -218,6 +233,7 @@ impl Client {
     /// Applies settings that can change while running: scrollback, ignores
     /// and highlights. (The UI applies its own.)
     pub fn apply_config(&mut self, config: &Config) {
+        self.send_typing = config.typing.send;
         self.state.set_history(config.history.lines);
         self.state.set_ctcp(config.ctcp.clone());
         self.state.set_scrollback(config.scrollback);
@@ -301,8 +317,10 @@ impl Client {
     }
 
     /// Sends text to a channel or nick, split to fit, and records it locally.
-    /// With `action`, sends a CTCP ACTION (`/me`). Returns the buffer it was
-    /// recorded in.
+    /// With `action`, sends a CTCP ACTION (`/me`). Text of several lines goes
+    /// as one multi-line message where the server takes them
+    /// (`draft/multiline`), and as a message per line otherwise. Returns the
+    /// buffer it was recorded in.
     pub fn say(
         &mut self,
         id: NetworkId,
@@ -310,17 +328,51 @@ impl Client {
         text: &str,
         action: bool,
     ) -> Result<Option<BufferId>, SendError> {
+        self.say_with(id, target, text, action, None)
+    }
+
+    /// Sends text as a reply to the message with id `msgid` (`+reply`), as
+    /// [`Client::say`] does. Without `message-tags` it goes as plain text.
+    pub fn reply(
+        &mut self,
+        id: NetworkId,
+        target: &str,
+        msgid: &str,
+        text: &str,
+    ) -> Result<Option<BufferId>, SendError> {
+        self.say_with(id, target, text, false, Some(msgid))
+    }
+
+    fn say_with(
+        &mut self,
+        id: NetworkId,
+        target: &str,
+        text: &str,
+        action: bool,
+        reply: Option<&str>,
+    ) -> Result<Option<BufferId>, SendError> {
         let net = self.state.network(id).ok_or(SendError::UnknownNetwork)?;
         if net.status != crate::state::Status::Registered {
             return Err(SendError::NotConnected);
         }
         let nick = net.nick.clone();
+        let reply =
+            reply.filter(|_| net.has_client_tags() && net.isupport.client_tag_allowed("reply"));
+        let limits = net.multiline();
+        // A message ends typing; there is no need to say so.
+        self.typing_sent.remove(&(id, target.to_ascii_lowercase()));
         // ACTION adds "\x01ACTION " and "\x01".
         let overhead = if action { 9 } else { 0 };
         let budget = split::text_budget(&nick, None, None, "PRIVMSG", target)
             .saturating_sub(overhead)
             .max(1);
+        if let Some(limits) =
+            limits.filter(|l| !action && text.contains('\n') && l.max_bytes >= budget)
+        {
+            return self.say_multiline(id, target, text, (budget, limits), reply);
+        }
         let mut buffer = None;
+        let mut reply = reply;
         for chunk in text
             .split(['\r', '\n'])
             .flat_map(|line| split::split_text(line, budget))
@@ -340,27 +392,160 @@ impl Client {
             };
             // Never keep a services password in scrollback or logs.
             let shown = crate::redact::services_text(target, chunk);
-            let own = self.state.own_message(id, target, kind, &shown);
+            let own = self
+                .state
+                .own_lines(id, target, kind, &[shown.as_str()], reply);
             let mut msg = Message::new("PRIVMSG").param(target).param(body);
             if let Some(label) = &own.label {
                 msg = msg.tag("label", label);
             }
-            let sent = self.send(id, msg);
-            let mut effects = own.effects;
-            if let (Err(error), Some(recorded)) = (&sent, own.buffer) {
-                // Show it as not sent, and keep it out of the log.
-                self.state.fail_newest(recorded, &error.to_string());
-                for effect in &mut effects {
-                    if matches!(effect, Effect::Line(b, _) if *b == recorded) {
-                        *effect = Effect::Updated(recorded);
-                    }
-                }
+            // Only the first piece is the reply.
+            if let Some(msgid) = reply.take() {
+                msg = msg.tag("+reply", msgid);
             }
-            self.run_effects(effects);
+            let sent = self.send(id, msg);
+            buffer = buffer.or(own.buffer);
+            self.recorded(own, 1, sent.as_ref().err());
             sent?;
-            buffer = own.buffer.or(buffer);
         }
         Ok(buffer)
+    }
+
+    /// Sends text of several lines as multi-line messages, in as many batches
+    /// as the server's limits need.
+    fn say_multiline(
+        &mut self,
+        id: NetworkId,
+        target: &str,
+        text: &str,
+        (budget, limits): (usize, multiline::Limits),
+        mut reply: Option<&str>,
+    ) -> Result<Option<BufferId>, SendError> {
+        let pieces = multiline::pieces(text, budget);
+        let mut buffer = None;
+        for group in multiline::group(&pieces, limits) {
+            let lines = multiline::assemble(group.iter().map(|p| (p.text, p.concat)));
+            // Never keep a services password in scrollback or logs.
+            let shown: Vec<String> = lines
+                .iter()
+                .map(|l| crate::redact::services_text(target, l))
+                .collect();
+            let shown: Vec<&str> = shown.iter().map(String::as_str).collect();
+            let own = self
+                .state
+                .own_lines(id, target, LineKind::Message, &shown, reply);
+            self.next_batch += 1;
+            let reference = format!("irsty{}", self.next_batch);
+            let mut msgs = multiline::messages(&reference, "PRIVMSG", target, &group);
+            if let Some(start) = msgs.first_mut() {
+                if let Some(label) = &own.label {
+                    start.tags.insert("label", label.clone());
+                }
+                if let Some(msgid) = reply.take() {
+                    start.tags.insert("+reply", msgid);
+                }
+            }
+            let sent = self.send_all(id, msgs);
+            buffer = buffer.or(own.buffer);
+            self.recorded(own, shown.len(), sent.as_ref().err());
+            sent?;
+        }
+        Ok(buffer)
+    }
+
+    /// Carries out what recording our own `count` lines produced; if sending
+    /// them failed, they are shown as not sent and kept out of the log.
+    fn recorded(&mut self, own: OwnMessage, count: usize, error: Option<&SendError>) {
+        let mut effects = own.effects;
+        if let (Some(error), Some(recorded)) = (error, own.buffer) {
+            self.state.fail_newest(recorded, count, &error.to_string());
+            for effect in &mut effects {
+                if matches!(effect, Effect::Line(b, _) if *b == recorded) {
+                    *effect = Effect::Updated(recorded);
+                }
+            }
+        }
+        self.run_effects(effects);
+    }
+
+    /// Reacts to the message with id `msgid` in `buffer` (`+draft/react`), or
+    /// with `remove` takes the reaction back (`+draft/unreact`).
+    pub fn react(
+        &mut self,
+        buffer: BufferId,
+        msgid: &str,
+        text: &str,
+        remove: bool,
+    ) -> Result<(), SendError> {
+        let buf = self.state.buffer(buffer).ok_or(SendError::NotConnected)?;
+        if buf.kind == BufferKind::Server {
+            return Err(SendError::ServerBuffer);
+        }
+        let (id, target) = (buf.network, buf.name.clone());
+        let net = self.state.network(id).ok_or(SendError::UnknownNetwork)?;
+        if net.status != crate::state::Status::Registered {
+            return Err(SendError::NotConnected);
+        }
+        let tag = if remove {
+            "+draft/unreact"
+        } else {
+            "+draft/react"
+        };
+        if !net.has_client_tags() || !net.isupport.client_tag_allowed(&tag[1..]) {
+            return Err(SendError::Unsupported("reactions (message-tags)"));
+        }
+        let echo = net.has_cap("echo-message");
+        let msg = Message::new("TAGMSG")
+            .tag("+reply", msgid)
+            .tag(tag, text)
+            .param(target);
+        self.send(id, msg)?;
+        // With echo-message the server's echo records it.
+        if !echo {
+            self.state.own_reaction(buffer, msgid, text, remove);
+        }
+        Ok(())
+    }
+
+    /// Tells `target` that we are typing, or with `typing` false that we
+    /// stopped without sending anything (`+typing`). Does nothing unless
+    /// `typing.send` is on and the server relays the tag, and sends at most
+    /// one notification per target every three seconds.
+    pub fn typing(&mut self, id: NetworkId, target: &str, typing: bool) {
+        if !self.send_typing {
+            return;
+        }
+        let Some(net) = self.state.network(id) else {
+            return;
+        };
+        if net.status != crate::state::Status::Registered
+            || !net.has_client_tags()
+            || !net.isupport.client_tag_allowed("typing")
+        {
+            return;
+        }
+        let key = (id, target.to_ascii_lowercase());
+        let now = std::time::Instant::now();
+        let last = self.typing_sent.get(&key).copied();
+        let recent = last.is_some_and(|t| now.duration_since(t) < TYPING_GAP);
+        let value = if typing {
+            if recent {
+                return;
+            }
+            self.typing_sent.insert(key, now);
+            "active"
+        } else {
+            // Too soon to say (the notification runs out anyway), or
+            // nothing to take back.
+            if recent || self.typing_sent.remove(&key).is_none() {
+                return;
+            }
+            "done"
+        };
+        let msg = Message::new("TAGMSG").tag("+typing", value).param(target);
+        if let Err(error) = self.send(id, msg) {
+            tracing::debug!(%error, "cannot send a typing notification");
+        }
     }
 
     /// Sends a raw protocol line, as typed with `/raw`, and notes a redacted copy
@@ -597,6 +782,19 @@ impl Client {
             buf.name.as_str()
         };
         logger.log(&network.name, name, line);
+    }
+
+    /// Sends several messages on a network, all or none: a multi-line batch
+    /// must not be cut short by a full queue. Never blocks.
+    fn send_all(&self, id: NetworkId, msgs: Vec<Message>) -> Result<(), SendError> {
+        let tx = self.commands.get(&id).ok_or(SendError::NotConnected)?;
+        if tx.capacity() < msgs.len() {
+            return Err(SendError::QueueFull);
+        }
+        for msg in msgs {
+            self.send(id, msg)?;
+        }
+        Ok(())
     }
 
     /// Sends a message on a network. Never blocks.

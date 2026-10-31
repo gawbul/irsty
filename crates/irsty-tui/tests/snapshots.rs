@@ -160,6 +160,7 @@ fn pending_and_failed_own_messages() {
         NET,
         NetEvent::Caps {
             enabled: vec!["echo-message".into()],
+            values: Vec::new(),
         },
     );
     let own = s.own_message(
@@ -175,7 +176,7 @@ fn pending_and_failed_own_messages() {
         irsty_core::state::LineKind::Message,
         "lost one",
     );
-    s.fail_newest(own.buffer.unwrap(), "send queue full");
+    s.fail_newest(own.buffer.unwrap(), 1, "send queue full");
     let mut ui = ui(&s, "#irsty");
     insta::assert_debug_snapshot!(render(&s, &mut ui, 80, 8).backend());
 }
