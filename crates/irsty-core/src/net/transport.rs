@@ -352,7 +352,7 @@ pub async fn connect(
     timeout: Duration,
 ) -> Result<Stream, ConnectError> {
     let attempt = async {
-        let tcp = TcpStream::connect((server.host.as_str(), server.port)).await?;
+        let tcp = super::dial::connect(&server.host, server.port).await?;
         tcp.set_nodelay(true)?;
         let Some(tls) = tls else {
             return Ok(Either::Left(tcp));

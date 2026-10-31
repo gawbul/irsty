@@ -214,7 +214,11 @@ pub struct ServerConfig {
 
 impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.host, self.port)?;
+        if self.host.contains(':') {
+            write!(f, "[{}]:{}", self.host, self.port)?;
+        } else {
+            write!(f, "{}:{}", self.host, self.port)?;
+        }
         if self.tls {
             f.write_str(" (TLS)")?;
         }
@@ -386,7 +390,7 @@ pub struct Config {
 impl Config {
     /// Parses and validates configuration text.
     pub fn parse(text: &str, path: &Path) -> Result<Self, ConfigError> {
-        let config: Self = toml::from_str(text).map_err(|e| {
+        let mut config: Self = toml::from_str(text).map_err(|e| {
             let offset = e.span().map_or(0, |span| span.start);
             let before = text.get(..offset).unwrap_or_default();
             ConfigError::Parse {
@@ -396,6 +400,16 @@ impl Config {
                 message: e.message().to_owned(),
             }
         })?;
+        // Accept IPv6 literals written as in URLs, "[2001:db8::1]".
+        for server in config.networks.iter_mut().flat_map(|n| &mut n.servers) {
+            if let Some(bare) = server
+                .host
+                .strip_prefix('[')
+                .and_then(|h| h.strip_suffix(']'))
+            {
+                server.host = bare.to_owned();
+            }
+        }
         config.validate()?;
         Ok(config)
     }
@@ -708,6 +722,18 @@ mod tests {
         let err = parse("bogus = 1").unwrap_err().to_string();
         assert!(err.contains("unknown field"), "{err}");
         assert!(parse("").unwrap().networks.is_empty());
+    }
+
+    #[test]
+    fn accepts_bracketed_ipv6_hosts() {
+        let config = parse(
+            "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[[network.servers]]\nhost = \"[2001:db8::1]\"\n[[network.servers]]\nhost = \"::1\"\nport = 6667\ntls = false",
+        )
+        .unwrap();
+        let servers = &config.networks[0].servers;
+        assert_eq!(servers[0].host, "2001:db8::1");
+        assert_eq!(servers[0].to_string(), "[2001:db8::1]:6697 (TLS)");
+        assert_eq!(servers[1].to_string(), "[::1]:6667");
     }
 
     #[test]

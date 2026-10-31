@@ -107,7 +107,7 @@ fn hmac(key: &[u8], data: &[u8]) -> Vec<u8> {
     )
 }
 
-/// Applies `SASLprep` to a user name and escapes it for SCRAM (`=` and `,` are special).
+/// Applies SASLprep to a user name and escapes it for SCRAM (`=` and `,` are special).
 fn scram_name(name: &str) -> Result<String, String> {
     let prepped = stringprep::saslprep(name)
         .map_err(|_| "the account name contains characters SASLprep forbids".to_owned())?;

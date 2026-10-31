@@ -3,5 +3,6 @@
 pub mod backoff;
 pub mod codec;
 pub mod connection;
+pub mod dial;
 pub mod ratelimit;
 pub mod transport;
