@@ -263,6 +263,42 @@ async fn registers_with_cap_and_sasl_plain() {
     );
 }
 
+/// A server that lists its mechanisms without ours is never asked to
+/// authenticate, so SCRAM can't be downgraded to PLAIN.
+#[tokio::test]
+async fn sasl_mechanism_not_offered_is_not_attempted() {
+    let mock = Mock::bind().await;
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = config(
+        mock.port(),
+        "[network.sasl]\nmechanism = \"scram-sha-256\"\naccount = \"a\"\npassword = { plain = \"pw\" }",
+        dir.path(),
+    );
+    let server = tokio::spawn(async move {
+        let mut c = mock.accept().await;
+        for _ in 0..3 {
+            c.recv().await;
+        }
+        c.send(":srv CAP * LS :sasl=PLAIN,EXTERNAL").await;
+        c.expect("CAP REQ sasl").await;
+        c.send(":srv CAP * ACK :sasl").await;
+        // No AUTHENTICATE: straight to CAP END.
+        c.expect("CAP END").await;
+        c.send(":srv 001 me :Welcome").await;
+        c
+    });
+    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30))));
+    until(&mut client, |c| status(c) == Status::Registered).await;
+    assert!(
+        server_text(&client).iter().any(|l| l
+            == "SASL authentication failed: the server offers SASL PLAIN,EXTERNAL but not SCRAM-SHA-256"),
+        "{:?}",
+        server_text(&client)
+    );
+    let _conn = server.await.unwrap();
+    client.quit(None).await;
+}
+
 #[tokio::test]
 async fn sasl_failure_still_registers() {
     let mock = Mock::bind().await;

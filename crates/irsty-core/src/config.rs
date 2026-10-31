@@ -230,6 +230,9 @@ pub enum SaslMechanism {
     Plain,
     /// The TLS client certificate (CertFP).
     External,
+    /// Account name and password, proved without sending the password.
+    #[serde(rename = "scram-sha-256")]
+    ScramSha256,
 }
 
 /// SASL settings.
@@ -238,9 +241,9 @@ pub enum SaslMechanism {
 pub struct SaslConfig {
     /// The mechanism.
     pub mechanism: SaslMechanism,
-    /// Account name; required for `plain`.
+    /// Account name; required for `plain` and `scram-sha-256`.
     pub account: Option<String>,
-    /// Password; required for `plain`.
+    /// Password; required for `plain` and `scram-sha-256`.
     pub password: Option<SecretSource>,
 }
 
@@ -407,10 +410,17 @@ impl Config {
             }
             if let Some(sasl) = &net.sasl {
                 match sasl.mechanism {
-                    SaslMechanism::Plain if sasl.account.is_none() || sasl.password.is_none() => {
+                    SaslMechanism::Plain | SaslMechanism::ScramSha256
+                        if sasl.account.is_none() || sasl.password.is_none() =>
+                    {
                         return invalid(format!(
-                            "network {:?}: SASL plain needs account and password",
-                            net.name
+                            "network {:?}: SASL {} needs account and password",
+                            net.name,
+                            if sasl.mechanism == SaslMechanism::Plain {
+                                "plain"
+                            } else {
+                                "scram-sha-256"
+                            }
                         ));
                     }
                     SaslMechanism::External if net.client_cert.is_none() => {
@@ -611,6 +621,14 @@ mod tests {
             (
                 "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[[network.servers]]\nhost = \"h\"\n[network.sasl]\nmechanism = \"external\"",
                 "client_cert",
+            ),
+            (
+                "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[[network.servers]]\nhost = \"h\"\n[network.sasl]\nmechanism = \"scram-sha-256\"\naccount = \"a\"",
+                "SASL scram-sha-256 needs account and password",
+            ),
+            (
+                "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[[network.servers]]\nhost = \"h\"\n[network.sasl]\nmechanism = \"scram\"",
+                "unknown variant",
             ),
             ("scrollback = 0", "scrollback"),
         ];

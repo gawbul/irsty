@@ -447,17 +447,19 @@ async fn settings_for(id: NetworkId, net: &NetworkConfig) -> Result<Settings, St
         None => None,
         Some(sasl) => Some(match sasl.mechanism {
             SaslMechanism::External => Mechanism::External,
-            SaslMechanism::Plain => {
+            SaslMechanism::Plain | SaslMechanism::ScramSha256 => {
                 let password = match &sasl.password {
                     Some(source) => source
                         .resolve()
                         .await
                         .map_err(|e| format!("SASL password: {e}"))?,
-                    None => return Err("SASL plain needs a password".into()),
+                    None => return Err("SASL needs a password".into()),
                 };
-                Mechanism::Plain {
-                    account: sasl.account.clone().unwrap_or_default(),
-                    password,
+                let account = sasl.account.clone().unwrap_or_default();
+                if sasl.mechanism == SaslMechanism::Plain {
+                    Mechanism::Plain { account, password }
+                } else {
+                    Mechanism::ScramSha256 { account, password }
                 }
             }
         }),

@@ -602,9 +602,7 @@ impl<'a> Session<'a> {
                 CapEvent::Enabled(_) | CapEvent::Disabled(_) => caps_changed = true,
                 CapEvent::SaslReady => {
                     if let Some(mechanism) = self.settings.sasl.clone() {
-                        let auth = Authenticator::new(mechanism);
-                        self.enqueue_all([auth.start()]);
-                        self.sasl = Some(auth);
+                        self.start_sasl(mechanism).await?;
                     }
                 }
                 CapEvent::SaslUnavailable => {
@@ -619,6 +617,32 @@ impl<'a> Session<'a> {
             let enabled = self.cap.enabled().map(str::to_owned).collect();
             self.emit(NetEvent::Caps { enabled }).await?;
         }
+        Ok(())
+    }
+
+    /// Starts SASL, unless the server lists its mechanisms and ours isn't one.
+    /// We never fall back to another mechanism: that could downgrade SCRAM to
+    /// PLAIN on a hostile server.
+    async fn start_sasl(&mut self, mechanism: Mechanism) -> Result<(), End> {
+        if let Some(offered) = self.cap.value("sasl").filter(|v| !v.is_empty()) {
+            let name = mechanism.name();
+            if !offered.split(',').any(|m| m.eq_ignore_ascii_case(name)) {
+                let reason = format!("the server offers SASL {offered} but not {name}");
+                self.emit(NetEvent::Sasl(Err(reason))).await?;
+                let finish = self.cap.finish();
+                self.enqueue_all(finish.send);
+                return Ok(());
+            }
+        }
+        let mut random = [0u8; 32];
+        let filled = tokio_rustls::rustls::crypto::aws_lc_rs::default_provider()
+            .secure_random
+            .fill(&mut random)
+            .is_ok();
+        // Without randomness SCRAM refuses to start; the others don't need it.
+        let auth = Authenticator::new(mechanism, if filled { &random } else { &[] });
+        self.enqueue_all([auth.start()]);
+        self.sasl = Some(auth);
         Ok(())
     }
 
