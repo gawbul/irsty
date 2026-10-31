@@ -6,6 +6,9 @@
 
 pub mod command;
 pub mod input;
+pub mod scrollback;
 pub mod theme;
+pub mod ui;
+pub mod view;
 
 pub use irsty_core as core;
