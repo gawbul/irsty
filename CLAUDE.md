@@ -32,5 +32,6 @@ The dependency direction is strictly `irsty → irsty-tui → irsty-core → irs
 - tracing writes to a file, never to the terminal.
 - UI snapshots live in `crates/irsty-tui/tests/snapshots/`. Review changes with `cargo insta review`, or generate with `INSTA_UPDATE=always` and read every changed `.snap` before committing. Snapshot state uses `State::set_clock` so timestamps are fixed.
 - Never call `Terminal::clear` in the UI: it queries the cursor position, which fails after two seconds on terminals that don't answer. Use `fresh_terminal()` in `run.rs`.
+- Mock-server integration tests share `crates/irsty-core/tests/support/mod.rs`. A test that waits on the mock for something the client sends only after processing a server message must keep driving the client (`drive`), or it deadlocks.
 - Ergo integration tests run when `IRSTY_ERGO_PORT` is set (see `CONTRIBUTING.md`). Local Docker can't pull from ghcr.io on this machine; use `mise run ergo` (`scripts/ergo.sh`), which runs the checksum-verified release binary on ports 16667/16697. Ergo's NickServ answers by notice, which lands in a `NickServ` query buffer, not the server buffer.
 - The repository sits in an iCloud-synced folder. Files named like `foo 2.rs` are sync duplicates, not code; compare them with the originals and move them out of the tree (cargo auto-discovers `tests/` and `benches/`).

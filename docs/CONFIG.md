@@ -27,6 +27,7 @@ username = "gawbul"
 realname = "Steve"
 autojoin = ["#irsty", "#rust"]
 perform = ["MODE $nick +i"]
+monitor = ["a_friend"]
 
 [[network.servers]]
 host = "irc.libera.chat"
@@ -99,6 +100,7 @@ Repeat for each network.
 | `username` | string | first nick | Username (ident). |
 | `realname` | string | first nick | Real name (gecos). |
 | `autojoin` | list of strings | `[]` | Channels to join after every registration. Channels you were in when a connection dropped are rejoined too. |
+| `monitor` | list of strings | `[]` | Nicks to watch. Irsty says in the server buffer (and their query, if open) when they come online or leave. Needs a server with `MONITOR`; Irsty tells you if it has none. |
 | `perform` | list of strings | `[]` | Raw IRC lines (as with `/raw`) sent after every registration, before autojoin. `$nick` becomes your current nick, for example `"MODE $nick +i"` or `"PRIVMSG ChanServ :OP #channel $nick"`. Lines are checked when the config loads. Prefer SASL to identifying here: a line holding a password gets the plaintext warning, though it is redacted from logs and debug output. |
 | `autoconnect` | boolean | `true` | Connect at startup. |
 | `sasl` | table | none | See below. |

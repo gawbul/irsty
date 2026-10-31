@@ -4,7 +4,7 @@
 
 A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](https://ratatui.rs). It is a spiritual successor to irssi and WeeChat: fast, readable out of the box, scriptable, with first-class IRCv3 support and good support for bouncers (soju, ZNC).
 
-> **Status:** early development. Irsty has a working terminal UI on top of finished protocol and connection layers (milestones M1 to M4). It is usable for basic chatting on several networks at once, but tab completion, most IRCv3 extensions and the full command set are still to come. See [`PLAN.md`](PLAN.md) for the roadmap.
+> **Status:** early development. Irsty has a working terminal UI on top of finished protocol and connection layers (milestones M1 to M5), with the core IRCv3 extensions. It is usable for basic chatting on several networks at once, but tab completion and the full command set are still to come. See [`PLAN.md`](PLAN.md) for the roadmap.
 
 ## Goals
 
@@ -18,14 +18,15 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **Protocol** (`irsty-proto`): a zero-copy message parser and validating serialiser, IRCv3 message tags, `RPL_ISUPPORT`, casemapping, mIRC formatting, CTCP, and message splitting. It is checked against the ircdocs parser-tests corpus, property-tested and fuzzed.
 - **Untrusted text:** escape sequences, control characters and bidi tricks from the network are neutralised before anything is displayed or logged.
 - **Connections** (`irsty-core`): TLS with OS certificate verification and plain-English certificate errors, client certificates, IPv6 with Happy Eyeballs, SOCKS5 proxies (Tor-friendly: DNS goes through the proxy), `CAP LS 302`, SASL SCRAM-SHA-256, PLAIN and EXTERNAL (CertFP) with no silent downgrade, perform lines, nick fallback, keepalive with lag measurement, rate-limited output, and reconnection with backoff, server rotation and automatic rejoin.
-- **State:** networks, channels, members and their modes, topics, queries and per-buffer scrollback.
+- **State:** networks, channels, members and their modes, topics, queries and per-buffer scrollback, plus each user's account, host, real name and away status.
+- **IRCv3:** `account-notify`, `account-tag`, `away-notify`, `batch` (netsplits and netjoins collapse to one line), `cap-notify`, `chghost`, `echo-message`, `extended-join`, `invite-notify`, `labeled-response`, `message-tags`, `multi-prefix`, `sasl`, `server-time`, `setname`, `standard-replies`, `userhost-in-names`, and `MONITOR`. With `echo-message`, your messages show dimmed until the server confirms them, and say why if they fail.
 - **Secrets:** read from the OS keyring or a command such as `pass`. Plaintext works but triggers a warning at every start.
 - **Logs:** one plain-text file per buffer, safe to `cat`.
 - **Terminal UI:** a buffer list grouped by network, scrollback with aligned nicks and word wrapping that handles CJK and emoji, a nick list, topic and status bars (activity, lag, and a loud warning for unverified TLS), and an input line with emacs-style editing and history. Keys follow irssi ([docs/KEYBINDINGS.md](docs/KEYBINDINGS.md)).
 - **Commands:** `/join /part /msg /query /me /nick /raw /connect /disconnect /close /quit /help` ([docs/COMMANDS.md](docs/COMMANDS.md)). Passwords sent with `/raw` or to NickServ are hidden on screen and in logs.
 - **Headless mode:** `--headless` prints every buffer's new lines to stdout.
 
-Not yet: tab completion, configurable keys, multi-line paste handling, highlights and notifications, and most IRCv3 extensions beyond `sasl`, `server-time`, `message-tags`, `multi-prefix`, `cap-notify` and `userhost-in-names`. These arrive in M5 to M8.
+Not yet: the full command set, tab completion, configurable keys, multi-line paste handling, highlights and notifications. These arrive in M6 to M8; chat history and other bouncer features follow in M9.
 
 ## Quick start
 

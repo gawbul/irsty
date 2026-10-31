@@ -17,6 +17,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- M5, IRCv3: `account-notify`, `account-tag`, `away-notify`, `batch`, `chghost`, `echo-message`, `extended-join`, `invite-notify`, `labeled-response`, `setname` and `standard-replies`, plus `MONITOR` with a per-network `monitor` list.
+  - With `echo-message`, your messages show dimmed until the server echoes them; `labeled-response` ties each echo or error to its line, and lines that fail say why. Only confirmed lines are logged.
+  - Netsplits and netjoins collapse into one line per channel.
+  - Away users are dimmed in the nick list.
 - M4, multiple networks and per-network config:
   - SASL SCRAM-SHA-256 (RFC 7677). The server must prove it knows the password, hostile parameters are rejected, and a mechanism the server doesn't list is never tried or swapped for a weaker one.
   - CertFP login with SASL EXTERNAL, tested against Ergo.
