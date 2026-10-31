@@ -2144,7 +2144,9 @@ impl State {
             }
             command => {
                 // Numerics and anything else: show in the server buffer.
-                let is_error = command.starts_with(['4', '5']) || command == "ERROR";
+                // 422 (no MOTD) is numbered like an error but isn't one.
+                let is_error =
+                    (command.starts_with(['4', '5']) && command != "422") || command == "ERROR";
                 let skip = usize::from(command.bytes().all(|b| b.is_ascii_digit()));
                 let raw = msg.params.get(skip..).unwrap_or_default().join(" ");
                 if is_error && let Some(label) = &label {
@@ -3110,6 +3112,12 @@ mod tests {
         assert_eq!(
             last_text(&s, server),
             "CTCP VERSION request from bob (answered)"
+        );
+        feed(&mut s, ":srv 422 me :MOTD File is missing");
+        assert_eq!(
+            s.buffer(server).unwrap().lines().back().unwrap().kind,
+            LineKind::Info,
+            "no MOTD isn't an error"
         );
         feed(&mut s, ":srv 433 * me :Nickname is already in use");
         assert_eq!(
