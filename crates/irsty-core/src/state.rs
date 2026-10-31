@@ -13,6 +13,7 @@ use irsty_proto::isupport::ModeKind;
 use irsty_proto::{ISupport, MAX_BODY_LEN, Message, Source};
 use jiff::Timestamp;
 
+use crate::config::PerformLine;
 use crate::event::{NetEvent, NetworkId};
 
 /// Identifies a buffer for the lifetime of the process.
@@ -196,6 +197,8 @@ pub struct Network {
     pub server_buffer: BufferId,
     /// Channels to join on every registration.
     pub autojoin: Vec<String>,
+    /// Raw lines sent on every registration, before autojoin.
+    pub perform: Vec<PerformLine>,
     channels: HashMap<CaseKey, Channel>,
     queries: HashMap<CaseKey, BufferId>,
 }
@@ -301,11 +304,19 @@ impl State {
                 insecure: false,
                 server_buffer,
                 autojoin,
+                perform: Vec::new(),
                 channels: HashMap::new(),
                 queries: HashMap::new(),
             },
         );
         server_buffer
+    }
+
+    /// Sets the lines a network sends after registration.
+    pub fn set_perform(&mut self, id: NetworkId, perform: Vec<PerformLine>) {
+        if let Some(net) = self.networks.get_mut(&id) {
+            net.perform = perform;
+        }
     }
 
     /// Looks up a network.
@@ -604,6 +615,13 @@ impl State {
         };
         net.status = Status::Registered;
         net.nick = nick;
+        for line in &net.perform {
+            // Validated at load, so a parse failure here is only possible for
+            // configs built in code; skip such lines.
+            if let Ok(msg) = Message::parse(&line.as_str().replace("$nick", &net.nick)) {
+                effects.push(Effect::Send(id, msg));
+            }
+        }
         let mut targets: Vec<String> = net.autojoin.clone();
         for channel in net.channels.values_mut() {
             if std::mem::take(&mut channel.rejoin)
@@ -1285,6 +1303,39 @@ mod tests {
                 NET,
                 Message::new("JOIN").param("#auto,#other")
             )]
+        );
+    }
+
+    #[test]
+    fn registration_sends_perform_before_joining() {
+        let mut s = state();
+        s.set_perform(
+            NET,
+            vec![
+                PerformLine::new("MODE $nick +i"),
+                PerformLine::new("PRIVMSG ChanServ :OP #auto $nick"),
+            ],
+        );
+        let effects = s.apply(NET, NetEvent::Registered { nick: "me_".into() });
+        assert_eq!(
+            effects,
+            [
+                Effect::Send(NET, Message::new("MODE").param("me_").param("+i")),
+                Effect::Send(
+                    NET,
+                    Message::new("PRIVMSG")
+                        .param("ChanServ")
+                        .param("OP #auto me_")
+                ),
+                Effect::Send(NET, Message::new("JOIN").param("#auto")),
+            ]
+        );
+        // Lines that don't parse are skipped rather than sent.
+        s.set_perform(NET, vec![PerformLine::new("")]);
+        let effects = s.apply(NET, NetEvent::Registered { nick: "me".into() });
+        assert_eq!(
+            effects,
+            [Effect::Send(NET, Message::new("JOIN").param("#auto"))]
         );
     }
 

@@ -278,9 +278,37 @@ pub struct NetworkConfig {
     /// Channels to join once registered.
     #[serde(default)]
     pub autojoin: Vec<String>,
+    /// Raw IRC lines sent after registration, before autojoin. `$nick` is
+    /// replaced with the current nick.
+    #[serde(default)]
+    pub perform: Vec<PerformLine>,
     /// Connect at startup. Defaults to true.
     #[serde(default = "default_true")]
     pub autoconnect: bool,
+}
+
+/// A raw IRC line sent after registration. `Debug` redacts passwords, since
+/// people do put `PRIVMSG NickServ :IDENTIFY ...` here.
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[serde(transparent)]
+pub struct PerformLine(String);
+
+impl PerformLine {
+    /// Wraps a line.
+    pub fn new(line: impl Into<String>) -> Self {
+        Self(line.into())
+    }
+
+    /// The line as written, with `$nick` unexpanded.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for PerformLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&crate::redact::raw_line(&self.0))
+    }
 }
 
 /// Plain-text logging.
@@ -408,6 +436,19 @@ impl Config {
                     net.name
                 ));
             }
+            for (index, line) in net.perform.iter().enumerate() {
+                // Never quote the line: it may hold a password.
+                let line = line.as_str();
+                if line.contains(['\r', '\n'])
+                    || irsty_proto::Message::parse(&line.replace("$nick", "nick")).is_err()
+                {
+                    return invalid(format!(
+                        "network {:?}: perform line {} is not a valid IRC line",
+                        net.name,
+                        index + 1
+                    ));
+                }
+            }
             if let Some(sasl) = &net.sasl {
                 match sasl.mechanism {
                     SaslMechanism::Plain | SaslMechanism::ScramSha256
@@ -447,6 +488,15 @@ impl Config {
                 .is_some_and(SecretSource::is_plain)
             {
                 found.push(format!("{}: SASL password", net.name));
+            }
+            for (index, line) in net.perform.iter().enumerate() {
+                if crate::redact::raw_line(line.as_str()) != line.as_str() {
+                    found.push(format!(
+                        "{}: perform line {} holds a password (SASL is safer)",
+                        net.name,
+                        index + 1
+                    ));
+                }
             }
             for server in &net.servers {
                 if server.password.as_ref().is_some_and(SecretSource::is_plain) {
@@ -589,6 +639,17 @@ mod tests {
         let config = parse(&text).unwrap();
         assert_eq!(config.plaintext_secrets(), ["libera: SASL password"]);
         assert!(!format!("{config:?}").contains("hunter2"));
+
+        let text = EXAMPLE.replace(
+            "autojoin = [",
+            "perform = [\"PRIVMSG NickServ :IDENTIFY hunter2\", \"MODE $nick +i\"]\nautojoin = [",
+        );
+        let config = parse(&text).unwrap();
+        assert_eq!(
+            config.plaintext_secrets(),
+            ["libera: perform line 1 holds a password (SASL is safer)"]
+        );
+        assert!(!format!("{config:?}").contains("hunter2"));
     }
 
     #[test]
@@ -629,6 +690,14 @@ mod tests {
             (
                 "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[[network.servers]]\nhost = \"h\"\n[network.sasl]\nmechanism = \"scram\"",
                 "unknown variant",
+            ),
+            (
+                "[[network]]\nname = \"x\"\nnicks = [\"n\"]\nperform = [\"MODE $nick +i\", \"\"]\n[[network.servers]]\nhost = \"h\"",
+                "perform line 2 is not a valid IRC line",
+            ),
+            (
+                "[[network]]\nname = \"x\"\nnicks = [\"n\"]\nperform = [\"PRIVMSG a :b\\r\\nQUIT\"]\n[[network.servers]]\nhost = \"h\"",
+                "perform line 1",
             ),
             ("scrollback = 0", "scrollback"),
         ];

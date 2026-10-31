@@ -116,6 +116,7 @@ impl Client {
             client
                 .state
                 .add_network(id, &net.name, nick, net.autojoin.clone());
+            client.state.set_perform(id, net.perform.clone());
             for warning in config
                 .plaintext_secrets()
                 .iter()
