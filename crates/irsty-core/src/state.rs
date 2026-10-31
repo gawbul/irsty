@@ -2139,8 +2139,12 @@ impl State {
             {
                 return;
             }
+            // Our own CTCP requests and replies coming back (echo-message, a
+            // bouncer): the line saying we answered, or /ctcp's own note,
+            // already covers them.
+            Some(_) if from_me => return,
             Some(c) => {
-                let answer = !notice && !from_me && !nick.is_empty();
+                let answer = !notice && !nick.is_empty();
                 self.on_ctcp(id, &nick, &c, (notice, answer), time, effects);
                 return;
             }
@@ -2730,6 +2734,11 @@ mod tests {
         assert_eq!(reply(&mut s, ":bob!b@h PRIVMSG me :\x01FINGER\x01"), None);
         assert_eq!(reply(&mut s, ":bob!b@h NOTICE me :\x01VERSION x\x01"), None);
         assert_eq!(reply(&mut s, ":me!u@h PRIVMSG bob :\x01VERSION\x01"), None);
+        // Our own reply echoed back adds no line.
+        let server = s.network(NET).unwrap().server_buffer;
+        let before = s.buffer(server).unwrap().total;
+        feed(&mut s, ":me!u@h NOTICE bob :\x01VERSION Irsty\x01");
+        assert_eq!(s.buffer(server).unwrap().total, before);
 
         // Turned off, or TIME alone turned off.
         s.set_ctcp(CtcpConfig {
