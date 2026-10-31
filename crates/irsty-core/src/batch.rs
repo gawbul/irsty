@@ -20,9 +20,16 @@ pub const MAX_MESSAGES: usize = 4096;
 /// with tags, so the per-batch caps alone would allow over a gigabyte.
 pub const MAX_BYTES: usize = 4 * 1024 * 1024;
 
-/// Roughly what a message costs to hold.
+/// What a message costs to hold: its text, plus a fixed charge for the
+/// message and for every string in it, so a flood of tiny tags or parameters
+/// can't hold far more memory than it is charged for.
 fn size(msg: &Message) -> usize {
-    msg.command.len()
+    // A `String` header plus a small allocation.
+    const PER_STRING: usize = size_of::<String>() + 16;
+    let strings = 1 + usize::from(msg.source.is_some()) + msg.params.len() + 2 * msg.tags.len();
+    size_of::<Message>()
+        + strings * PER_STRING
+        + msg.command.len()
         + msg.source.as_ref().map_or(0, String::len)
         + msg.params.iter().map(String::len).sum::<usize>()
         + msg
@@ -187,6 +194,15 @@ mod tests {
         assert!(matches!(b.route(msg("@batch=b1 PING x")), Routed::Now(_)));
     }
 
+    /// Many tiny tags are charged for their overhead, not just their text.
+    #[test]
+    fn tiny_tags_are_charged_for_their_overhead() {
+        let tags: Vec<String> = (0..500).map(|i| format!("t{i}")).collect();
+        let tagged = msg(&format!("@{} PING x", tags.join(";")));
+        let text: usize = tagged.tags.iter().map(|(k, v)| k.len() + v.len()).sum();
+        assert!(size(&tagged) > text * 10, "{} vs {text}", size(&tagged));
+    }
+
     /// Big messages across many batches hit the byte budget long before the
     /// per-batch message cap.
     #[test]
@@ -205,6 +221,8 @@ mod tests {
         }
         assert!(b.held <= MAX_BYTES);
         assert!(held < MAX_OPEN * MAX_MESSAGES);
-        assert!(held * 400 >= MAX_BYTES * 9 / 10, "held only {held}");
+        // The budget is nearly used up, not stopped early.
+        let each = size(&msg(&format!("@batch=b0 PRIVMSG #c :{big}")));
+        assert!(held * each >= MAX_BYTES * 9 / 10, "held only {held}");
     }
 }
