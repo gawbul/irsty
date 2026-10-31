@@ -82,6 +82,13 @@ Ergo v2.19.1 (2026-08-05) for integration tests: the container `ghcr.io/ergochat
 | sha2, hmac, pbkdf2 | 0.11.1, 0.13.0, 0.13.0 | SCRAM-SHA-256 in `irsty-proto`. RustCrypto, current; `hmac` and `sha2` were already in the tree. `pbkdf2` has only its `hmac` feature. |
 | stringprep | 0.1.5 (2024-05-25) | SASLprep for SCRAM names and passwords. No release since 2024, but it implements a frozen spec and is used by sqlx and tokio-postgres (about 74 million recent downloads). |
 
+### Added in M6 (checked 2026-10-31)
+
+| Crate | Version | Why |
+|---|---|---|
+| toml_edit | 0.25.17 | Writes `config.toml` back while keeping comments and layout. Already in the tree through `toml`. |
+| regex | 1.13.1 | Highlight patterns. Linear-time matching, so a user's pattern can't hang the client. Already in the tree. |
+
 ### Dev dependencies
 
 | Crate | Version | Why |

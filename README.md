@@ -4,7 +4,7 @@
 
 A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](https://ratatui.rs). It is a spiritual successor to irssi and WeeChat: fast, readable out of the box, scriptable, with first-class IRCv3 support and good support for bouncers (soju, ZNC).
 
-> **Status:** early development. Irsty has a working terminal UI on top of finished protocol and connection layers (milestones M1 to M5), with the core IRCv3 extensions. It is usable for basic chatting on several networks at once, but tab completion and the full command set are still to come. See [`PLAN.md`](PLAN.md) for the roadmap.
+> **Status:** early development. Irsty has a working terminal UI on top of finished protocol and connection layers (milestones M1 to M6), with the core IRCv3 extensions and the full command set. It is usable day to day on several networks, but tab completion and configurable keys are still to come. See [`PLAN.md`](PLAN.md) for the roadmap.
 
 ## Goals
 
@@ -23,10 +23,12 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **Secrets:** read from the OS keyring or a command such as `pass`. Plaintext works but triggers a warning at every start.
 - **Logs:** one plain-text file per buffer, safe to `cat`.
 - **Terminal UI:** a buffer list grouped by network, scrollback with aligned nicks and word wrapping that handles CJK and emoji, a nick list, topic and status bars (activity, lag, and a loud warning for unverified TLS), and an input line with emacs-style editing and history. Keys follow irssi ([docs/KEYBINDINGS.md](docs/KEYBINDINGS.md)).
-- **Commands:** `/join /part /msg /query /me /nick /raw /connect /disconnect /close /quit /help` ([docs/COMMANDS.md](docs/COMMANDS.md)). Passwords sent with `/raw` or to NickServ are hidden on screen and in logs.
+- **Commands** ([docs/COMMANDS.md](docs/COMMANDS.md)): talking (`/msg /query /me /notice /ctcp /away`), finding out (`/whois /whowas /who /names /topic /list`, with replies gathered where you typed them), running channels (`/mode /op /voice /kick /ban /invite`), buffers (`/window /close /clear`), and setting things up from inside Irsty: `/server add|del|update|list`, `/set`, `/alias`, `/ignore` and `/highlight`, all saved to your config with its comments intact. Passwords sent with `/raw` or to NickServ are hidden on screen and in logs.
+- **First run:** no config file needed; add a network with `/server add` and Irsty writes one.
+- **Ignores and highlights:** hide people by mask, per network or channel; highlight words and regexes besides your nick.
 - **Headless mode:** `--headless` prints every buffer's new lines to stdout.
 
-Not yet: the full command set, tab completion, configurable keys, multi-line paste handling, highlights and notifications. These arrive in M6 to M8; chat history and other bouncer features follow in M9.
+Not yet: tab completion, configurable keys and `/bind`, multi-line paste handling, nick colours, notifications and CTCP replies. These arrive in M7 and M8; chat history and other bouncer features follow in M9.
 
 ## Quick start
 
@@ -36,7 +38,13 @@ Build it (rustup installs the toolchain pinned in `rust-toolchain.toml` automati
 cargo build --release
 ```
 
-Create `~/.config/irsty/config.toml` (or `$XDG_CONFIG_HOME/irsty/config.toml`) on Linux and macOS:
+Then run `./target/release/irsty` and add a network from inside it:
+
+```
+/server add libera irc.libera.chat -nick yournick,yournick_ -autojoin #irsty
+```
+
+That connects, joins `#irsty`, and saves `~/.config/irsty/config.toml` (or under `$XDG_CONFIG_HOME`) on Linux and macOS. `/help server` lists every option. You can also write the file yourself:
 
 ```toml
 [[network]]
@@ -53,19 +61,13 @@ account = "yournick"
 password = { keyring = "libera" }
 ```
 
-Store the password in your OS keyring under service `irsty`:
+Store the password in your OS keyring under service `irsty` (with `/server add`, pass `-sasl scram-sha-256 -account yournick -keyring libera`):
 
 ```sh
 # macOS
 security add-generic-password -s irsty -a libera -w
 # Linux (GNOME Keyring or KWallet via the Secret Service)
 secret-tool store --label "irsty libera" service irsty username libera
-```
-
-Then run it:
-
-```sh
-./target/release/irsty
 ```
 
 Type `/help` for commands and `/quit` to exit. Alt+1, Alt+2 and so on switch buffers. Use `--headless` to print everything to stdout instead of running the UI (Ctrl-C quits). Every option is described in [docs/CONFIG.md](docs/CONFIG.md). Diagnostics go to `irsty.log` in the platform data directory, never to the terminal; set `IRSTY_LOG=irsty_core=debug` for more detail.
