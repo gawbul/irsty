@@ -30,6 +30,20 @@ pub enum BufferKind {
     Query,
 }
 
+/// How interesting a buffer's unread lines are, for the buffer list.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Activity {
+    /// Nothing new.
+    #[default]
+    None,
+    /// Joins, parts, modes and other events.
+    Events,
+    /// Messages.
+    Messages,
+    /// A private message, or a message mentioning our nick.
+    Highlight,
+}
+
 /// What a line represents, for styling and log formatting.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LineKind {
@@ -91,6 +105,8 @@ pub struct Buffer {
     pub total: u64,
     /// Lines added since the buffer was last read.
     pub unread: usize,
+    /// The most interesting kind of unread line.
+    pub activity: Activity,
 }
 
 impl Buffer {
@@ -241,6 +257,7 @@ pub struct State {
     buffers: BTreeMap<BufferId, Buffer>,
     next_buffer: u64,
     scrollback: usize,
+    clock: fn() -> Timestamp,
 }
 
 impl State {
@@ -251,7 +268,14 @@ impl State {
             buffers: BTreeMap::new(),
             next_buffer: 0,
             scrollback: scrollback.max(1),
+            clock: Timestamp::now,
         }
+    }
+
+    /// Replaces the clock used for lines without a `server-time` tag, so tests
+    /// and replays are deterministic.
+    pub fn set_clock(&mut self, clock: fn() -> Timestamp) {
+        self.clock = clock;
     }
 
     /// Adds a network and its server buffer.
@@ -306,11 +330,19 @@ impl State {
 
     /// Adds a client-generated line to a network's server buffer.
     pub fn note(&mut self, id: NetworkId, kind: LineKind, text: &str) -> Vec<Effect> {
+        match self.networks.get(&id).map(|n| n.server_buffer) {
+            Some(buffer) => self.note_buffer(buffer, kind, text),
+            None => Vec::new(),
+        }
+    }
+
+    /// Adds a client-generated line to any buffer.
+    pub fn note_buffer(&mut self, buffer: BufferId, kind: LineKind, text: &str) -> Vec<Effect> {
         let mut effects = Vec::new();
-        if let Some(buffer) = self.networks.get(&id).map(|n| n.server_buffer) {
+        if self.buffers.contains_key(&buffer) {
             let text = StyledText::plain(text);
             let line = Line {
-                time: Timestamp::now(),
+                time: (self.clock)(),
                 kind,
                 sender: None,
                 raw: text.to_plain(),
@@ -325,7 +357,73 @@ impl State {
     pub fn mark_read(&mut self, id: BufferId) {
         if let Some(buffer) = self.buffers.get_mut(&id) {
             buffer.unread = 0;
+            buffer.activity = Activity::None;
         }
+    }
+
+    /// Records a message we sent, in the channel or query buffer for `target`.
+    /// It does not count as unread.
+    pub fn own_message(
+        &mut self,
+        id: NetworkId,
+        target: &str,
+        kind: LineKind,
+        text: &str,
+    ) -> (Option<BufferId>, Vec<Effect>) {
+        let mut effects = Vec::new();
+        let Some(net) = self.networks.get(&id) else {
+            return (None, effects);
+        };
+        let nick = format::sanitise_identifier(&net.nick);
+        let is_channel = net
+            .isupport
+            .is_channel(net.isupport.split_statusmsg(target).1);
+        let buffer = if is_channel {
+            let channel = net.isupport.split_statusmsg(target).1.to_owned();
+            self.channel_mut(id, &channel).map(|c| c.buffer)
+        } else {
+            self.query_buffer(id, target)
+        };
+        let Some(buffer) = buffer else {
+            return (None, effects);
+        };
+        let line = Line {
+            time: (self.clock)(),
+            kind,
+            sender: Some(nick),
+            text: StyledText::parse(text),
+            raw: text.to_owned(),
+        };
+        self.push_line(buffer, line, &mut effects);
+        self.mark_read(buffer);
+        (Some(buffer), effects)
+    }
+
+    /// Removes a channel or query buffer. Server buffers stay. Returns whether
+    /// anything was removed.
+    pub fn remove_buffer(&mut self, id: BufferId) -> bool {
+        let Some(buffer) = self.buffers.get(&id) else {
+            return false;
+        };
+        let Some(net) = self.networks.get_mut(&buffer.network) else {
+            return false;
+        };
+        if net.server_buffer == id {
+            return false;
+        }
+        net.channels.retain(|_, c| c.buffer != id);
+        net.queries.retain(|_, &mut b| b != id);
+        self.buffers.remove(&id).is_some()
+    }
+
+    /// The buffer for a channel or query, if it exists.
+    pub fn find_buffer(&self, id: NetworkId, name: &str) -> Option<BufferId> {
+        let net = self.networks.get(&id)?;
+        let key = net.key(name);
+        net.channels
+            .get(&key)
+            .map(|c| c.buffer)
+            .or_else(|| net.queries.get(&key).copied())
     }
 
     fn new_buffer(&mut self, network: NetworkId, kind: BufferKind, name: &str) -> BufferId {
@@ -341,6 +439,7 @@ impl State {
                 lines: VecDeque::new(),
                 total: 0,
                 unread: 0,
+                activity: Activity::None,
             },
         );
         id
@@ -348,6 +447,23 @@ impl State {
 
     fn push_line(&mut self, buffer: BufferId, line: Line, effects: &mut Vec<Effect>) {
         let limit = self.scrollback;
+        let Some(buf) = self.buffers.get(&buffer) else {
+            return;
+        };
+        let activity = match line.kind {
+            LineKind::Message | LineKind::Action | LineKind::Notice => {
+                let mentions = self
+                    .networks
+                    .get(&buf.network)
+                    .is_some_and(|n| mentions_nick(&line.raw, &n.nick, n.isupport.casemapping));
+                if buf.kind == BufferKind::Query || mentions {
+                    Activity::Highlight
+                } else {
+                    Activity::Messages
+                }
+            }
+            _ => Activity::Events,
+        };
         if let Some(buf) = self.buffers.get_mut(&buffer) {
             if buf.lines.len() >= limit {
                 buf.lines.pop_front();
@@ -355,6 +471,7 @@ impl State {
             buf.lines.push_back(line);
             buf.total += 1;
             buf.unread += 1;
+            buf.activity = buf.activity.max(activity);
             effects.push(Effect::Line(buffer));
         }
     }
@@ -398,8 +515,9 @@ impl State {
         let Some(server_buffer) = self.networks.get(&id).map(|n| n.server_buffer) else {
             return effects;
         };
+        let clock = self.clock;
         let info = |kind, text: StyledText| Line {
-            time: Timestamp::now(),
+            time: clock(),
             kind,
             sender: None,
             raw: text.to_plain(),
@@ -539,7 +657,7 @@ impl State {
         for buffer in std::iter::once(server_buffer).chain(affected) {
             let text = StyledText::plain(&text);
             let line = Line {
-                time: Timestamp::now(),
+                time: (self.clock)(),
                 kind: LineKind::Error,
                 sender: None,
                 raw: text.to_plain(),
@@ -562,7 +680,7 @@ impl State {
             .tags
             .get("time")
             .and_then(|t| t.parse::<Timestamp>().ok())
-            .unwrap_or_else(Timestamp::now);
+            .unwrap_or_else(self.clock);
         let source = msg.source.as_deref().map(Source::parse);
         let nick = source.map_or("", |s| s.nick).to_owned();
         let shown_nick = format::sanitise_identifier(&nick);
@@ -595,13 +713,14 @@ impl State {
                     chan.rejoin = false;
                     chan.members.clear();
                 }
-                chan.members.insert(
-                    CaseKey::new(mapping, &nick),
-                    Member {
+                // A JOIN for someone already listed (a bouncer replay, or state
+                // that drifted) must not wipe their modes.
+                chan.members
+                    .entry(CaseKey::new(mapping, &nick))
+                    .or_insert_with(|| Member {
                         nick: nick.clone(),
                         modes: String::new(),
-                    },
-                );
+                    });
                 let buffer = chan.buffer;
                 let text = Builder::default()
                     .push(&shown_nick, bold())
@@ -994,6 +1113,17 @@ impl State {
     }
 }
 
+/// Reports whether `text` mentions `nick` as a whole word.
+fn mentions_nick(text: &str, nick: &str, mapping: CaseMapping) -> bool {
+    if nick.is_empty() {
+        return false;
+    }
+    let text = format::strip_formatting(text);
+    let is_nick_char = |c: char| c.is_alphanumeric() || "-[]\\`^{}|_".contains(c);
+    text.split(|c: char| !is_nick_char(c))
+        .any(|word| mapping.eq(word, nick))
+}
+
 /// Applies membership (prefix) mode changes such as `+o-v alice bob`.
 fn apply_member_modes(channel: &mut Channel, isupport: &ISupport, args: &[String]) {
     let Some((modes, mut rest)) = args.split_first() else {
@@ -1362,6 +1492,69 @@ mod tests {
         assert!(
             s.apply(NetworkId(99), NetEvent::Lag(Duration::ZERO))
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn repeated_join_keeps_modes() {
+        let mut s = state();
+        feed(&mut s, ":me!u@h JOIN #c");
+        feed(&mut s, ":srv 353 me = #c :@op me");
+        feed(&mut s, ":srv 366 me #c :End");
+        feed(&mut s, ":op!o@h JOIN #c");
+        assert_eq!(nicks(&s, "#c"), ["@op", "me"]);
+    }
+
+    #[test]
+    fn activity_levels() {
+        let mut s = state();
+        feed(&mut s, ":b!b@h JOIN #c");
+        let chan = channel_buffer(&s, "#c");
+        assert_eq!(s.buffer(chan).unwrap().activity, Activity::Events);
+        feed(&mut s, ":b!b@h PRIVMSG #c :hello all");
+        assert_eq!(s.buffer(chan).unwrap().activity, Activity::Messages);
+        feed(&mut s, ":b!b@h PRIVMSG #c :\x02ME\x02: ping");
+        assert_eq!(s.buffer(chan).unwrap().activity, Activity::Highlight);
+        s.mark_read(chan);
+        assert_eq!(s.buffer(chan).unwrap().activity, Activity::None);
+        feed(&mut s, ":b!b@h PRIVMSG #c :meme time");
+        assert_eq!(
+            s.buffer(chan).unwrap().activity,
+            Activity::Messages,
+            "not a whole-word mention"
+        );
+        feed(&mut s, ":b!b@h PRIVMSG me :psst");
+        let query = s.find_buffer(NET, "b").unwrap();
+        assert_eq!(s.buffer(query).unwrap().activity, Activity::Highlight);
+    }
+
+    #[test]
+    fn own_messages_and_closing() {
+        let mut s = state();
+        let (buffer, effects) = s.own_message(NET, "#c", LineKind::Message, "hi \x02there");
+        let buffer = buffer.unwrap();
+        assert_eq!(effects, [Effect::Line(buffer)]);
+        let b = s.buffer(buffer).unwrap();
+        assert_eq!((b.unread, b.activity), (0, Activity::None));
+        let line = b.lines().back().unwrap();
+        assert_eq!(
+            (line.sender.as_deref(), line.text.to_plain().as_str()),
+            (Some("me"), "hi there")
+        );
+        let (query, _) = s.own_message(NET, "bob", LineKind::Action, "waves");
+        let query = query.unwrap();
+        assert_eq!(s.find_buffer(NET, "BOB"), Some(query));
+        assert!(s.remove_buffer(query));
+        assert!(!s.remove_buffer(query));
+        assert_eq!(s.find_buffer(NET, "bob"), None);
+        assert!(s.remove_buffer(buffer));
+        assert!(s.network(NET).unwrap().channel("#c").is_none());
+        let server = s.network(NET).unwrap().server_buffer;
+        assert!(!s.remove_buffer(server), "server buffers stay");
+        assert!(
+            s.own_message(NetworkId(9), "#x", LineKind::Message, "x")
+                .0
+                .is_none()
         );
     }
 

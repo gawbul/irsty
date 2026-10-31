@@ -46,6 +46,16 @@ Joining channels is not its job: on `Registered`, `State::apply` returns `Send` 
 
 `irsty_core::Client` owns `State`, the event receiver and the per-network command senders. `Client::next` waits for one event, then drains up to 512 more without waiting, applies them, runs the effects, and returns the buffers that changed. It is cancel-safe, so a frontend can `select!` on it alongside terminal input.
 
+## Terminal UI
+
+`irsty-tui` has one async loop (`run.rs`) that selects over `Client::next`, crossterm's `EventStream`, SIGTERM, SIGHUP and SIGTSTP, and a one-second clock. Each wake-up marks the screen dirty; drawing happens at most every 16 ms, so a burst of events costs one frame.
+
+- `view::render` draws everything from `&State` and `&mut Ui` and nothing else, so it is snapshot-tested with ratatui's `TestBackend` and `insta`.
+- `Scrollback` lays lines out from the bottom of the screen upwards and stops at the top, so only visible lines are wrapped. A 100,000-line buffer draws in about 0.3 ms at 200×50, wherever it is scrolled to.
+- `Ui` holds what isn't client state: the active buffer, per-buffer scroll offsets (anchored so new lines don't move a scrolled-back view), the input line and its history.
+- `TerminalGuard` enters raw mode and the alternate screen with bracketed paste and focus reporting (and mouse capture if configured), and restores the terminal on drop, on panic through a chained hook, and around suspend. The UI never asks the terminal for the cursor position, so a terminal that doesn't answer such queries can't stall it.
+- On `/quit`, the terminal is restored before waiting for networks to close, so a slow server never leaves the screen frozen.
+
 ## Back-pressure
 
 | Edge | Mechanism | When full |

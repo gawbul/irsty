@@ -64,6 +64,14 @@ Plain-text logs, one file per buffer, at `<dir>/<network>/<buffer>.log` (the ser
 
 Irsty's own diagnostic log is `irsty.log` in the platform data directory. Set `IRSTY_LOG` to change its filter, for example `IRSTY_LOG=irsty_core=debug`. It never contains passwords.
 
+## `[ui]`
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `mouse` | boolean | `false` | Capture the mouse: the wheel scrolls and clicking the buffer list switches buffers. Off by default so your terminal's own text selection keeps working. |
+| `nicklist` | boolean | `true` | Show the nick list in channels when the terminal is at least 100 columns wide. |
+| `timestamp_format` | string | `"%H:%M"` | [`strftime`](https://docs.rs/jiff/latest/jiff/fmt/strftime/index.html) format for timestamps, in your local time zone. |
+
 ## `[[network]]`
 
 Repeat for each network.

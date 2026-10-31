@@ -1,0 +1,12 @@
+---
+source: crates/irsty-tui/tests/snapshots.rs
+expression: "render(&s, &mut ui, 60, 8).backend()"
+---
+"Irsty                                                       "
+"                 │No networks configured. See               "
+"                 │docs/CONFIG.md, then restart Irsty.       "
+"                 │                                          "
+"                 │                                          "
+"                 │                                          "
+"[09:15]                                                     "
+">                                                           "

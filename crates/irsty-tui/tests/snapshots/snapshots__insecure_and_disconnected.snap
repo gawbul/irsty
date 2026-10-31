@@ -1,0 +1,14 @@
+---
+source: crates/irsty-tui/tests/snapshots.rs
+expression: "render(&s, &mut ui, 80, 10).backend()"
+---
+"libera: waiting to reconnect                                                    "
+" 1.libera        │08:59         -- │ Connected to irc.libera.chat:+6697         "
+" 2.  #irsty      │08:59         -- │ Connected to bnc.example:+6697             "
+" 3.  frank       │08:59         !! │ WARNING: TLS certificate verification is   "
+"                 │                 │ disabled for this server. The connection   "
+"                 │                 │ can be intercepted.                        "
+"                 │08:59         !! │ Disconnected (ping timeout); reconnecting  "
+"                 │                 │ in 8s                                      "
+"[09:15] [gawbul] [1:libera] [Act: 2,3] [waiting to reconnect] [INSECURE TLS]    "
+">                                                                               "

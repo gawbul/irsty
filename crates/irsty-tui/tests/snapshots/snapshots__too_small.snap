@@ -1,0 +1,8 @@
+---
+source: crates/irsty-tui/tests/snapshots.rs
+expression: "render(&s, &mut ui, 15, 4).backend()"
+---
+"Terminal too   "
+"small          "
+"               "
+"               "

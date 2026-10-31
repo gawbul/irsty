@@ -10,6 +10,7 @@ pub mod config;
 pub mod event;
 pub mod log;
 pub mod net;
+pub mod redact;
 pub mod state;
 
 pub use client::Client;
