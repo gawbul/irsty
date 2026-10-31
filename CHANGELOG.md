@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- `422` (no MOTD) no longer shows as an error.
 - Two iCloud sync duplicates (`dial 2.rs`, `socks 2.rs`) had been committed; they are gone, `.gitignore` ignores such names, and the gate and CI fail if one is tracked.
 - When one event added two lines to the same buffer (such as the user count and the names list after `/names`), the log got the second line twice and never the first. Effects now name the line they added.
 
@@ -31,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - soju's networks open as networks of their own (`soju.im/bouncer-networks`), bound with `BOUNCER BIND`.
   - ZNC playback of only what you missed (`znc.in/playback`).
   - `[history] lines` (default 100; 0 turns it off) and a per-network `bouncer_networks` switch.
+  - `mise run soju` runs a local soju bouncer in front of Ergo for testing, and `tests/soju.rs` checks Irsty against it.
 - M8:
   - Formatting keys: irssi's Ctrl+B, Ctrl+C, Ctrl+], Ctrl+_, Ctrl+^, Ctrl+V and Ctrl+O, or WeeChat's Ctrl+C then a letter. Codes show as reversed letters in the input.
   - Nick colours can be turned off or overridden per nick; highlighted lines show the nick dark on yellow.
