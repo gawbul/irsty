@@ -126,6 +126,7 @@ Every milestone ends with the full gate passing locally and in CI: `fmt --check`
 - **M10.** typing, reply, react, multiline.
 - **M11.** Search (SQLite index), jump-to-unread, split windows and layouts.
 - **M12.** Themes, colour fallback, NO_COLOR, `/reload`, `--check-config`, `--print-default-config`.
+- **M16. DCC:** `/dcc chat|send|get|resume|close|list`, as in irssi. CHAT, SEND and RESUME/ACCEPT, plus passive (reverse) DCC for users behind NAT. Nothing is ever accepted automatically: offers wait for `/dcc get` or `/dcc chat`. File names are untrusted (no path components, sanitised, never overwrite) and go to a configurable download directory. A configurable port range and advertised IP, a warning the first time an offer reveals your IP, and size checks against the advertised length. (Numbered after M15 to keep existing references stable.) *Accept:* a transfer and a chat work between two Irsty instances and against irssi, and tests cover hostile file names, truncated transfers and resume offsets.
 - *(Optional)* inline images behind a feature flag.
 
 ### Phase 4: extensibility and polish
