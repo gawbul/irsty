@@ -49,7 +49,7 @@ The suite registers its own accounts and uses unique nicks and channels, so it c
 mise run gate   # or ./scripts/gate.sh
 ```
 
-This runs fmt, clippy (warnings denied), nextest, doctests, cargo-deny, cargo-audit and an MSRV check. CI runs the same checks on Linux and macOS.
+This checks that no iCloud sync duplicates are tracked, then runs fmt, clippy (warnings denied), nextest, doctests, coverage of `irsty-proto` (at least 90% of lines), cargo-deny, cargo-audit and an MSRV check. CI runs the same checks, with tests on Linux and macOS, plus the Ergo integration tests and a short fuzz run.
 
 ## Style
 

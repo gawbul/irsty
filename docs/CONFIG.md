@@ -89,7 +89,7 @@ password = { command = ["pass", "irc/bouncer"] }
 |---|---|---|---|
 | `scrollback` | integer | `10000` | Lines kept in memory per buffer. Older lines are dropped from memory but stay in the logs. |
 
-Irsty starts without a config file: the first-run screen shows how to add a network with `/server add`, which creates the file. Commands that change settings (`/server`, `/set`, `/ignore`, `/highlight`, `/alias`) write `config.toml` straight away, keeping your comments, spacing and order. Each change is checked as a whole before it is written, through a temporary file so a crash never leaves half a config, and the file is readable only by you. Passwords are never written by Irsty: `/server` only adds `keyring` references.
+Irsty starts without a config file: the first-run screen shows how to add a network with `/server add`, which creates the file. Commands that change settings (`/server`, `/set`, `/ignore`, `/highlight`, `/alias`, `/bind`) write `config.toml` straight away, keeping your comments, spacing and order. Each change is checked as a whole before it is written, through a temporary file so a crash never leaves half a config, and the file is readable only by you. Passwords are never written by Irsty: `/server` only adds `keyring` references.
 
 ## `[aliases]`
 
@@ -271,4 +271,4 @@ password = { plain = "hunter2" }                # plaintext: allowed, with a war
 - **`command`**: runs the program directly (not through a shell) with standard input closed, and uses the first line of its output. It has two minutes to finish, so GPG can prompt for a passphrase. Works with `pass`, `gopass`, `op read`, `security find-generic-password -w` and so on.
 - **`plain`**: kept for convenience. Irsty prints a warning in the network's server buffer at every start.
 
-Secrets are resolved once at startup. If one can't be read, that network doesn't connect and the reason appears in its server buffer; other networks are unaffected.
+Secrets are read when a network connects: at startup, on `/connect`, and when `/server` changes it, so a `pass` or `gopass` prompt never blocks the interface. If one can't be read, that network doesn't connect and the reason appears in its server buffer; other networks are unaffected.

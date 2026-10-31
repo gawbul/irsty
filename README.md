@@ -4,7 +4,7 @@
 
 A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](https://ratatui.rs). It is a spiritual successor to irssi and WeeChat: fast, readable out of the box, scriptable, with first-class IRCv3 support and good support for bouncers (soju, ZNC).
 
-> **Status:** early development. Irsty has a working terminal UI on top of finished protocol and connection layers (milestones M1 to M6), with the core IRCv3 extensions and the full command set. It is usable day to day on several networks, with tab completion, configurable keys, nick colours and notifications. Chat history and bouncer support are next. See [`PLAN.md`](PLAN.md) for the roadmap.
+> **Status:** early development, but usable day to day. The foundation and daily-driver phases are done (milestones M0 to M8): several networks at once, the core IRCv3 extensions, the full command set, tab completion, configurable keys, nick colours and notifications. Chat history and bouncer support (M9) are next. See [`PLAN.md`](PLAN.md) for the roadmap.
 
 ## Goals
 
@@ -30,7 +30,7 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **CTCP:** answers `VERSION`, `PING`, `TIME`, `CLIENTINFO` and `SOURCE`, rate-limited.
 - **Headless mode:** `--headless` prints every buffer's new lines to stdout.
 
-Next: chat history and other bouncer features follow in M9.
+Not yet: chat history and bouncer networks (M9), typing indicators, replies and reactions (M10), search and split windows (M11), themes (M12), scripting (M13) and DCC (M16). See [`PLAN.md`](PLAN.md).
 
 ## Quick start
 
@@ -58,7 +58,7 @@ autojoin = ["#irsty"]
 host = "irc.libera.chat"
 
 [network.sasl]
-mechanism = "plain"
+mechanism = "scram-sha-256"
 account = "yournick"
 password = { keyring = "libera" }
 ```
@@ -84,7 +84,7 @@ mise tasks          # list every task
 mise run test       # nextest; extra arguments are filters (mise run test scrollback)
 mise run lint       # clippy with warnings denied
 mise run watch      # bacon: recheck on every save
-mise run gate       # the full gate: fmt, clippy, tests, coverage, deny, audit, MSRV
+mise run gate       # the full gate: fmt, clippy, tests, coverage, deny, audit, MSRV, no sync duplicates
 mise run ergo       # a local Ergo server on 16667/16697 (in another terminal)
 mise run test:ergo  # integration tests against it
 mise run run:ergo   # Irsty itself, connected to it

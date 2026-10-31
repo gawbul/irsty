@@ -1,6 +1,6 @@
 # Irsty plan
 
-Status: draft for review, 2026-10-30. Versions and the evidence for them are in [`docs/VERSIONS.md`](docs/VERSIONS.md).
+Status: Phases 1 and 2 (M0 to M8) are done as of 2026-10-31; Phase 3 starts with M9. This plan was written before the code (2026-10-30) and has been updated where the code went another way; [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes what exists. Versions and the evidence for them are in [`docs/VERSIONS.md`](docs/VERSIONS.md).
 
 ## 1. Stack, in brief
 
@@ -12,79 +12,72 @@ Status: draft for review, 2026-10-30. Versions and the evidence for them are in 
 | Async | tokio, tokio-util codecs, futures | Standard. |
 | TLS | rustls 0.23 (aws-lc-rs) + tokio-rustls + rustls-platform-verifier | No OpenSSL. Uses the OS trust store. Client certs for CertFP. |
 | Protocol | **Our own `irsty-proto`**, sans-IO | See ADR 0001 below. |
-| Config | serde + toml 1.x, no figment | Layering is three steps (defaults, then file, then CLI) and doesn't justify a stale dependency. |
+| Config | serde + toml 1.x, no figment; toml_edit to write it back | Layering is three steps (defaults, then file, then CLI) and doesn't justify a stale dependency. Commands that change settings keep the user's comments. |
 | Secrets | `password = { keyring = "…" }` or `{ command = ["pass", "irc/libera"] }` | Plaintext is allowed only with an explicit `{ plain = "…" }` and a warning at startup. |
 | Persistence | Plain-text logs per buffer; rusqlite index in Phase 3 | Logs are greppable. SQLite runs on its own thread. |
-| Fuzzy matching | nucleo-matcher | fuzzy-matcher is unmaintained. |
+| Fuzzy matching | In-house subsequence scorer | The buffer switcher ranks a few hundred names at most; about 40 lines beat a dependency (nucleo-matcher was the fallback; fuzzy-matcher is unmaintained). |
 | Time | jiff | Correct time zones and simple `server-time` parsing. |
-| Signals | tokio::signal (INT, TERM, WINCH) + signal-hook (TSTP, CONT) | Suspend must restore the terminal, re-raise SIGTSTP with the default handler, then re-init on CONT. |
-| Scripting (Phase 4) | mlua | Lua 5.4 or Luau is an open question (§6). |
+| Signals | tokio::signal (TERM, HUP) + signal-hook (TSTP) | Suspend restores the terminal, stops the process, then re-initialises it when resumed. Resizes arrive as crossterm events. |
+| Scripting (Phase 4) | mlua with Luau | Decided in §6 and [ADR 0008](docs/adr/0008-luau-scripting.md). |
 
 ## 2. Workspace layout
 
 ```
 irsty/
-├── Cargo.toml                 # [workspace], shared [workspace.package], [workspace.lints], [workspace.dependencies]
+├── Cargo.toml                 # [workspace], shared [workspace.package], [workspace.lints]
 ├── rust-toolchain.toml        # 1.99.1, components: rustfmt, clippy
-├── deny.toml, clippy.toml, rustfmt.toml, .config/nextest.toml
+├── deny.toml, clippy.toml, rustfmt.toml, .config/nextest.toml, .cargo/audit.toml, mise.toml
 ├── crates/
-│   ├── irsty-proto/           # no I/O, no async, no tokio. Depends on: thiserror, base64, sha2/hmac/pbkdf2 (SCRAM), jiff (optional)
-│   │   ├── message.rs         #   zero-copy MessageRef<'a> + owned Message, serialiser
-│   │   ├── tags.rs            #   tag escaping and unescaping, client-only (+) tags, size limits
-│   │   ├── isupport.rs        #   005 parsing: PREFIX, CHANTYPES, CHANMODES, CASEMAPPING, MONITOR, LINELEN, …
-│   │   ├── casemap.rs         #   ascii, rfc1459, rfc1459-strict; owned normalised key types
-│   │   ├── cap.rs             #   CAP LS 302 / REQ / ACK / NAK / NEW / DEL state machine
-│   │   ├── sasl.rs            #   PLAIN, EXTERNAL, SCRAM-SHA-256 mechanisms (sans-IO)
-│   │   ├── format.rs          #   mIRC control codes to styled spans; sanitiser (see §3.4)
-│   │   ├── ctcp.rs, split.rs  #   CTCP framing; message splitting at UTF-8 and grapheme boundaries within byte budgets
-│   │   └── numerics.rs
-│   ├── irsty-core/            # tokio, no UI deps. Connections, state, actions, effects, logging, config model
-│   ├── irsty-tui/             # ratatui: views, input line, keymaps, themes, terminal guard
-│   └── irsty/                 # binary: clap CLI, tracing setup, wiring, color-eyre
-├── tests/fixtures/            # parser-tests YAML (CC0, vendored with attribution), mock-server scripts
+│   ├── irsty-proto/           # no I/O, no async. message, tags, isupport, casemap, cap, sasl (PLAIN,
+│   │                          #   EXTERNAL, SCRAM-SHA-256), format (mIRC codes and the sanitiser), ctcp,
+│   │                          #   split, mask, source, decode, secret; tests/fixtures holds parser-tests
+│   ├── irsty-core/            # tokio, no UI deps. state, client, batch, replies, log, config,
+│   │                          #   config_file, redact, event; net/ (connection, transport, dial, socks,
+│   │                          #   codec, ratelimit, backoff); tests/ (mock server, IRCv3, Ergo)
+│   ├── irsty-tui/             # ratatui: run loop, app, command, view, scrollback, input, keymap,
+│   │                          #   complete, urls, notify, theme, terminal; tests/ (snapshots, keys, first run)
+│   └── irsty/                 # binary: clap CLI, tracing setup, headless mode, color-eyre
 ├── fuzz/                      # cargo-fuzz targets (nightly only, excluded from the workspace)
-├── benches/ (per crate)
+├── scripts/                   # gate.sh, fuzz.sh, ergo.sh
 └── docs/ (ARCHITECTURE, CONFIG, KEYBINDINGS, COMMANDS, VERSIONS, adr/)
 ```
 
-The dependency direction is strictly `irsty → irsty-tui → irsty-core → irsty-proto`. `irsty-tui` reads core state through `&State` and emits `Action`s; it never touches sockets.
+The dependency direction is strictly `irsty → irsty-tui → irsty-core → irsty-proto`. `irsty-tui` reads core state through `&State` and calls `Client` methods; it never touches sockets.
 
 ## 3. Event and state model
 
 ### 3.1 Tasks and channels
 
+As built (the original sketch had separate input and signal tasks; one `select!` turned out simpler):
+
 ```
- crossterm EventStream ──► [input task] ──(bounded 64)──┐
- signals (INT/TERM/TSTP/CONT/WINCH) ──► [signal task] ──┤
- timers (reconnect, typing expiry, ping timeout) ───────┤
-                                                       ▼
- [conn task: net A] ──(bounded 1024, shared)──► ┌──────────────┐ ──► render (if dirty, ≤ 60 fps)
- [conn task: net B] ───────────────────────────►│  app loop    │
-          ▲                                     │ update(state,│──► Effects ─► conn cmd tx (bounded 256, per network)
-          └──────────── NetCommand ◄────────────│   action)    │           ├► log writer thread (bounded 4096)
-                                                └──────────────┘           ├► notifier
-                                                                            └► sqlite thread (Phase 3)
+ [conn task: net A] ──NetEvent (bounded 1024, shared)──► Client::next ─► State::apply ─► Effects
+ [conn task: net B] ──────────────────────────────────►      │                          ├► NetCommand (bounded 256, per network)
+          ▲                                                  │                          ├► log writer thread (bounded 4096)
+          └──────────────── NetCommand ◄─────────────────────┘                          └► notifications for the UI
+ UI loop: select! over Client::next, crossterm EventStream, SIGTERM/SIGHUP/SIGTSTP and a 1 s clock;
+          render when dirty, at most every 16 ms
 ```
 
-- **Connection task (one per network):** owns the socket, the `Framed` codec (`LinesCodec`-style with a hard 8191+512 byte cap and invalid-UTF-8 fallback), the token-bucket send queue, keepalive and lag measurement, and the CAP/SASL machines from `irsty-proto`. It emits `NetEvent::{Connecting, Connected, Message(Message), Disconnected(reason), Lag(Duration)}`. Reconnection uses exponential backoff with full jitter (1 s base, 5 min cap) and resets after a stable period.
-- **App loop (single task, owns `State`):** `select!` over all receivers. Each event becomes an `Action`. `update(&mut State, Action) -> Effects` is pure apart from mutating state, so it is unit-testable without tokio. After updating, it drains up to N more pending events before rendering, which coalesces bursts (a netsplit or ZNC playback becomes one frame instead of thousands).
-- **Render:** happens only when `state.dirty` is set, limited to 60 fps, and never awaits. Drawing reads state; it does not mutate it.
+- **Connection task (one per network):** owns the socket, the `Framed` codec (with a hard 8191+512 byte cap and invalid-UTF-8 fallback), the token-bucket send queue, keepalive and lag measurement, and the CAP/SASL machines from `irsty-proto`. It emits `NetEvent`s (`Connecting`, `Connected`, `Registered`, `Message`, `Caps`, `Sasl`, `Lag`, `Error`, `Disconnected`). Reconnection backs off exponentially with equal jitter (2 s base, 5 min cap) and resets after a minute registered.
+- **State (owned by the `Client`):** `State::apply(NetEvent) -> Vec<Effect>` mutates state and does no I/O, so it is unit-testable without tokio. `Client::next` drains up to 512 pending events before returning, which coalesces bursts (a netsplit or a playback becomes one frame instead of thousands).
+- **Render:** happens only when something changed, at most every 16 ms, and never awaits. Drawing reads state; it does not mutate it.
 
 ### 3.2 Back-pressure
 
 - Net to app is bounded. If the UI falls behind, connection tasks block on `send`, which slows reads, and TCP pushes back on the server. Data is never dropped silently.
 - App to net uses `try_send`. A full queue becomes a visible error ("send queue full") in that buffer. The app loop never blocks on a network.
-- App to log writer uses `try_send` with a bounded overflow buffer. If that also fills, we count dropped lines and write a single marker line when space returns.
+- App to log writer uses `try_send` into a bounded queue. If it fills, we count dropped lines and write a single marker line when space returns.
 
 ### 3.3 State
 
-`State { networks: SlotMap<NetId, Network>, buffers: SlotMap<BufId, Buffer>, ui: UiState, config: Arc<Config> }`. Channels and users are keyed by casemapped key types (`ChanKey`, `NickKey`) so that mixing raw strings is a type error. When CASEMAPPING arrives in 005, the maps are re-keyed. Each buffer's scrollback is a `VecDeque<Line>` capped by config (default 10,000). Each `Line` stores pre-parsed `Vec<Span>` plus metadata (time, kind, msgid, highlight flag). The view keeps a wrap cache keyed by `(BufId, width)` and lays out only the visible window.
+`State { networks: BTreeMap<NetworkId, Network>, buffers: BTreeMap<BufferId, Buffer>, … }`. Channels, members, users and queries are keyed by `CaseKey`, a casemapped key type, so that mixing raw strings is a type error. When CASEMAPPING arrives in 005, the maps are re-keyed. Each buffer's scrollback is a `VecDeque<Line>` capped by config (default 10,000). Each `Line` stores its time, kind, sender, sanitised `StyledText`, the raw text for logs, its delivery state (for `echo-message`) and a highlight flag. The scrollback widget lays out only the visible window, from the bottom up, so no wrap cache is needed (0.3 ms per frame with 100,000 lines).
 
 ### 3.4 Untrusted text
 
-All remote text goes through `irsty_proto::format::parse` exactly once, at ingest. Its output is `StyledText`, which is the only text type the TUI will render. The parser recognises the mIRC codes (`\x02 \x03 \x04 \x0f \x11 \x16 \x1d \x1e \x1f`). It drops or replaces with U+FFFD every other C0/C1 control, DEL, ESC sequences, and also bidi overrides (U+202A–U+202E, U+2066–U+2069) from nicks and other identifiers. Tests cover CSI, OSC, DCS, 8-bit C1 (U+009B), and attempts to inject OSC 52, OSC 8 and title-setting sequences.
+All remote text goes through `StyledText::parse` (in `irsty_proto::format`) exactly once, at ingest. Its output is `StyledText`, which is the only text type the TUI will render. The parser recognises the mIRC codes (`\x02 \x03 \x04 \x0f \x11 \x16 \x1d \x1e \x1f`). It drops or replaces with U+FFFD every other C0/C1 control, DEL, ESC sequences, and also bidi overrides (U+202A–U+202E, U+2066–U+2069) from nicks and other identifiers. Tests cover CSI, OSC, DCS, 8-bit C1 (U+009B), and attempts to inject OSC 52, OSC 8 and title-setting sequences.
 
-### 3.5 Key ADRs (to be written in M0)
+### 3.5 Key ADRs
 
 - **0001 Own protocol crate.** irc-proto has had no release since March 2025, has 37 open issues and is MPL-2.0. Its tag and IRCv3 support is incomplete, and it allocates per message. A sans-IO parser and serialiser is roughly 1,500 lines including tests, gives us zero-copy `MessageRef<'a>`, and lets CAP and SASL logic be tested without sockets.
 - **0002 Unidirectional state and sans-IO state machines.**
@@ -93,6 +86,8 @@ All remote text goes through `irsty_proto::format::parse` exactly once, at inges
 - **0005 Untrusted text sanitisation at ingest.**
 - **0006 MSRV policy (N-2).**
 - **0007 OSC 52 and OSC 777 before native clipboard and notifications** (they work over SSH and inside tmux with passthrough).
+- **0008 Luau for scripting.**
+- **0009 Licensed under Apache-2.0 only.**
 
 ## 4. Milestones and acceptance criteria
 
@@ -100,7 +95,7 @@ Every milestone ends with the full gate passing locally and in CI: `fmt --check`
 
 ### Phase 1: foundation
 
-**M0. Skeleton.** `git init`, workspace, toolchain file, lints, `deny.toml`, GitHub Actions (gate matrix on Linux and macOS, MSRV job, audit on a schedule), `CLAUDE.md`, ADRs 0001 to 0007, stub docs, `forbid(unsafe_code)` in every crate.
+**M0. Skeleton.** *(Done 2026-10-30.)* `git init`, workspace, toolchain file, lints, `deny.toml`, GitHub Actions (gate matrix on Linux and macOS, MSRV job, audit on a schedule), `CLAUDE.md`, ADRs 0001 to 0007, stub docs, `forbid(unsafe_code)` in every crate.
 *Accept:* CI is green on an empty build, and `cargo run -- --version` works.
 
 **M1. irsty-proto.** *(Done 2026-10-30.)* Message parse and serialise (zero-copy and owned), tags, ISUPPORT, casemapping, mIRC formatting and sanitiser, CTCP framing, message splitting, CAP LS 302 machine, SASL PLAIN.
@@ -116,7 +111,7 @@ Every milestone ends with the full gate passing locally and in CI: `fmt --check`
 
 - **M4. Multiple networks and per-network config:** *(Done 2026-10-31.)* autojoin, perform, SOCKS5, IPv6, SASL EXTERNAL, SCRAM-SHA-256. *Accept:* SCRAM test vectors from RFC 7677 pass, and Ergo's CertFP login works.
 - **M5. IRCv3 caps:** *(Done 2026-10-31.)* `message-tags`, `server-time`, `account-tag`, `account-notify`, `away-notify`, `extended-join`, `multi-prefix`, `userhost-in-names`, `chghost`, `setname`, `echo-message`, `labeled-response`, `batch`, `invite-notify`, `cap-notify`, `sasl`, `standard-replies` and `monitor`. *Accept:* each cap has a mock-server test. Echo-message dedup and labeled-response correlation are tested.
-- **M6. Full command set, aliases, `/set`, ignore, highlight.** *(Done 2026-10-31. `/bind` moved to M7, which builds the configurable keymap it needs.)* The command set includes `/whois` and `/whowas` (replies gathered into one readable block in the current buffer rather than raw numerics in the server buffer), `/who`, `/names`, `/topic`, `/mode`, `/op`, `/deop`, `/voice`, `/kick`, `/ban`, `/invite`, `/away`, `/notice`, `/ctcp`, `/list`, `/clear` and `/window`. Until then, `/raw WHOIS <nick>` works and its replies appear in the server buffer. Also: start the UI with no config file (an empty server buffer with a hint), and `/server add|del|update|list` to manage networks from inside Irsty. Both `/set` and `/server` write `config.toml` back with `toml_edit`, so comments and layout survive, and secrets stay as keyring or command references. *Accept:* docs/COMMANDS.md is generated from or checked against the command table. A first run with no config reaches a connected channel using only commands, and a round-trip test shows edits keep comments.
+- **M6. Full command set, aliases, `/set`, ignore, highlight.** *(Done 2026-10-31. `/bind` moved to M7, which builds the configurable keymap it needs.)* The command set includes `/whois` and `/whowas` (replies gathered into one readable block in the current buffer rather than raw numerics in the server buffer), `/who`, `/names`, `/topic`, `/mode`, `/op`, `/deop`, `/voice`, `/kick`, `/ban`, `/invite`, `/away`, `/notice`, `/ctcp`, `/list`, `/clear` and `/window`. Also: start the UI with no config file (an empty server buffer with a hint), and `/server add|del|update|list` to manage networks from inside Irsty. Both `/set` and `/server` write `config.toml` back with `toml_edit`, so comments and layout survive, and secrets stay as keyring or command references. *Accept:* docs/COMMANDS.md is generated from or checked against the command table. A first run with no config reaches a connected channel using only commands, and a round-trip test shows edits keep comments.
 - **M7. Input polish:** *(Done 2026-10-31. Emacs keys and Alt+number already worked from M3; the fuzzy matcher is about 40 lines in-house rather than `nucleo-matcher`.)* tab completion, multi-line paste prompt, emacs keys, Alt+number, fuzzy switcher, configurable keybindings with `/bind` and the `keymap = "weechat"` preset.
 - **M8. Formatting, nick colours, URLs, activity and highlight tracking, notifications, CTCP with flood protection, long-message splitting, log rotation.** *(Done 2026-10-31. Activity tracking and long-message splitting already worked.)*
 

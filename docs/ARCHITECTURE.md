@@ -10,26 +10,27 @@ irsty  ──►  irsty-tui  ──►  irsty-core  ──►  irsty-proto
 ```
 
 - **irsty-proto:** parses and serialises IRC messages, handles tags, `RPL_ISUPPORT` and casemapping, parses and sanitises mIRC formatting, and implements CAP and SASL as state machines. It has no I/O, so everything is deterministic and fuzzable ([ADR 0001](adr/0001-own-protocol-crate.md)).
-- **irsty-core:** runs connection tasks (TCP, TLS, SOCKS5, the rate-limited send queue, reconnect) and holds client state (networks, buffers, channels, users). The `Action`/`update`/`Effect` loop lives here, along with logging and the config model. It has no UI dependencies.
-- **irsty-tui:** renders from `&State` and maps terminal events to `Action`s. It includes our own scrollback and input widgets ([ADR 0003](adr/0003-bespoke-scrollback-and-input.md)), keymaps, themes, and the terminal guard (panic hook, signals, suspend and resume).
-- **irsty:** the CLI, tracing setup (writes to a file only), and wiring.
+- **irsty-core:** runs connection tasks (TCP, TLS, SOCKS5, the rate-limited send queue, reconnect) and holds client state (networks, buffers, channels, users). `State::apply` turns each network event into state changes and `Effect`s; logging, the config model and editing the config file live here too. It has no UI dependencies.
+- **irsty-tui:** renders from `&State` and turns keys and commands into calls on the `Client`. It includes our own scrollback and input widgets ([ADR 0003](adr/0003-bespoke-scrollback-and-input.md)), the keymap, completion, notifications, the theme, and the terminal guard (panic hook, signals, suspend and resume).
+- **irsty:** the CLI, tracing setup (writes to a file only), wiring, and headless mode.
 
 ## Event flow
 
 ```
- crossterm EventStream ──► input task ──(bounded 64)───┐
- signals ──► signal task ──────────────────────────────┤
- timers ───────────────────────────────────────────────┤
-                                                       ▼
- conn task (net A) ──(bounded 1024, shared)──► ┌────────────────┐ ──► render if dirty (≤ 60 fps)
- conn task (net B) ───────────────────────────►│ app loop       │
-        ▲                                      │ update(state,  │ ──► Effects
-        └────────── NetCommand (bounded 256) ◄─│        action) │      ├► conn tasks (try_send)
-                                               └────────────────┘      ├► log writer thread
-                                                                       └► notifier, sqlite (later)
+ conn task (net A) ──NetEvent (bounded 1024, shared)──► ┌──────────────────┐
+ conn task (net B) ────────────────────────────────────►│ Client::next     │
+        ▲                                               │  State::apply    │──► Effects ─┬► NetCommand (try_send, bounded 256)
+        └────────────────── NetCommand ◄────────────────│  (owns State)    │             ├► log writer thread (try_send, bounded 4096)
+                                                        └────────┬─────────┘             ├► notifications (queued for the UI)
+                                                                 │                       └► changed buffers
+                                                                 ▼
+ crossterm EventStream ─┐                              ┌──────────────────┐
+ SIGTERM, SIGHUP, SIGTSTP ┼─────────────────────────────►│ UI loop (run.rs) │──► render if dirty (at most every 16 ms)
+ one-second clock ──────┘                              │ select! over all │
+                                                        └──────────────────┘
 ```
 
-One task owns `State`. Each event becomes an `Action`. `update` mutates state and returns `Effects` without doing any I/O. Pending events are drained before each render, so bursts collapse into one frame ([ADR 0002](adr/0002-unidirectional-state.md)).
+One owner holds `State`: the `Client`, which the UI loop drives. `Client::next` waits for one network event, then drains up to 512 more without waiting, applies each with `State::apply`, carries out the effects, and returns the buffers that changed. `apply` mutates state and returns `Effect`s without doing any I/O, so it is tested with plain values. `NetEvent` plays the part of the `Action` in [ADR 0002](adr/0002-unidirectional-state.md); commands from the UI call `Client` methods (`say`, `send`, `add_network` and so on). `Client::next` is cancel-safe, so the UI loop can `select!` on it alongside terminal input, signals and the clock, and bursts collapse into one frame.
 
 ## Connections
 
@@ -50,8 +51,6 @@ Joining channels is not its job: on `Registered`, `State::apply` returns `Send` 
 - **Our own messages** with `echo-message`: `State::own_message` records the line as `Delivery::Pending` and, with `labeled-response`, returns a label for the outgoing message. The echo (matched by label, or else by kind and text, oldest first) confirms it in place with the server's time; a labelled error, or a disconnect, marks it `Failed`. Pending lines are logged only once confirmed (`Effect::Log`); `Effect::Updated` redraws without logging. Echoes of services passwords are redacted like the lines we typed.
 - **Users**: `Network::user` keeps account, `user@host`, real name and away message for people who share a channel with us, fed by `extended-join`, `account-tag`, `account-notify`, `chghost`, `setname`, `away-notify` and `userhost-in-names`, and forgotten when we no longer share a channel.
 - **`MONITOR`**: the per-network watch list is sent once `RPL_ISUPPORT` advertises it; 730 and 731 update `Network::watches`.
-
-`irsty_core::Client` owns `State`, the event receiver and the per-network command senders. `Client::next` waits for one event, then drains up to 512 more without waiting, applies them, runs the effects, and returns the buffers that changed. It is cancel-safe, so a frontend can `select!` on it alongside terminal input.
 
 ## Keys and input
 
@@ -87,13 +86,16 @@ CTCP requests are answered in `State` (VERSION, PING, TIME, CLIENTINFO, SOURCE) 
 |---|---|---|
 | Network to app | bounded `send().await` | The connection pauses reads, and TCP pushes back on the server. Nothing is dropped. |
 | App to network | `try_send` | A "send queue full" error appears in the buffer. The app loop never blocks. |
-| App to log writer | `try_send` plus a bounded overflow buffer | Dropped lines are counted, and a marker line is written once there is space. |
-| Input to app | bounded 64 | crossterm buffers input in the meantime. |
+| App to log writer | `try_send` into a queue of 4096 | Dropped lines are counted, and a marker line is written once there is space. |
 
 ## Untrusted text
 
-Remote text becomes `StyledText` once, at ingest, through `irsty_proto::format::parse`, and the TUI renders nothing else ([ADR 0005](adr/0005-untrusted-text.md)).
+Remote text becomes `StyledText` once, at ingest, through `StyledText::parse` (or `StyledText::plain`, which also drops formatting) in `irsty_proto::format`, and the TUI renders nothing else ([ADR 0005](adr/0005-untrusted-text.md)). Nicks and channel names shown in the UI go through `sanitise_identifier`, and text placed inside terminal escape sequences (notifications) has every control character removed.
+
+## Logging
+
+`irsty_core::log::LogWriter` writes one plain-text file per buffer on its own thread, behind a bounded queue, so the app loop never waits on disk. Each `Effect::Line` names the line it added (by its sequence number in the buffer), so several lines added by one event are all logged. With `[logging] rotate`, the file name carries the line's UTC date. Files are created with mode `0600`.
 
 ## Terminal safety
 
-A guard enables raw mode, the alternate screen, bracketed paste, focus events and (optionally) mouse capture, and restores the terminal on drop, on panic (via a chained hook), on SIGINT and SIGTERM, and around SIGTSTP and SIGCONT.
+A guard enables raw mode, the alternate screen, bracketed paste, focus events and (optionally) mouse capture, and restores the terminal on drop, on panic (via a chained hook), on SIGTERM and SIGHUP (which quit cleanly), and around SIGTSTP (Ctrl+Z suspends; `fg` resumes). In raw mode Ctrl+C is an ordinary key, used for formatting.
