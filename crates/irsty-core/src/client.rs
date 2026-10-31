@@ -14,7 +14,7 @@ use tokio::task::JoinSet;
 use crate::config::{Config, NetworkConfig, Paths, SaslMechanism};
 use crate::event::{NetCommand, NetEvent, NetworkId};
 use crate::log::LogWriter;
-use crate::net::connection::{self, EventSender, Server, Settings};
+use crate::net::connection::{self, EventSender, Proxy, Server, Settings};
 use crate::state::{BufferId, BufferKind, Effect, LineKind, State};
 
 /// Events buffered between connection tasks and the app loop.
@@ -444,6 +444,22 @@ async fn settings_for(id: NetworkId, net: &NetworkConfig) -> Result<Settings, St
         settings.realname.clone_from(realname);
     }
     settings.client_cert.clone_from(&net.client_cert);
+    if let Some(proxy) = &net.proxy {
+        let credentials = match (&proxy.username, &proxy.password) {
+            (Some(user), Some(source)) => Some((
+                user.clone(),
+                source
+                    .resolve()
+                    .await
+                    .map_err(|e| format!("proxy password: {e}"))?,
+            )),
+            _ => None,
+        };
+        settings.proxy = Some(Proxy {
+            config: proxy.clone(),
+            credentials,
+        });
+    }
     settings.sasl = match &net.sasl {
         None => None,
         Some(sasl) => Some(match sasl.mechanism {

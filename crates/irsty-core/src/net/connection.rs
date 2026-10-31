@@ -20,7 +20,7 @@ use super::backoff::Backoff;
 use super::codec::IrcCodec;
 use super::ratelimit::TokenBucket;
 use super::transport::{self, Stream};
-use crate::config::{ClientCertConfig, ServerConfig};
+use crate::config::{ClientCertConfig, ProxyConfig, ServerConfig};
 use crate::event::{NetCommand, NetEvent, NetworkId};
 
 /// Capabilities requested by default, beyond `sasl`.
@@ -92,6 +92,15 @@ pub struct Server {
     pub password: Option<Secret>,
 }
 
+/// A SOCKS5 proxy with its password resolved.
+#[derive(Clone, Debug)]
+pub struct Proxy {
+    /// From the config.
+    pub config: ProxyConfig,
+    /// Username and resolved password.
+    pub credentials: Option<(String, Secret)>,
+}
+
 /// Everything a connection task needs. Secrets are resolved before it starts.
 #[derive(Clone, Debug)]
 pub struct Settings {
@@ -109,6 +118,8 @@ pub struct Settings {
     pub sasl: Option<Mechanism>,
     /// TLS client certificate.
     pub client_cert: Option<ClientCertConfig>,
+    /// SOCKS5 proxy.
+    pub proxy: Option<Proxy>,
     /// Capabilities to request when offered.
     pub caps: Vec<String>,
     /// Timing.
@@ -133,6 +144,7 @@ impl Settings {
             nicks,
             sasl: None,
             client_cert: None,
+            proxy: None,
             caps: DEFAULT_CAPS.iter().map(|&c| c.to_owned()).collect(),
             timeouts: Timeouts::default(),
             rate: RateLimit::default(),
@@ -178,8 +190,13 @@ pub async fn run(
             .await;
             return;
         };
+        let via = settings
+            .proxy
+            .as_ref()
+            .map(|p| format!(" via SOCKS5 proxy {}", p.config))
+            .unwrap_or_default();
         if emit(NetEvent::Connecting {
-            server: server.config.to_string(),
+            server: format!("{}{via}", server.config),
         })
         .await
         .is_err()
@@ -307,7 +324,15 @@ async fn open(settings: &Settings, server: &Server) -> Result<Stream, transport:
     } else {
         None
     };
-    transport::connect(&server.config, tls, settings.timeouts.connect).await
+    let proxy = settings.proxy.as_ref().map(|p| transport::ProxyTarget {
+        host: &p.config.host,
+        port: p.config.port,
+        credentials: p
+            .credentials
+            .as_ref()
+            .map(|(user, pass)| (user.as_str(), pass.expose())),
+    });
+    transport::connect(&server.config, proxy, tls, settings.timeouts.connect).await
 }
 
 /// One connected session, from registration until the socket closes.

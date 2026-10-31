@@ -645,3 +645,72 @@ async fn says_split_text_and_reconnects_after_disconnect() {
     assert!(received.contains(&"PRIVMSG #test :\x01ACTION waves\x01".to_owned()));
     client.quit(None).await;
 }
+
+/// Connects through a SOCKS5 proxy with a username and password. The server
+/// name can't resolve locally, so registering proves the proxy did the lookup.
+#[tokio::test]
+async fn connects_through_a_socks5_proxy() {
+    use tokio::io::AsyncReadExt;
+
+    let proxy = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = proxy.local_addr().unwrap().port();
+    let dir = tempfile::tempdir().unwrap();
+    let text = format!(
+        r#"
+        [logging]
+        dir = "{}"
+
+        [[network]]
+        name = "mock"
+        nicks = ["me"]
+
+        [network.proxy]
+        host = "127.0.0.1"
+        port = {port}
+        username = "user"
+        password = {{ plain = "pass" }}
+
+        [[network.servers]]
+        host = "irc.invalid"
+        port = 6667
+        tls = false
+        "#,
+        dir.path().display()
+    );
+    let cfg = Config::parse(&text, Path::new("test.toml")).unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = timeout(STEP, proxy.accept()).await.unwrap().unwrap();
+        let mut greeting = [0u8; 4];
+        stream.read_exact(&mut greeting).await.unwrap();
+        assert_eq!(greeting, [5, 2, 0, 2]);
+        stream.write_all(&[5, 2]).await.unwrap();
+        let mut auth = [0u8; 11];
+        stream.read_exact(&mut auth).await.unwrap();
+        assert_eq!(&auth, b"\x01\x04user\x04pass");
+        stream.write_all(&[1, 0]).await.unwrap();
+        let mut request = vec![0u8; 5 + "irc.invalid".len() + 2];
+        stream.read_exact(&mut request).await.unwrap();
+        assert_eq!(&request[..5], [5, 1, 0, 3, 11]);
+        assert_eq!(&request[5..16], b"irc.invalid");
+        assert_eq!(&request[16..], 6667u16.to_be_bytes());
+        stream
+            .write_all(&[5, 0, 0, 1, 127, 0, 0, 1, 0, 0])
+            .await
+            .unwrap();
+        let mut conn = Conn::new(stream);
+        conn.register("me", "").await;
+        conn
+    });
+    let mut client = Client::start(&cfg, None, Some(fast(Duration::from_secs(30))));
+    until(&mut client, |c| status(c) == Status::Registered).await;
+    assert!(
+        server_text(&client)
+            .iter()
+            .any(|l| l
+                == &format!("Connecting to irc.invalid:6667 via SOCKS5 proxy 127.0.0.1:{port}")),
+        "{:?}",
+        server_text(&client)
+    );
+    let _conn = server.await.unwrap();
+    client.quit(None).await;
+}

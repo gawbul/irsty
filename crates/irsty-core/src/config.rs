@@ -226,6 +226,36 @@ impl std::fmt::Display for ServerConfig {
     }
 }
 
+fn default_proxy_port() -> u16 {
+    1080
+}
+
+/// A SOCKS5 proxy, for Tor or a bastion host. Host names are resolved by the
+/// proxy, never locally.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProxyConfig {
+    /// Proxy host name or IP address.
+    pub host: String,
+    /// Proxy port. Defaults to 1080.
+    #[serde(default = "default_proxy_port")]
+    pub port: u16,
+    /// Username, if the proxy wants one.
+    pub username: Option<String>,
+    /// Password; required with `username`.
+    pub password: Option<SecretSource>,
+}
+
+impl std::fmt::Display for ProxyConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.host.contains(':') {
+            write!(f, "[{}]:{}", self.host, self.port)
+        } else {
+            write!(f, "{}:{}", self.host, self.port)
+        }
+    }
+}
+
 /// SASL mechanism to authenticate with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -279,6 +309,8 @@ pub struct NetworkConfig {
     pub sasl: Option<SaslConfig>,
     /// TLS client certificate.
     pub client_cert: Option<ClientCertConfig>,
+    /// SOCKS5 proxy to connect through.
+    pub proxy: Option<ProxyConfig>,
     /// Channels to join once registered.
     #[serde(default)]
     pub autojoin: Vec<String>,
@@ -401,13 +433,15 @@ impl Config {
             }
         })?;
         // Accept IPv6 literals written as in URLs, "[2001:db8::1]".
-        for server in config.networks.iter_mut().flat_map(|n| &mut n.servers) {
-            if let Some(bare) = server
-                .host
-                .strip_prefix('[')
-                .and_then(|h| h.strip_suffix(']'))
-            {
-                server.host = bare.to_owned();
+        let unbracket = |host: &mut String| {
+            if let Some(bare) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+                *host = bare.to_owned();
+            }
+        };
+        for net in &mut config.networks {
+            net.servers.iter_mut().for_each(|s| unbracket(&mut s.host));
+            if let Some(proxy) = &mut net.proxy {
+                unbracket(&mut proxy.host);
             }
         }
         config.validate()?;
@@ -463,6 +497,14 @@ impl Config {
                     ));
                 }
             }
+            if let Some(proxy) = &net.proxy
+                && proxy.username.is_some() != proxy.password.is_some()
+            {
+                return invalid(format!(
+                    "network {:?}: the proxy needs both username and password, or neither",
+                    net.name
+                ));
+            }
             if let Some(sasl) = &net.sasl {
                 match sasl.mechanism {
                     SaslMechanism::Plain | SaslMechanism::ScramSha256
@@ -511,6 +553,14 @@ impl Config {
                         index + 1
                     ));
                 }
+            }
+            if net
+                .proxy
+                .as_ref()
+                .and_then(|p| p.password.as_ref())
+                .is_some_and(SecretSource::is_plain)
+            {
+                found.push(format!("{}: proxy password", net.name));
             }
             for server in &net.servers {
                 if server.password.as_ref().is_some_and(SecretSource::is_plain) {
@@ -713,6 +763,10 @@ mod tests {
                 "[[network]]\nname = \"x\"\nnicks = [\"n\"]\nperform = [\"PRIVMSG a :b\\r\\nQUIT\"]\n[[network.servers]]\nhost = \"h\"",
                 "perform line 1",
             ),
+            (
+                "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[network.proxy]\nhost = \"p\"\nusername = \"u\"\n[[network.servers]]\nhost = \"h\"",
+                "both username and password",
+            ),
             ("scrollback = 0", "scrollback"),
         ];
         for (text, expected) in cases {
@@ -730,6 +784,13 @@ mod tests {
             "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[[network.servers]]\nhost = \"[2001:db8::1]\"\n[[network.servers]]\nhost = \"::1\"\nport = 6667\ntls = false",
         )
         .unwrap();
+        let proxied = parse(
+            "[[network]]\nname = \"x\"\nnicks = [\"n\"]\n[network.proxy]\nhost = \"[::1]\"\nusername = \"u\"\npassword = { plain = \"p\" }\n[[network.servers]]\nhost = \"h\"",
+        )
+        .unwrap();
+        let proxy = proxied.networks[0].proxy.as_ref().unwrap();
+        assert_eq!(proxy.to_string(), "[::1]:1080");
+        assert_eq!(proxied.plaintext_secrets(), ["x: proxy password"]);
         let servers = &config.networks[0].servers;
         assert_eq!(servers[0].host, "2001:db8::1");
         assert_eq!(servers[0].to_string(), "[2001:db8::1]:6697 (TLS)");

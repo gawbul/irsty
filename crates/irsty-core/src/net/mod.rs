@@ -5,4 +5,5 @@ pub mod codec;
 pub mod connection;
 pub mod dial;
 pub mod ratelimit;
+pub mod socks;
 pub mod transport;
