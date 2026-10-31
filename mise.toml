@@ -147,11 +147,11 @@ run = "cargo insta test -p irsty-tui --test snapshots --review"
 
 [tasks.cov]
 description = "Coverage report for the workspace in HTML, opened in a browser"
-run = "cargo llvm-cov --workspace --all-features --html --open"
+run = ["cargo llvm-cov clean --workspace", "cargo llvm-cov --workspace --all-features --html --open"]
 
 [tasks."cov:proto"]
 description = "Check irsty-proto line coverage is at least 90%, as the gate does"
-run = "cargo llvm-cov -p irsty-proto --fail-under-lines 90 --summary-only"
+run = ["cargo llvm-cov clean --workspace", "cargo llvm-cov -p irsty-proto --fail-under-lines 90 --summary-only"]
 
 [tasks.fuzz]
 description = "Run every fuzz target in parallel; argument is seconds (default 600)"

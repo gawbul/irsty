@@ -12,6 +12,8 @@ step "clippy";   cargo clippy --workspace --all-targets --all-features -- -D war
 step "nextest";  cargo nextest run --workspace --all-features --no-tests=pass
 step "doctests"; cargo test --workspace --all-features --doc
 step "coverage (irsty-proto >= 90% lines)"
+# Stale profiles from earlier builds skew the numbers either way.
+cargo llvm-cov clean --workspace
 cargo llvm-cov -p irsty-proto --fail-under-lines 90 --summary-only 2>&1 | tail -3
 step "deny";     cargo deny check
 step "audit";    cargo audit --deny warnings
