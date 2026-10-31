@@ -14,7 +14,7 @@ use ratatui::widgets::Widget;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::theme;
+use crate::{theme, urls};
 
 /// Separator between the nick column and the text.
 const SEPARATOR: &str = " │ ";
@@ -32,19 +32,26 @@ pub struct Scrollback<'a> {
     pub tz: &'a TimeZone,
     /// Width of the nick column.
     pub nick_width: usize,
+    /// How to colour nicks.
+    pub colours: &'a theme::NickColours,
 }
 
 /// One piece of text with a style.
 type Piece<'a> = (&'a str, Style);
 
 /// The nick column for a line: text and style.
-fn gutter(line: &Line) -> (String, Style) {
+fn gutter(line: &Line, colours: &theme::NickColours) -> (String, Style) {
     let nick = line.sender.as_deref().unwrap_or("");
+    if line.highlight && matches!(line.kind, LineKind::Message | LineKind::Notice) {
+        let shown = if line.kind == LineKind::Notice {
+            format!("-{nick}-")
+        } else {
+            nick.to_owned()
+        };
+        return (shown, theme::highlight());
+    }
     match line.kind {
-        LineKind::Message => (
-            nick.to_owned(),
-            Style::default().fg(theme::nick_color(nick)),
-        ),
+        LineKind::Message => (nick.to_owned(), Style::default().fg(colours.colour(nick))),
         LineKind::Action => (
             "*".to_owned(),
             Style::default().add_modifier(Modifier::BOLD),
@@ -89,7 +96,7 @@ fn fit_right(text: &str, width: usize) -> String {
 
 /// The styled pieces of a line's text. Our messages still waiting for the
 /// server's echo are dimmed; ones that never made it say why.
-fn pieces(line: &Line) -> Vec<Piece<'_>> {
+fn pieces<'a>(line: &'a Line, colours: &theme::NickColours) -> Vec<Piece<'a>> {
     let mut base = theme::line_style(line.kind);
     if matches!(line.delivery, Delivery::Pending { .. }) {
         base = base.patch(theme::dim());
@@ -98,7 +105,12 @@ fn pieces(line: &Line) -> Vec<Piece<'_>> {
     if line.kind == LineKind::Action
         && let Some(nick) = &line.sender
     {
-        out.push((nick.as_str(), Style::default().fg(theme::nick_color(nick))));
+        let style = if line.highlight {
+            theme::highlight()
+        } else {
+            Style::default().fg(colours.colour(nick))
+        };
+        out.push((nick.as_str(), style));
         out.push((" ", base));
     }
     out.extend(
@@ -110,6 +122,28 @@ fn pieces(line: &Line) -> Vec<Piece<'_>> {
     if let Delivery::Failed { reason } = &line.delivery {
         let red = Style::default().fg(Color::LightRed);
         out.extend([(" [not sent: ", red), (reason.as_str(), red), ("]", red)]);
+    }
+    underline_urls(out)
+}
+
+/// Splits pieces so URLs in them are underlined.
+fn underline_urls(pieces: Vec<Piece<'_>>) -> Vec<Piece<'_>> {
+    let mut out = Vec::with_capacity(pieces.len());
+    for (text, style) in pieces {
+        let mut at = 0;
+        for range in urls::find(text) {
+            if range.start > at {
+                out.push((&text[at..range.start], style));
+            }
+            out.push((
+                &text[range.clone()],
+                style.add_modifier(Modifier::UNDERLINED),
+            ));
+            at = range.end;
+        }
+        if at < text.len() {
+            out.push((&text[at..], style));
+        }
     }
     out
 }
@@ -201,7 +235,7 @@ impl Widget for Scrollback<'_> {
             if y <= area.top() {
                 break;
             }
-            let pieces = pieces(line);
+            let pieces = pieces(line, self.colours);
             let rows = wrap(&pieces, text_width);
             for (index, row) in rows.iter().enumerate().rev() {
                 if y <= area.top() {
@@ -221,7 +255,7 @@ impl Widget for Scrollback<'_> {
                         .to_zoned(self.tz.clone())
                         .strftime(self.time_format)
                         .to_string();
-                    let (nick, nick_style) = gutter(line);
+                    let (nick, nick_style) = gutter(line, self.colours);
                     let nick = fit_right(&nick, nick_width);
                     let gutter_pieces = [
                         (time.as_str(), theme::dim()),

@@ -190,6 +190,12 @@ pub const COMMANDS: &[Spec] = &[
         "Close the current buffer, leaving the channel if joined."
     ),
     spec!(
+        "url",
+        [],
+        "/url [number]",
+        "List the newest links in this buffer, or open one (1 is the newest) in your browser."
+    ),
+    spec!(
         "clear",
         [],
         "/clear",
@@ -441,6 +447,8 @@ pub enum Command {
     Close(Option<String>),
     /// `/clear`.
     Clear,
+    /// `/url`: list links, or open one by number.
+    Url(Option<usize>),
     /// `/window` and `/buffer`.
     Window(Window),
     /// `/ignore`: a rule to add, or `None` to list.
@@ -664,6 +672,8 @@ pub fn parse(input: &str) -> Result<Command, ParseError> {
         "server" => Command::Server(parse_server(first, tail)?),
         "close" => Command::Close(opt(rest)),
         "clear" => Command::Clear,
+        "url" if first.is_empty() => Command::Url(None),
+        "url" => Command::Url(Some(first.parse().map_err(|_| usage(name))?)),
         "window" => Command::Window(match first.to_lowercase().as_str() {
             "next" | "n" => Window::Next,
             "prev" | "p" => Window::Prev,
@@ -1075,6 +1085,9 @@ mod tests {
             })
         );
         assert_eq!(parse("/clear"), Ok(Command::Clear));
+        assert_eq!(parse("/url"), Ok(Command::Url(None)));
+        assert_eq!(parse("/url 2"), Ok(Command::Url(Some(2))));
+        assert!(matches!(parse("/url two"), Err(ParseError::Usage(_))));
         assert_eq!(parse("/w 3"), Ok(Command::Window(Window::Number(3))));
         assert_eq!(parse("/buffer next"), Ok(Command::Window(Window::Next)));
         assert!(matches!(

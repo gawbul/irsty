@@ -92,6 +92,74 @@ const NICK_COLOURS: [Color; 12] = [
 ];
 
 /// A stable colour for a nick, ignoring ASCII case.
+/// How nicks are coloured: by a hash of the name (unless turned off), with
+/// overrides for particular nicks.
+#[derive(Clone, Debug)]
+pub struct NickColours {
+    enabled: bool,
+    overrides: std::collections::HashMap<String, Color>,
+}
+
+impl Default for NickColours {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            overrides: std::collections::HashMap::new(),
+        }
+    }
+}
+
+impl NickColours {
+    /// From `[ui] nick_colours` and the `[nick_colours]` table. Unknown
+    /// colour names are skipped (the config is validated first).
+    pub fn new(enabled: bool, overrides: &std::collections::BTreeMap<String, String>) -> Self {
+        Self {
+            enabled,
+            overrides: overrides
+                .iter()
+                .filter_map(|(nick, name)| Some((nick.to_lowercase(), colour_named(name)?)))
+                .collect(),
+        }
+    }
+
+    /// The colour for a nick.
+    pub fn colour(&self, nick: &str) -> Color {
+        match self.overrides.get(&nick.to_lowercase()) {
+            Some(&colour) => colour,
+            None if self.enabled => nick_color(nick),
+            None => Color::Reset,
+        }
+    }
+}
+
+/// A colour from its name in the config.
+pub fn colour_named(name: &str) -> Option<Color> {
+    Some(match name.to_lowercase().as_str() {
+        "black" => Color::Black,
+        "red" => Color::Red,
+        "green" => Color::Green,
+        "yellow" => Color::Yellow,
+        "blue" => Color::Blue,
+        "magenta" => Color::Magenta,
+        "cyan" => Color::Cyan,
+        "gray" => Color::Gray,
+        "dark_gray" => Color::DarkGray,
+        "light_red" => Color::LightRed,
+        "light_green" => Color::LightGreen,
+        "light_yellow" => Color::LightYellow,
+        "light_blue" => Color::LightBlue,
+        "light_magenta" => Color::LightMagenta,
+        "light_cyan" => Color::LightCyan,
+        "white" => Color::White,
+        _ => return None,
+    })
+}
+
+/// The nick of a highlighted line: dark on yellow, so mentions stand out.
+pub fn highlight() -> Style {
+    Style::default().fg(Color::Black).bg(Color::Yellow)
+}
+
 pub fn nick_color(nick: &str) -> Color {
     // FNV-1a: stable across runs and platforms, unlike the std hasher.
     let hash = nick

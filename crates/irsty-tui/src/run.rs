@@ -78,6 +78,31 @@ impl Signals {
     }
 }
 
+/// Sends notifications for highlights and private messages, when the
+/// terminal isn't focused (or always, with `when_focused`).
+fn notify(client: &mut Client, ui: &Ui, limiter: &mut crate::notify::Limiter, tmux: bool) {
+    let settings = &ui.config.notifications;
+    for notification in client.take_notifications() {
+        if ui.focused && !settings.when_focused {
+            continue;
+        }
+        if !limiter.allow(notification.buffer, std::time::Instant::now()) {
+            continue;
+        }
+        let (title, body) = crate::notify::describe(&notification, settings.show_text);
+        if let Some(sequence) = crate::notify::sequence(settings.method, &title, &body, tmux) {
+            use std::io::Write as _;
+            let mut out = io::stdout();
+            if let Err(error) = out
+                .write_all(sequence.as_bytes())
+                .and_then(|()| out.flush())
+            {
+                tracing::warn!(%error, "cannot send a notification");
+            }
+        }
+    }
+}
+
 /// Runs the terminal UI until the user quits, then quits every network.
 /// `file` lets commands such as `/server` and `/set` save changes.
 pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -> io::Result<()> {
@@ -86,6 +111,7 @@ pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -
     let mut ui = Ui::new(&config.ui, client.state());
     let (keymap, problems) = crate::keymap::Keymap::new(&config.ui.keymap, &config.keys);
     ui.keymap = keymap;
+    ui.nick_colours = crate::theme::NickColours::new(config.ui.nick_colours, &config.nick_colours);
     ui.config = config;
     ui.config_file = file;
     for problem in problems {
@@ -101,6 +127,8 @@ pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -
     let mut clock = interval(Duration::from_secs(1));
     clock.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
+    let mut limiter = crate::notify::Limiter::default();
+    let tmux = std::env::var_os("TMUX").is_some();
     let mut dirty = true;
     let mut next_frame = Instant::now();
     let mut client_running = true;
@@ -123,6 +151,7 @@ pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -
                     client_running = false;
                 }
                 ui.on_update(client.state());
+                notify(&mut client, &ui, &mut limiter, tmux);
                 Flow::Continue
             }
             event = events.next() => match event {

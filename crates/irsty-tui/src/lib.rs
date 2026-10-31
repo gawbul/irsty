@@ -9,11 +9,13 @@ pub mod command;
 pub mod complete;
 pub mod input;
 pub mod keymap;
+pub mod notify;
 pub mod run;
 pub mod scrollback;
 pub mod terminal;
 pub mod theme;
 pub mod ui;
+pub mod urls;
 pub mod view;
 
 pub use irsty_core as core;

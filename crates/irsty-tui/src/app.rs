@@ -16,7 +16,7 @@ use ratatui::layout::Position;
 
 use crate::command::{self, Command, ServerCommand, Window};
 use crate::complete;
-use crate::keymap::{Action, Chord, Keymap};
+use crate::keymap::{Action, Chord, Format, Keymap};
 use crate::ui::{Completion, Switcher, Ui};
 
 /// What the run loop should do after an event.
@@ -45,7 +45,16 @@ pub fn handle_event(event: Event, client: &mut Client, ui: &mut Ui) -> Flow {
         }
         Event::Mouse(mouse) => handle_mouse(mouse, client, ui),
         Event::Resize(..) => Flow::Redraw,
-        _ => Flow::Continue,
+        Event::FocusGained => {
+            ui.focused = true;
+            Flow::Continue
+        }
+        Event::FocusLost => {
+            ui.focused = false;
+            Flow::Continue
+        }
+        // Key releases.
+        Event::Key(_) => Flow::Continue,
     }
 }
 
@@ -71,6 +80,14 @@ fn handle_key(key: KeyEvent, client: &mut Client, ui: &mut Ui) -> Flow {
     }
     if ui.switcher.is_some() {
         switcher_key(key, client, ui);
+        return Flow::Continue;
+    }
+    if std::mem::take(&mut ui.format_prefix) {
+        if let KeyCode::Char(c) = key.code
+            && let Some(format) = Format::from_weechat_letter(c)
+        {
+            ui.input.insert(&format.code().to_string());
+        }
         return Flow::Continue;
     }
     if let Some(digits) = ui.jump.as_mut() {
@@ -139,6 +156,8 @@ fn run_action(action: Action, client: &mut Client, ui: &mut Ui) -> Flow {
         Action::KillToEnd => ui.input.kill_to_end(),
         Action::Yank => ui.input.yank(),
         Action::Transpose => ui.input.transpose(),
+        Action::Format(format) => ui.input.insert(&format.code().to_string()),
+        Action::FormatPrefix => ui.format_prefix = true,
         Action::None => {}
     }
     Flow::Continue
@@ -450,6 +469,7 @@ fn save(
     ui.show_nicklist = config.ui.nicklist;
     ui.time_format.clone_from(&config.ui.timestamp_format);
     ui.keymap = Keymap::new(&config.ui.keymap, &config.keys).0;
+    ui.nick_colours = crate::theme::NickColours::new(config.ui.nick_colours, &config.nick_colours);
     ui.config = config.clone();
     Ok(config)
 }
@@ -745,6 +765,7 @@ fn run(cmd: Command, client: &mut Client, ui: &mut Ui) -> Outcome {
             ui.on_update(client.state());
         }
         Command::Clear => client.clear_buffer(here(ui)?),
+        Command::Url(choice) => run_url(choice, client, ui)?,
         Command::Window(window) => match window {
             Window::Number(n) => ui.switch_to_number(client.state(), n),
             Window::Next => ui.cycle(client.state(), true),
@@ -1105,6 +1126,53 @@ fn run_bind(
     Ok(())
 }
 
+/// Links listed by `/url`.
+const URLS_LISTED: usize = 10;
+
+fn run_url(choice: Option<usize>, client: &mut Client, ui: &mut Ui) -> Result<(), String> {
+    let buffer = here(ui)?;
+    // Newest first, each link once.
+    let mut links: Vec<String> = Vec::new();
+    if let Some(buf) = client.state().buffer(buffer) {
+        for line in buf.lines().iter().rev() {
+            let text = line.text.to_plain();
+            for range in crate::urls::find(&text).into_iter().rev() {
+                let link = text[range].to_owned();
+                if !links.contains(&link) {
+                    links.push(link);
+                }
+            }
+            if links.len() >= URLS_LISTED {
+                break;
+            }
+        }
+    }
+    links.truncate(URLS_LISTED);
+    match choice {
+        None if links.is_empty() => feedback(client, ui, LineKind::Info, "No links in this buffer"),
+        None => {
+            let listed: Vec<String> = links
+                .iter()
+                .enumerate()
+                .map(|(i, l)| format!("{:>3}. {l}", i + 1))
+                .collect();
+            for line in listed {
+                feedback(client, ui, LineKind::Info, &line);
+            }
+        }
+        Some(n) => {
+            let link = n
+                .checked_sub(1)
+                .and_then(|i| links.get(i))
+                .ok_or_else(|| format!("No link {n}; /url lists them"))?
+                .clone();
+            crate::urls::open(&link).map_err(|e| format!("Cannot open {link}: {e}"))?;
+            feedback(client, ui, LineKind::Info, &format!("Opening {link}"));
+        }
+    }
+    Ok(())
+}
+
 fn run_set(
     key: Option<String>,
     value: Option<String>,
@@ -1125,6 +1193,14 @@ fn run_set(
             "ui.nicklist" => config.ui.nicklist.to_string(),
             "ui.timestamp_format" => config.ui.timestamp_format.clone(),
             "ui.keymap" => config.ui.keymap.clone(),
+            "ui.nick_colours" => config.ui.nick_colours.to_string(),
+            "logging.rotate" => format!("{:?}", config.logging.rotate).to_lowercase(),
+            "notifications.method" => format!("{:?}", config.notifications.method).to_lowercase(),
+            "notifications.when_focused" => config.notifications.when_focused.to_string(),
+            "notifications.show_text" => config.notifications.show_text.to_string(),
+            "ctcp.replies" => config.ctcp.replies.to_string(),
+            "ctcp.version" => config.ctcp.version.clone(),
+            "ctcp.time" => config.ctcp.time.to_string(),
             _ => String::new(),
         }
     };

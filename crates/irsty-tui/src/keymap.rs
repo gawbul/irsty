@@ -79,8 +79,67 @@ pub enum Action {
     Redraw,
     /// Suspend Irsty (resume with `fg`).
     Suspend,
+    /// Insert a formatting code.
+    Format(Format),
+    /// Wait for a letter naming a formatting code (WeeChat's Ctrl+C).
+    FormatPrefix,
     /// Do nothing (to unbind a preset key).
     None,
+}
+
+/// mIRC formatting codes that can be typed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Format {
+    /// `\x02`.
+    Bold,
+    /// `\x03`, followed by colour numbers.
+    Colour,
+    /// `\x04`, followed by a hex colour.
+    HexColour,
+    /// `\x1d`.
+    Italic,
+    /// `\x1f`.
+    Underline,
+    /// `\x1e`.
+    Strikethrough,
+    /// `\x11`.
+    Monospace,
+    /// `\x16`.
+    Reverse,
+    /// `\x0f`: back to plain text.
+    Reset,
+}
+
+impl Format {
+    /// The code to insert.
+    pub fn code(self) -> char {
+        match self {
+            Self::Bold => '\x02',
+            Self::Colour => '\x03',
+            Self::HexColour => '\x04',
+            Self::Italic => '\x1d',
+            Self::Underline => '\x1f',
+            Self::Strikethrough => '\x1e',
+            Self::Monospace => '\x11',
+            Self::Reverse => '\x16',
+            Self::Reset => '\x0f',
+        }
+    }
+
+    /// The letter after WeeChat's Ctrl+C that picks this code.
+    pub fn from_weechat_letter(c: char) -> Option<Self> {
+        Some(match c {
+            'b' => Self::Bold,
+            'c' => Self::Colour,
+            'd' => Self::HexColour,
+            'i' => Self::Italic,
+            'o' => Self::Reset,
+            's' => Self::Strikethrough,
+            'v' => Self::Reverse,
+            '_' => Self::Underline,
+            _ => return None,
+        })
+    }
 }
 
 /// Every action with a fixed name, for `/bind` and completion.
@@ -119,6 +178,16 @@ const NAMED: &[(&str, Action)] = &[
     ("transpose", Action::Transpose),
     ("redraw", Action::Redraw),
     ("suspend", Action::Suspend),
+    ("bold", Action::Format(Format::Bold)),
+    ("colour", Action::Format(Format::Colour)),
+    ("hex_colour", Action::Format(Format::HexColour)),
+    ("italic", Action::Format(Format::Italic)),
+    ("underline", Action::Format(Format::Underline)),
+    ("strikethrough", Action::Format(Format::Strikethrough)),
+    ("monospace", Action::Format(Format::Monospace)),
+    ("reverse", Action::Format(Format::Reverse)),
+    ("reset", Action::Format(Format::Reset)),
+    ("format_prefix", Action::FormatPrefix),
     ("none", Action::None),
 ];
 
@@ -314,7 +383,6 @@ const COMMON: &[(&str, &str)] = &[
     ("ctrl-down", "history_next"),
     ("left", "left"),
     ("right", "right"),
-    ("ctrl-b", "left"),
     ("ctrl-f", "right"),
     ("ctrl-left", "word_left"),
     ("ctrl-right", "word_right"),
@@ -349,8 +417,20 @@ const COMMON: &[(&str, &str)] = &[
     ("alt-0", "buffer_10"),
 ];
 
-/// irssi: Alt+Q to Alt+P are buffers 11 to 20.
+/// irssi: Alt+Q to Alt+P are buffers 11 to 20, and Ctrl keys type the
+/// formatting code with the same byte (Ctrl+B is 0x02, bold). Terminals send
+/// Ctrl+], Ctrl+^ and Ctrl+_ as the bytes crossterm reports as Ctrl+5, 6 and 7.
 const IRSSI: &[(&str, &str)] = &[
+    ("ctrl-b", "bold"),
+    ("ctrl-c", "colour"),
+    ("ctrl-v", "reverse"),
+    ("ctrl-o", "reset"),
+    ("ctrl-]", "italic"),
+    ("ctrl-5", "italic"),
+    ("ctrl-^", "strikethrough"),
+    ("ctrl-6", "strikethrough"),
+    ("ctrl-_", "underline"),
+    ("ctrl-7", "underline"),
     ("alt-q", "buffer_11"),
     ("alt-w", "buffer_12"),
     ("alt-e", "buffer_13"),
@@ -364,8 +444,11 @@ const IRSSI: &[(&str, &str)] = &[
 ];
 
 /// WeeChat: Alt+J then two digits jumps to a buffer, Alt+Up and Alt+Down and
-/// F5 and F6 move between buffers, and Alt+/ goes back.
+/// F5 and F6 move between buffers, Alt+/ goes back, Ctrl+B moves left, and
+/// Ctrl+C then a letter types a formatting code.
 const WEECHAT: &[(&str, &str)] = &[
+    ("ctrl-b", "left"),
+    ("ctrl-c", "format_prefix"),
     ("alt-j", "jump"),
     ("alt-up", "prev_buffer"),
     ("alt-down", "next_buffer"),
@@ -502,6 +585,16 @@ mod tests {
             weechat.action(&key(KeyCode::F(6), KeyModifiers::NONE)),
             Some(Action::NextBuffer)
         );
+        let ctrl = |c| key(KeyCode::Char(c), KeyModifiers::CONTROL);
+        assert_eq!(irssi.action(&ctrl('b')), Some(Action::Format(Format::Bold)));
+        assert_eq!(
+            irssi.action(&ctrl('5')),
+            Some(Action::Format(Format::Italic))
+        );
+        assert_eq!(weechat.action(&ctrl('b')), Some(Action::Left));
+        assert_eq!(weechat.action(&ctrl('c')), Some(Action::FormatPrefix));
+        assert_eq!(Format::from_weechat_letter('_'), Some(Format::Underline));
+        assert_eq!(Format::from_weechat_letter('x'), None);
         for map in [&irssi, &weechat] {
             assert_eq!(map.action(&alt('1')), Some(Action::Buffer(1)));
             assert_eq!(
