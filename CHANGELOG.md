@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - `422` (no MOTD) no longer shows as an error.
+- A batch inside another (such as a multi-line message in chat history) is now handled with its parent, in order, instead of as soon as it ends.
 - Two iCloud sync duplicates (`dial 2.rs`, `socks 2.rs`) had been committed; they are gone, `.gitignore` ignores such names, and the gate and CI fail if one is tracked.
 - When one event added two lines to the same buffer (such as the user count and the names list after `/names`), the log got the second line twice and never the first. Effects now name the line they added.
 
@@ -26,6 +27,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- M10, modern messaging:
+  - Typing indicators (`+typing`): who is typing shows in the status bar (`typing.show`, on by default). Telling others when you type is opt-in (`typing.send`, off by default), at most once every three seconds per channel, and never for commands.
+  - Replies (`+reply`): `/reply <nick> <text>` answers their newest message; replies show what they answer (`↪ alice: …`). The older `+draft/reply` is understood too.
+  - Reactions (`+draft/react` and `+draft/unreact`): `/react` and `/unreact`; reactions show after their message with a count, capped per message.
+  - Multi-line messages (`draft/multiline`): a pasted block goes as one message where the server supports it, split into batches within its limits, and incoming ones read as one block under one nick, with one notification.
+  - `TAGMSG` is understood, so tag-only messages no longer show as empty lines in the server buffer.
 - M9, history and bouncers:
   - Chat history (`draft/chathistory`): recent messages on joining, what you missed after a reconnect, private conversations you missed, and older messages when you scroll back past the top. History never notifies or answers CTCP, isn't shown twice, and appears in time order.
   - Read markers shared with your other clients (`draft/read-marker`).
@@ -43,7 +50,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - M7, input polish:
   - Tab completion of nicks (recent speakers first, `: ` after a nick at the start of a line), channels, commands, aliases and command arguments; Shift+Tab cycles back.
   - Ctrl+G opens a fuzzy buffer switcher; Alt+< and Alt+> go back and forward through the buffers you have shown.
-  - Pasting several lines asks first: send them as separate messages, join them into one line, or cancel. Pasted lines are never run as commands.
+  - Pasting several lines asks first: send them, join them into one line, or cancel. Pasted lines are never run as commands. (Since M10, Enter sends them as one multi-line message where the server supports it.)
   - Key bindings are configurable: `keymap = "weechat"` for WeeChat's buffer keys (Alt+J and two digits, F5 and F6, Alt+Up and Alt+Down), `[keys]` overrides, and `/bind` and `/unbind`.
   - Ctrl+T swaps characters.
 - M6, the full command set: `/whois /whowas /who /names /topic /mode /op /deop /voice /devoice /kick /ban /unban /invite /away /list /notice /ctcp /clear /window`, with replies gathered in the buffer you typed in.

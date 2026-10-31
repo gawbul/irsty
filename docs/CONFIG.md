@@ -179,6 +179,15 @@ Chat history from servers and bouncers that keep it (IRCv3 `draft/chathistory`, 
 
 With `draft/read-marker`, the server also remembers how far you have read: a buffer you read on another device stops counting as unread here, and reading here tells the server (at most every 15 seconds per buffer, or when you switch buffers).
 
+## `[typing]`
+
+Typing notifications (IRCv3 `+typing`), on servers with `message-tags`.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `send` | boolean | `false` | Tell the channel or person you are talking to when you are typing a message (never a command). Off by default because it shows when you are at the keyboard. At most one notification every three seconds per target, as the spec requires, and none where the server forbids the tag (`CLIENTTAGDENY`). |
+| `show` | boolean | `true` | Show who is typing in the current buffer in the status bar. Notifications run out after 6 seconds (30 once paused), or when the person sends a message, leaves or quits. |
+
 ## `[ctcp]`
 
 Irsty answers CTCP `VERSION`, `PING`, `TIME`, `CLIENTINFO` and `SOURCE` requests, at most three every ten seconds per network so a flood of requests can't get you disconnected. Requests and whether they were answered show in the server buffer.
