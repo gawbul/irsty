@@ -533,6 +533,21 @@ pub struct Config {
     pub highlight: HighlightConfig,
 }
 
+impl Default for Config {
+    /// The same as an empty `config.toml`.
+    fn default() -> Self {
+        Self {
+            networks: Vec::new(),
+            scrollback: default_scrollback(),
+            logging: LoggingConfig::default(),
+            ui: UiConfig::default(),
+            aliases: std::collections::BTreeMap::new(),
+            ignore: Vec::new(),
+            highlight: HighlightConfig::default(),
+        }
+    }
+}
+
 impl Config {
     /// Parses and validates configuration text.
     pub fn parse(text: &str, path: &Path) -> Result<Self, ConfigError> {
@@ -968,6 +983,11 @@ mod tests {
         assert_eq!(servers[0].host, "2001:db8::1");
         assert_eq!(servers[0].to_string(), "[2001:db8::1]:6697 (TLS)");
         assert_eq!(servers[1].to_string(), "[::1]:6667");
+    }
+
+    #[test]
+    fn default_matches_an_empty_file() {
+        assert_eq!(parse("").unwrap(), Config::default());
     }
 
     #[test]

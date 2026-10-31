@@ -68,6 +68,9 @@ pub struct Client {
     /// Networks to connect again once their old connection has closed, to
     /// pick up new settings.
     restarting: std::collections::BTreeSet<NetworkId>,
+    /// The next network id. Ids are never reused, so late events from a
+    /// removed network's connection can't land on a new one.
+    next_network: u32,
 }
 
 impl std::fmt::Debug for Client {
@@ -97,6 +100,7 @@ impl Client {
             configs: BTreeMap::new(),
             hook,
             restarting: std::collections::BTreeSet::new(),
+            next_network: 0,
         };
         client
             .state
@@ -136,11 +140,8 @@ impl Client {
 
     /// Adds a network, connecting it if `autoconnect` is set. Returns its id.
     pub fn add_network(&mut self, net: &NetworkConfig) -> NetworkId {
-        let id = self
-            .configs
-            .keys()
-            .next_back()
-            .map_or(NetworkId(0), |last| NetworkId(last.0.saturating_add(1)));
+        let id = NetworkId(self.next_network);
+        self.next_network = self.next_network.saturating_add(1);
         let nick = net.nicks.first().map_or("irsty", String::as_str);
         self.state
             .add_network(id, &net.name, nick, net.autojoin.clone());
@@ -184,6 +185,21 @@ impl Client {
         self.state.set_scrollback(config.scrollback);
         self.state
             .set_rules(config.ignore.clone(), &config.highlight);
+    }
+
+    /// Notes that replies to a command typed in `buffer` belong there.
+    pub fn expect_reply(
+        &mut self,
+        id: NetworkId,
+        awaiting: crate::state::Awaiting,
+        buffer: BufferId,
+    ) {
+        self.state.expect_reply(id, awaiting, buffer);
+    }
+
+    /// Empties a buffer's scrollback.
+    pub fn clear_buffer(&mut self, id: BufferId) {
+        self.state.clear_buffer(id);
     }
 
     /// The config a network was started with.
