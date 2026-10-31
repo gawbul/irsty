@@ -159,6 +159,45 @@ impl InputLine {
         self.kill(self.cursor, self.word_end(self.cursor));
     }
 
+    /// The word before the cursor (back to whitespace) and where it starts,
+    /// for completion.
+    pub fn word_before_cursor(&self) -> (usize, &str) {
+        let before = self.text.get(..self.cursor).unwrap_or_default();
+        let start = before.rfind(char::is_whitespace).map_or(0, |i| i + 1);
+        (start, before.get(start..).unwrap_or_default())
+    }
+
+    /// Replaces the text from `start` to the cursor, leaving the cursor after
+    /// the replacement.
+    pub fn replace_before_cursor(&mut self, start: usize, with: &str) {
+        let start = start.min(self.cursor);
+        self.text.replace_range(start..self.cursor, with);
+        self.cursor = start + with.len();
+        self.snap();
+    }
+
+    /// Swaps the graphemes either side of the cursor, or the last two at the
+    /// end of the line (Ctrl+T), and moves past them.
+    pub fn transpose(&mut self) {
+        let at = if self.cursor == self.text.len() {
+            self.prev_boundary(self.cursor)
+        } else {
+            self.cursor
+        };
+        let before = self.prev_boundary(at);
+        let after = self.next_boundary(at);
+        if before == at || at == after {
+            return;
+        }
+        let (left, right) = (
+            self.text.get(before..at).unwrap_or_default().to_owned(),
+            self.text.get(at..after).unwrap_or_default().to_owned(),
+        );
+        self.text
+            .replace_range(before..after, &format!("{right}{left}"));
+        self.cursor = after;
+    }
+
     /// Pastes the last cut text (Ctrl+Y).
     pub fn yank(&mut self) {
         let killed = self.killed.clone();
@@ -366,5 +405,33 @@ mod tests {
         input.home();
         assert_eq!(input.view(5), ("漢字", 0));
         assert_eq!(input.view(0), ("", 0));
+    }
+
+    #[test]
+    fn words_replacing_and_transposing() {
+        let mut line = InputLine::default();
+        line.insert("hello wor");
+        assert_eq!(line.word_before_cursor(), (6, "wor"));
+        line.replace_before_cursor(6, "world ");
+        assert_eq!((line.text(), line.cursor()), ("hello world ", 12));
+        assert_eq!(line.word_before_cursor(), (12, ""));
+
+        let mut line = InputLine::default();
+        line.insert("ab");
+        line.transpose();
+        assert_eq!(line.text(), "ba", "at the end, the last two swap");
+        line.home();
+        line.right();
+        line.transpose();
+        assert_eq!((line.text(), line.cursor()), ("ab", 2));
+        // Graphemes, not bytes or code points.
+        let mut line = InputLine::default();
+        line.insert("e\u{301}🇬🇧");
+        line.transpose();
+        assert_eq!(line.text(), "🇬🇧e\u{301}");
+        let mut one = InputLine::default();
+        one.insert("x");
+        one.transpose();
+        assert_eq!(one.text(), "x");
     }
 }

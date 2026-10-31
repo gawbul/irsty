@@ -82,6 +82,61 @@ pub fn render(frame: &mut Frame<'_>, state: &State, ui: &mut Ui) {
     }
     render_status(frame, status, state, ui);
     render_input(frame, input, state, ui);
+    if ui.switcher.is_some() {
+        render_switcher(frame, middle, state, ui);
+    }
+}
+
+/// The fuzzy buffer switcher: a box over the middle of the screen with the
+/// query and the best matches.
+fn render_switcher(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
+    let Some(switcher) = &ui.switcher else {
+        return;
+    };
+    let matches = ui.switcher_matches(state);
+    let width = area.width.saturating_sub(4).min(60);
+    let rows = u16::try_from(matches.len())
+        .unwrap_or(u16::MAX)
+        .clamp(1, 12);
+    let height = (rows + 3).min(area.height);
+    let popup = Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + area.height.saturating_sub(height) / 3,
+        width,
+        height,
+    );
+    frame.render_widget(ratatui::widgets::Clear, popup);
+    let block = ratatui::widgets::Block::bordered()
+        .title(" Go to buffer (Enter, Esc) ")
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let mut lines = vec![Line::from(vec![
+        Span::styled("> ", Style::default().fg(Color::Cyan)),
+        Span::raw(sanitise_identifier(&switcher.query)),
+    ])];
+    let visible = usize::from(inner.height.saturating_sub(1));
+    let skip = (switcher.selected + 1).saturating_sub(visible);
+    for (row, (number, id, label)) in matches.iter().enumerate().skip(skip).take(visible) {
+        let activity = state.buffer(*id).map(|b| b.activity).unwrap_or_default();
+        let mut style = theme::activity(activity);
+        if row == switcher.selected {
+            style = theme::selected();
+        }
+        lines.push(Line::from(Span::styled(
+            format!("{number:>3}. {}", sanitise_identifier(label)),
+            style,
+        )));
+    }
+    if matches.is_empty() {
+        lines.push(Line::from(Span::styled("No match", theme::dim())));
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
+    let cursor = u16::try_from(2 + switcher.query.width()).unwrap_or(0);
+    frame.set_cursor_position(Position::new(
+        (inner.x + cursor).min(inner.right().saturating_sub(1)),
+        inner.y,
+    ));
 }
 
 fn render_topic(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
@@ -331,6 +386,34 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
 }
 
 fn render_input(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
+    // A multi-line paste waits for an answer instead of the input.
+    if let Some(lines) = &ui.paste {
+        let target = ui
+            .target(state)
+            .map_or_else(|| "this buffer".to_owned(), |(_, n)| sanitise_identifier(n));
+        let text = format!(
+            "Paste {} lines to {target}? Enter sends them, J joins them into one line, Esc cancels",
+            lines.len()
+        );
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                text,
+                Style::default().fg(Color::Black).bg(Color::Yellow),
+            )),
+            area,
+        );
+        return;
+    }
+    if let Some(digits) = &ui.jump {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                format!("Jump to buffer: {digits}_"),
+                Style::default().fg(Color::Cyan),
+            )),
+            area,
+        );
+        return;
+    }
     let prompt = match ui.target(state) {
         Some((_, name)) => format!("[{}] ", sanitise_identifier(name)),
         None => "> ".to_owned(),

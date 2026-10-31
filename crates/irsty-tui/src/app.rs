@@ -15,7 +15,9 @@ use irsty_proto::{Message, ctcp};
 use ratatui::layout::Position;
 
 use crate::command::{self, Command, ServerCommand, Window};
-use crate::ui::Ui;
+use crate::complete;
+use crate::keymap::{Action, Chord, Keymap};
+use crate::ui::{Completion, Switcher, Ui};
 
 /// What the run loop should do after an event.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,7 +40,7 @@ pub fn handle_event(event: Event, client: &mut Client, ui: &mut Ui) -> Flow {
     match event {
         Event::Key(key) if key.is_press() || key.is_repeat() => handle_key(key, client, ui),
         Event::Paste(text) => {
-            ui.input.insert(&text);
+            on_paste(&text, ui);
             Flow::Continue
         }
         Event::Mouse(mouse) => handle_mouse(mouse, client, ui),
@@ -47,69 +49,212 @@ pub fn handle_event(event: Event, client: &mut Client, ui: &mut Ui) -> Flow {
     }
 }
 
-/// irssi's Alt+key window numbers: 1 to 0 for windows 1 to 10, then q to p for
-/// 11 to 20.
-fn window_number(c: char) -> Option<usize> {
-    if let Some(d) = c.to_digit(10) {
-        return Some(if d == 0 {
-            10
-        } else {
-            usize::try_from(d).unwrap_or(0)
-        });
+/// A paste of one line goes into the input; several lines wait for the user
+/// to say whether to send them as separate messages.
+fn on_paste(text: &str, ui: &mut Ui) {
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let lines: Vec<String> = text
+        .trim_end_matches('\n')
+        .split('\n')
+        .map(str::to_owned)
+        .collect();
+    if lines.len() > 1 {
+        ui.paste = Some(lines);
+    } else {
+        ui.input.insert(&text);
     }
-    "qwertyuiop".find(c).map(|i| i + 11)
 }
 
 fn handle_key(key: KeyEvent, client: &mut Client, ui: &mut Ui) -> Flow {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    let alt = key.modifiers.contains(KeyModifiers::ALT);
-    let state = client.state();
-    match key.code {
-        KeyCode::Enter => return submit(client, ui),
-        KeyCode::Char('z') if ctrl => return Flow::Suspend,
-        KeyCode::Char('l') if ctrl => return Flow::Redraw,
-        KeyCode::Char('n') if ctrl => ui.cycle(state, true),
-        KeyCode::Char('p') if ctrl => ui.cycle(state, false),
-        KeyCode::Right if alt => ui.cycle(state, true),
-        KeyCode::Left if alt => ui.cycle(state, false),
-        KeyCode::Char('a') if alt => ui.next_active(state),
-        KeyCode::Char(c) if alt && window_number(c).is_some() => {
-            ui.switch_to_number(state, window_number(c).unwrap_or(1));
+    if ui.paste.is_some() {
+        return paste_key(key, client, ui);
+    }
+    if ui.switcher.is_some() {
+        switcher_key(key, client, ui);
+        return Flow::Continue;
+    }
+    if let Some(digits) = ui.jump.as_mut() {
+        if let KeyCode::Char(c @ '0'..='9') = key.code {
+            digits.push(c);
+            if digits.len() == 2 {
+                let number = digits.parse().unwrap_or(0);
+                ui.jump = None;
+                ui.switch_to_number(client.state(), number);
+            }
+            return Flow::Continue;
         }
-        KeyCode::PageUp => ui.page(state, true),
-        KeyCode::PageDown => ui.page(state, false),
-        KeyCode::End if ctrl => ui.scroll_by(state, isize::MIN / 2),
-        KeyCode::Up => ui.input.history_prev(),
-        KeyCode::Down => ui.input.history_next(),
-        KeyCode::Left if ctrl => ui.input.word_left(),
-        KeyCode::Right if ctrl => ui.input.word_right(),
-        KeyCode::Left => ui.input.left(),
-        KeyCode::Right => ui.input.right(),
-        KeyCode::Home => ui.input.home(),
-        KeyCode::End => ui.input.end(),
-        KeyCode::Backspace if alt => ui.input.kill_word_back(),
-        KeyCode::Backspace => ui.input.backspace(),
-        KeyCode::Delete => ui.input.delete(),
-        KeyCode::Char('a') if ctrl => ui.input.home(),
-        KeyCode::Char('e') if ctrl => ui.input.end(),
-        KeyCode::Char('b') if ctrl => ui.input.left(),
-        KeyCode::Char('f') if ctrl => ui.input.right(),
-        KeyCode::Char('d') if ctrl => ui.input.delete(),
-        KeyCode::Char('h') if ctrl => ui.input.backspace(),
-        KeyCode::Char('k') if ctrl => ui.input.kill_to_end(),
-        KeyCode::Char('u') if ctrl => ui.input.kill_to_start(),
-        KeyCode::Char('w') if ctrl => ui.input.kill_word_back(),
-        KeyCode::Char('y') if ctrl => ui.input.yank(),
-        KeyCode::Char('b') if alt => ui.input.word_left(),
-        KeyCode::Char('f') if alt => ui.input.word_right(),
-        KeyCode::Char('d') if alt => ui.input.kill_word_forward(),
-        // Other control and alt chords are unbound for now (M7 makes keys configurable).
-        KeyCode::Char(_) if ctrl || alt => {}
-        KeyCode::Char(c) => {
-            let mut buf = [0u8; 4];
-            ui.input.insert(c.encode_utf8(&mut buf));
+        ui.jump = None;
+    }
+    let action = ui.keymap.action(&key);
+    if !matches!(action, Some(Action::Complete | Action::CompleteBack)) {
+        ui.completion = None;
+    }
+    if let Some(action) = action {
+        return run_action(action, client, ui);
+    }
+    // Unbound keys type their character, unless Ctrl or Alt is held.
+    let typed = key.modifiers.difference(KeyModifiers::SHIFT).is_empty();
+    if let (KeyCode::Char(c), true) = (key.code, typed) {
+        let mut buf = [0u8; 4];
+        ui.input.insert(c.encode_utf8(&mut buf));
+    }
+    Flow::Continue
+}
+
+fn run_action(action: Action, client: &mut Client, ui: &mut Ui) -> Flow {
+    let state = client.state();
+    match action {
+        Action::Send => return submit(client, ui),
+        Action::Suspend => return Flow::Suspend,
+        Action::Redraw => return Flow::Redraw,
+        Action::Complete => complete(client, ui, true),
+        Action::CompleteBack => complete(client, ui, false),
+        Action::Switcher => ui.switcher = Some(Switcher::default()),
+        Action::NextBuffer => ui.cycle(state, true),
+        Action::PrevBuffer => ui.cycle(state, false),
+        Action::NextActive => ui.next_active(state),
+        Action::Back => ui.go_back(state),
+        Action::Forward => ui.go_forward(state),
+        Action::Buffer(n) => ui.switch_to_number(state, usize::from(n)),
+        Action::Jump => ui.jump = Some(String::new()),
+        Action::PageUp => ui.page(state, true),
+        Action::PageDown => ui.page(state, false),
+        Action::ScrollUp => ui.scroll_by(state, 3),
+        Action::ScrollDown => ui.scroll_by(state, -3),
+        Action::ScrollTop => ui.scroll_by(state, isize::MAX / 2),
+        Action::ScrollBottom => ui.scroll_by(state, isize::MIN / 2),
+        Action::HistoryPrev => ui.input.history_prev(),
+        Action::HistoryNext => ui.input.history_next(),
+        Action::Left => ui.input.left(),
+        Action::Right => ui.input.right(),
+        Action::WordLeft => ui.input.word_left(),
+        Action::WordRight => ui.input.word_right(),
+        Action::Home => ui.input.home(),
+        Action::End => ui.input.end(),
+        Action::Backspace => ui.input.backspace(),
+        Action::Delete => ui.input.delete(),
+        Action::KillWordBack => ui.input.kill_word_back(),
+        Action::KillWordForward => ui.input.kill_word_forward(),
+        Action::KillToStart => ui.input.kill_to_start(),
+        Action::KillToEnd => ui.input.kill_to_end(),
+        Action::Yank => ui.input.yank(),
+        Action::Transpose => ui.input.transpose(),
+        Action::None => {}
+    }
+    Flow::Continue
+}
+
+/// Tab completion: the first press finds matches, later presses cycle
+/// through them (backwards with Shift+Tab).
+fn complete(client: &Client, ui: &mut Ui, forward: bool) {
+    let continuing = ui
+        .completion
+        .as_ref()
+        .is_some_and(|c| c.text == ui.input.text());
+    if !continuing {
+        let (start, word) = ui.input.word_before_cursor();
+        let aliases: Vec<&str> = ui.config.aliases.keys().map(String::as_str).collect();
+        let matches = complete::complete(
+            ui.input.text(),
+            start,
+            word,
+            &complete::Context {
+                state: client.state(),
+                buffer: ui.active,
+                aliases: &aliases,
+            },
+        );
+        if matches.words.is_empty() {
+            ui.completion = None;
+            return;
+        }
+        ui.completion = Some(Completion {
+            start,
+            words: matches.words,
+            suffix: matches.suffix,
+            index: None,
+            text: String::new(),
+        });
+    }
+    let Some(completion) = ui.completion.as_mut() else {
+        return;
+    };
+    let count = completion.words.len();
+    let index = match (completion.index, forward) {
+        (None, true) => 0,
+        (None, false) => count - 1,
+        (Some(i), true) => (i + 1) % count,
+        (Some(i), false) => (i + count - 1) % count,
+    };
+    completion.index = Some(index);
+    let word = completion
+        .words
+        .get(index)
+        .map(|w| format!("{w}{}", completion.suffix))
+        .unwrap_or_default();
+    let start = completion.start;
+    ui.input.replace_before_cursor(start, &word);
+    if let Some(completion) = ui.completion.as_mut() {
+        ui.input.text().clone_into(&mut completion.text);
+    }
+}
+
+fn switcher_key(key: KeyEvent, client: &Client, ui: &mut Ui) {
+    let matches = ui.switcher_matches(client.state());
+    let Some(switcher) = ui.switcher.as_mut() else {
+        return;
+    };
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    match key.code {
+        KeyCode::Esc => ui.switcher = None,
+        KeyCode::Char('g' | 'c') if ctrl => ui.switcher = None,
+        KeyCode::Enter => {
+            let chosen = matches.get(switcher.selected).map(|&(_, id, _)| id);
+            ui.switcher = None;
+            if let Some(id) = chosen {
+                ui.switch(id);
+            }
+        }
+        KeyCode::Up => switcher.selected = switcher.selected.saturating_sub(1),
+        KeyCode::Char('p') if ctrl => switcher.selected = switcher.selected.saturating_sub(1),
+        KeyCode::Down | KeyCode::Tab => {
+            switcher.selected = (switcher.selected + 1).min(matches.len().saturating_sub(1));
+        }
+        KeyCode::Char('n') if ctrl => {
+            switcher.selected = (switcher.selected + 1).min(matches.len().saturating_sub(1));
+        }
+        KeyCode::Backspace => {
+            switcher.query.pop();
+            switcher.selected = 0;
+        }
+        KeyCode::Char(c) if !ctrl && !key.modifiers.contains(KeyModifiers::ALT) => {
+            switcher.query.push(c);
+            switcher.selected = 0;
         }
         _ => {}
+    }
+}
+
+/// The multi-line paste prompt: Enter (or Y) sends each line as a message,
+/// Esc (or N) cancels, and J joins the lines into the input instead.
+fn paste_key(key: KeyEvent, client: &mut Client, ui: &mut Ui) -> Flow {
+    let Some(lines) = ui.paste.take() else {
+        return Flow::Continue;
+    };
+    match key.code {
+        KeyCode::Enter | KeyCode::Char('y' | 'Y') => {
+            for line in lines.iter().filter(|l| !l.trim().is_empty()) {
+                // Pasted text is never run as commands.
+                let flow = execute(Command::Say(line.clone()), client, ui);
+                if flow != Flow::Continue {
+                    return flow;
+                }
+            }
+        }
+        KeyCode::Char('j' | 'J') => ui.input.insert(&lines.join(" ")),
+        KeyCode::Esc | KeyCode::Char('n' | 'N') => {}
+        // Anything else leaves the prompt up.
+        _ => ui.paste = Some(lines),
     }
     Flow::Continue
 }
@@ -212,7 +357,7 @@ fn expand_alias(line: &str, client: &Client, ui: &Ui) -> Option<Vec<String>> {
 
 /// Writes a line into the active buffer, or the status area when there is
 /// no buffer yet.
-fn feedback(client: &mut Client, ui: &mut Ui, kind: LineKind, text: &str) {
+pub fn feedback(client: &mut Client, ui: &mut Ui, kind: LineKind, text: &str) {
     if let Some(buffer) = ui.active {
         client.note_buffer(buffer, kind, text);
     } else {
@@ -304,6 +449,7 @@ fn save(
     client.apply_config(&config);
     ui.show_nicklist = config.ui.nicklist;
     ui.time_format.clone_from(&config.ui.timestamp_format);
+    ui.keymap = Keymap::new(&config.ui.keymap, &config.keys).0;
     ui.config = config.clone();
     Ok(config)
 }
@@ -690,6 +836,8 @@ fn run(cmd: Command, client: &mut Client, ui: &mut Ui) -> Outcome {
             );
         }
         Command::Set { key, value, reset } => run_set(key, value, reset, client, ui)?,
+        Command::Bind { key, action, reset } => run_bind(key, action, reset, client, ui)?,
+        Command::Unbind(key) => run_bind(Some(key), Some("none".into()), false, client, ui)?,
         Command::Quit(reason) => {
             return Ok(Flow::Quit(
                 reason.unwrap_or_else(|| QUIT_MESSAGE.to_owned()),
@@ -899,6 +1047,64 @@ fn run_alias(
     Ok(())
 }
 
+fn run_bind(
+    key: Option<String>,
+    action: Option<String>,
+    reset: bool,
+    client: &mut Client,
+    ui: &mut Ui,
+) -> Result<(), String> {
+    let Some(key) = key else {
+        let lines: Vec<String> = ui
+            .keymap
+            .list()
+            .into_iter()
+            .map(|(k, a)| format!("{k:<14} {a}"))
+            .collect();
+        for line in lines {
+            feedback(client, ui, LineKind::Info, &line);
+        }
+        return Ok(());
+    };
+    let chord = Chord::parse(&key)?;
+    let name = chord.to_string();
+    if reset {
+        save(client, ui, |f| f.unbind(&name))?;
+        let now = ui
+            .keymap
+            .get(&chord)
+            .map_or_else(|| "nothing".into(), Action::name);
+        feedback(
+            client,
+            ui,
+            LineKind::Info,
+            &format!("{name} is back to {now}"),
+        );
+        return Ok(());
+    }
+    match action {
+        None => {
+            let now = ui
+                .keymap
+                .get(&chord)
+                .map_or_else(|| "nothing".into(), Action::name);
+            feedback(client, ui, LineKind::Info, &format!("{name} = {now}"));
+        }
+        Some(action) => {
+            let action = Action::from_name(&action)
+                .ok_or_else(|| format!("No action named {action:?}; see docs/KEYBINDINGS.md"))?;
+            save(client, ui, |f| f.bind(&name, &action.name()))?;
+            feedback(
+                client,
+                ui,
+                LineKind::Info,
+                &format!("{name} = {}", action.name()),
+            );
+        }
+    }
+    Ok(())
+}
+
 fn run_set(
     key: Option<String>,
     value: Option<String>,
@@ -918,6 +1124,7 @@ fn run_set(
             "ui.mouse" => config.ui.mouse.to_string(),
             "ui.nicklist" => config.ui.nicklist.to_string(),
             "ui.timestamp_format" => config.ui.timestamp_format.clone(),
+            "ui.keymap" => config.ui.keymap.clone(),
             _ => String::new(),
         }
     };
@@ -957,18 +1164,4 @@ fn run_set(
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn irssi_window_numbers() {
-        assert_eq!(window_number('1'), Some(1));
-        assert_eq!(window_number('0'), Some(10));
-        assert_eq!(window_number('q'), Some(11));
-        assert_eq!(window_number('p'), Some(20));
-        assert_eq!(window_number('z'), None);
-    }
 }

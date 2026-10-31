@@ -12,7 +12,36 @@ use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use ratatui::layout::Rect;
 
+use crate::complete::fuzzy_score;
 use crate::input::InputLine;
+use crate::keymap::Keymap;
+
+/// Most buffers remembered for going back.
+const HISTORY: usize = 50;
+
+/// Tab completion in progress.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Completion {
+    /// Where the completed word starts in the input.
+    pub start: usize,
+    /// Candidates, best first.
+    pub words: Vec<String>,
+    /// What follows a chosen word.
+    pub suffix: &'static str,
+    /// Which candidate is showing, once one is.
+    pub index: Option<usize>,
+    /// The input as completion left it; any other edit ends completion.
+    pub text: String,
+}
+
+/// The fuzzy buffer switcher, while open.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Switcher {
+    /// What has been typed.
+    pub query: String,
+    /// The highlighted row.
+    pub selected: usize,
+}
 
 /// Everything the view needs besides [`State`].
 #[derive(Debug)]
@@ -47,6 +76,18 @@ pub struct Ui {
     pub config_file: Option<ConfigFile>,
     /// Messages shown when there is no buffer yet (before any network).
     pub status: Vec<(LineKind, String)>,
+    /// Key bindings.
+    pub keymap: Keymap,
+    /// Tab completion in progress.
+    pub completion: Option<Completion>,
+    /// The buffer switcher, while open.
+    pub switcher: Option<Switcher>,
+    /// Lines of a multi-line paste waiting for confirmation.
+    pub paste: Option<Vec<String>>,
+    /// Digits typed after WeeChat's Alt+J.
+    pub jump: Option<String>,
+    back: Vec<BufferId>,
+    forward: Vec<BufferId>,
 }
 
 impl Ui {
@@ -68,6 +109,13 @@ impl Ui {
             config: Config::default(),
             config_file: None,
             status: Vec::new(),
+            keymap: Keymap::default(),
+            completion: None,
+            switcher: None,
+            paste: None,
+            jump: None,
+            back: Vec::new(),
+            forward: Vec::new(),
         };
         ui.active = ui.order(state).first().copied();
         ui
@@ -96,9 +144,73 @@ impl Ui {
             .map(|b| b.network)
     }
 
-    /// Switches to a buffer.
+    /// Switches to a buffer, remembering the last one for going back.
     pub fn switch(&mut self, id: BufferId) {
+        if let Some(current) = self.active.filter(|&c| c != id) {
+            if self.back.len() >= HISTORY {
+                self.back.remove(0);
+            }
+            self.back.push(current);
+            self.forward.clear();
+        }
         self.active = Some(id);
+    }
+
+    /// Goes back to the buffer shown before (`back` and `forward` skip buffers
+    /// that have since closed).
+    pub fn go_back(&mut self, state: &State) {
+        while let Some(id) = self.back.pop() {
+            if state.buffer(id).is_some() && Some(id) != self.active {
+                if let Some(current) = self.active {
+                    self.forward.push(current);
+                }
+                self.active = Some(id);
+                return;
+            }
+        }
+    }
+
+    /// Undoes [`Ui::go_back`].
+    pub fn go_forward(&mut self, state: &State) {
+        while let Some(id) = self.forward.pop() {
+            if state.buffer(id).is_some() && Some(id) != self.active {
+                if let Some(current) = self.active {
+                    self.back.push(current);
+                }
+                self.active = Some(id);
+                return;
+            }
+        }
+    }
+
+    /// The switcher's matches: buffers ranked by how well their name (or
+    /// network) matches the query, with their list number.
+    pub fn switcher_matches(&self, state: &State) -> Vec<(usize, BufferId, String)> {
+        let query = self.switcher.as_ref().map_or("", |s| s.query.as_str());
+        let mut scored: Vec<(i64, usize, BufferId, String)> = self
+            .order(state)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, id)| {
+                let buffer = state.buffer(id)?;
+                let net = state.network(buffer.network)?;
+                let label = if buffer.id == net.server_buffer {
+                    net.name.clone()
+                } else {
+                    format!("{} ({})", buffer.name, net.name)
+                };
+                let score = fuzzy_score(query, &buffer.name)
+                    .max(fuzzy_score(query, &label).map(|s| s - 5))?;
+                // Unread activity breaks ties.
+                let bonus = i64::from(buffer.activity as u8);
+                Some((score * 4 + bonus, i + 1, id, label))
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        scored
+            .into_iter()
+            .map(|(_, n, id, label)| (n, id, label))
+            .collect()
     }
 
     /// Switches to the buffer at a 1-based position in the list.
@@ -126,7 +238,9 @@ impl Ui {
         } else {
             (current + order.len() - 1) % order.len()
         };
-        self.active = order.get(next).copied();
+        if let Some(&id) = order.get(next) {
+            self.switch(id);
+        }
     }
 
     /// Jumps to the buffer with the most interesting unread lines (Alt+A).
@@ -201,7 +315,7 @@ impl Ui {
         if let Some((net, name)) = &self.pending_switch
             && let Some(id) = state.find_buffer(*net, name)
         {
-            self.active = Some(id);
+            self.switch(id);
             self.pending_switch = None;
         }
         if self.active.and_then(|id| state.buffer(id)).is_none() {

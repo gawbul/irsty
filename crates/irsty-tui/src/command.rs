@@ -234,6 +234,18 @@ pub const COMMANDS: &[Spec] = &[
         "Show or change settings; changes are saved to your config."
     ),
     spec!(
+        "bind",
+        [],
+        "/bind [key [action]] | /bind -reset <key>",
+        "Show or change key bindings, saved to your config. /bind lists them; actions are in docs/KEYBINDINGS.md."
+    ),
+    spec!(
+        "unbind",
+        [],
+        "/unbind <key>",
+        "Make a key do nothing (same as /bind <key> none)."
+    ),
+    spec!(
         "quit",
         ["exit"],
         "/quit [reason]",
@@ -457,6 +469,17 @@ pub enum Command {
         /// Reset to the default.
         reset: bool,
     },
+    /// `/bind`.
+    Bind {
+        /// Key; `None` lists bindings.
+        key: Option<String>,
+        /// Action; `None` shows the binding.
+        action: Option<String>,
+        /// Go back to the preset's binding.
+        reset: bool,
+    },
+    /// `/unbind`.
+    Unbind(String),
     /// `/quit`.
     Quit(Option<String>),
     /// `/help`.
@@ -676,6 +699,17 @@ pub fn parse(input: &str) -> Result<Command, ParseError> {
             value: opt(tail),
             reset: false,
         },
+        "bind" if first == "-reset" => Command::Bind {
+            key: Some(need(tail)?),
+            action: None,
+            reset: true,
+        },
+        "bind" => Command::Bind {
+            key: opt(first),
+            action: opt(tail),
+            reset: false,
+        },
+        "unbind" => Command::Unbind(need(first)?),
         "quit" => Command::Quit(opt(rest)),
         "help" => Command::Help(opt(rest).map(|c| c.trim_start_matches('/').to_lowercase())),
         _ => return Err(ParseError::Unknown(name.to_owned())),
@@ -1162,6 +1196,31 @@ mod tests {
                 reset: true
             })
         );
+    }
+
+    #[test]
+    fn parses_bindings() {
+        assert_eq!(
+            parse("/bind alt-x switcher"),
+            Ok(Command::Bind {
+                key: Some("alt-x".into()),
+                action: Some("switcher".into()),
+                reset: false
+            })
+        );
+        assert_eq!(
+            parse("/bind -reset ctrl-g"),
+            Ok(Command::Bind {
+                key: Some("ctrl-g".into()),
+                action: None,
+                reset: true
+            })
+        );
+        assert_eq!(
+            parse("/unbind ctrl-g"),
+            Ok(Command::Unbind("ctrl-g".into()))
+        );
+        assert!(matches!(parse("/unbind"), Err(ParseError::Usage(_))));
     }
 
     #[test]

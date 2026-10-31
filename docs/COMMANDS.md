@@ -2,7 +2,7 @@
 
 Type commands into the input line. Anything not starting with `/` is sent to the current channel or query. Start a line with `//` to send a message that begins with a slash.
 
-A test checks this file against the command table in `crates/irsty-tui/src/command.rs`, so it can't fall out of date. `/help` lists everything; `/help <command>` shows one command's usage and other names. Key bindings and `/bind` arrive in M7.
+A test checks this file against the command table in `crates/irsty-tui/src/command.rs`, so it can't fall out of date. `/help` lists everything; `/help <command>` shows one command's usage and other names. Tab completes command names, and their arguments where it can (see [KEYBINDINGS.md](KEYBINDINGS.md#completion)).
 
 ## Talking
 
@@ -51,7 +51,7 @@ These act on the current channel.
 
 | Command | Usage | What it does |
 |---|---|---|
-| `/window` (`/buffer`, `/w`) | `/window <number>\|next\|prev\|close\|list` | Go to a buffer by its number in the list, step through them, close the current one, or list them. |
+| `/window` (`/buffer`, `/w`) | `/window <number>\|next\|prev\|close\|list` | Go to a buffer by its number in the list, step through them, close the current one, or list them. Ctrl+G opens a fuzzy switcher instead. |
 | `/close` (`/wc`) | `/close [reason]` | Close the current buffer, leaving the channel first if you are in it. Server buffers can't be closed. |
 | `/clear` | `/clear` | Clear the current buffer's scrollback. Logs are untouched. |
 
@@ -100,6 +100,8 @@ These change `config.toml` and take effect at once.
 | `/alias` | `/alias [name [/command ...[; /command ...]]]` | Define an alias, show one, or list them. See below. |
 | `/unalias` | `/unalias <name>` | Remove an alias. |
 | `/set` | `/set [setting [value]] \| /set -reset <setting>` | List settings, show one, change one, or reset it to the default. |
+| `/bind` | `/bind [key [action]] \| /bind -reset <key>` | List key bindings, show one, change one, or go back to the preset's. Keys and actions are in [KEYBINDINGS.md](KEYBINDINGS.md#customising). |
+| `/unbind` | `/unbind <key>` | Make a key do nothing (the same as `/bind <key> none`). |
 
 ### Aliases
 
@@ -112,7 +114,7 @@ In an alias, `$*` is everything typed after it, `$1` to `$9` single words, and `
 
 ### Settings
 
-`/set` changes `scrollback`, `logging.enabled`, `logging.dir`, `ui.mouse`, `ui.nicklist` and `ui.timestamp_format` (see [CONFIG.md](CONFIG.md)). Booleans accept `on`/`off`, `true`/`false` and `yes`/`no`. Logging and mouse changes take effect when Irsty restarts; the rest apply at once.
+`/set` changes `scrollback`, `logging.enabled`, `logging.dir`, `ui.mouse`, `ui.nicklist`, `ui.timestamp_format` and `ui.keymap` (see [CONFIG.md](CONFIG.md)). Booleans accept `on`/`off`, `true`/`false` and `yes`/`no`. Logging and mouse changes take effect when Irsty restarts; the rest apply at once.
 
 ## Leaving
 

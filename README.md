@@ -4,7 +4,7 @@
 
 A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](https://ratatui.rs). It is a spiritual successor to irssi and WeeChat: fast, readable out of the box, scriptable, with first-class IRCv3 support and good support for bouncers (soju, ZNC).
 
-> **Status:** early development. Irsty has a working terminal UI on top of finished protocol and connection layers (milestones M1 to M6), with the core IRCv3 extensions and the full command set. It is usable day to day on several networks, but tab completion and configurable keys are still to come. See [`PLAN.md`](PLAN.md) for the roadmap.
+> **Status:** early development. Irsty has a working terminal UI on top of finished protocol and connection layers (milestones M1 to M6), with the core IRCv3 extensions and the full command set. It is usable day to day on several networks, with tab completion and configurable keys; nick colours and notifications are next. See [`PLAN.md`](PLAN.md) for the roadmap.
 
 ## Goals
 
@@ -22,13 +22,13 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **IRCv3:** `account-notify`, `account-tag`, `away-notify`, `batch` (netsplits and netjoins collapse to one line), `cap-notify`, `chghost`, `echo-message`, `extended-join`, `invite-notify`, `labeled-response`, `message-tags`, `multi-prefix`, `sasl`, `server-time`, `setname`, `standard-replies`, `userhost-in-names`, and `MONITOR`. With `echo-message`, your messages show dimmed until the server confirms them, and say why if they fail.
 - **Secrets:** read from the OS keyring or a command such as `pass`. Plaintext works but triggers a warning at every start.
 - **Logs:** one plain-text file per buffer, safe to `cat`.
-- **Terminal UI:** a buffer list grouped by network, scrollback with aligned nicks and word wrapping that handles CJK and emoji, a nick list, topic and status bars (activity, lag, and a loud warning for unverified TLS), and an input line with emacs-style editing and history. Keys follow irssi ([docs/KEYBINDINGS.md](docs/KEYBINDINGS.md)).
+- **Terminal UI:** a buffer list grouped by network, scrollback with aligned nicks and word wrapping that handles CJK and emoji, a nick list, topic and status bars (activity, lag, and a loud warning for unverified TLS), and an input line with emacs-style editing, history and tab completion (nicks, recent speakers first; channels; commands and their arguments). Ctrl+G opens a fuzzy buffer switcher, and pasting several lines asks before sending. Keys follow irssi, or WeeChat with `keymap = "weechat"`, and any key can be rebound with `/bind` ([docs/KEYBINDINGS.md](docs/KEYBINDINGS.md)).
 - **Commands** ([docs/COMMANDS.md](docs/COMMANDS.md)): talking (`/msg /query /me /notice /ctcp /away`), finding out (`/whois /whowas /who /names /topic /list`, with replies gathered where you typed them), running channels (`/mode /op /voice /kick /ban /invite`), buffers (`/window /close /clear`), and setting things up from inside Irsty: `/server add|del|update|list`, `/set`, `/alias`, `/ignore` and `/highlight`, all saved to your config with its comments intact. Passwords sent with `/raw` or to NickServ are hidden on screen and in logs.
 - **First run:** no config file needed; add a network with `/server add` and Irsty writes one.
 - **Ignores and highlights:** hide people by mask, per network or channel; highlight words and regexes besides your nick.
 - **Headless mode:** `--headless` prints every buffer's new lines to stdout.
 
-Not yet: tab completion, configurable keys and `/bind`, multi-line paste handling, nick colours, notifications and CTCP replies. These arrive in M7 and M8; chat history and other bouncer features follow in M9.
+Not yet: nick colours, URL handling, notifications, formatting shortcuts and CTCP replies. These arrive in M8; chat history and other bouncer features follow in M9.
 
 ## Quick start
 

@@ -388,6 +388,13 @@ pub struct UiConfig {
     /// `strftime` format for timestamps. Defaults to `%H:%M`.
     #[serde(default = "default_timestamp")]
     pub timestamp_format: String,
+    /// Key binding preset: `irssi` (the default) or `weechat`.
+    #[serde(default = "default_keymap")]
+    pub keymap: String,
+}
+
+fn default_keymap() -> String {
+    "irssi".into()
 }
 
 impl Default for UiConfig {
@@ -396,6 +403,7 @@ impl Default for UiConfig {
             mouse: false,
             nicklist: true,
             timestamp_format: default_timestamp(),
+            keymap: default_keymap(),
         }
     }
 }
@@ -531,6 +539,10 @@ pub struct Config {
     /// Highlight words and patterns.
     #[serde(default)]
     pub highlight: HighlightConfig,
+    /// Key bindings on top of the preset: `"ctrl-g" = "switcher"`. The UI
+    /// checks the names; `"none"` unbinds a preset key.
+    #[serde(default)]
+    pub keys: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for Config {
@@ -544,6 +556,7 @@ impl Default for Config {
             aliases: std::collections::BTreeMap::new(),
             ignore: Vec::new(),
             highlight: HighlightConfig::default(),
+            keys: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -627,6 +640,12 @@ impl Config {
         let invalid = |msg: String| Err(ConfigError::Invalid(msg));
         if self.scrollback == 0 {
             return invalid("scrollback must be at least 1".into());
+        }
+        if !matches!(self.ui.keymap.as_str(), "irssi" | "weechat") {
+            return invalid(format!(
+                "ui.keymap is {:?}; use \"irssi\" or \"weechat\"",
+                self.ui.keymap
+            ));
         }
         self.validate_extras()?;
         let mut names = std::collections::HashSet::new();

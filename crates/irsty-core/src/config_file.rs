@@ -45,6 +45,7 @@ pub const SETTINGS: &[(&str, SettingKind)] = &[
     ("ui.mouse", SettingKind::Bool),
     ("ui.nicklist", SettingKind::Bool),
     ("ui.timestamp_format", SettingKind::Text),
+    ("ui.keymap", SettingKind::Text),
 ];
 
 /// The type of a setting.
@@ -300,6 +301,28 @@ impl ConfigFile {
                 None => {
                     doc.remove(key);
                 }
+            }
+            Ok(())
+        })
+    }
+
+    /// Binds a key (`/bind`). The UI checks the key and action names first.
+    pub fn bind(&mut self, key: &str, action: &str) -> Result<Config, EditError> {
+        self.edit(|doc| {
+            table_mut(doc.as_table_mut(), "keys")?.insert(key, value(action));
+            Ok(())
+        })
+    }
+
+    /// Removes a key binding override, restoring the preset's.
+    pub fn unbind(&mut self, key: &str) -> Result<Config, EditError> {
+        self.edit(|doc| {
+            let removed = doc
+                .get_mut("keys")
+                .and_then(Item::as_table_mut)
+                .and_then(|t| t.remove(key));
+            if removed.is_none() {
+                return invalid(format!("{key} has no binding of its own in the config"));
             }
             Ok(())
         })
@@ -673,6 +696,16 @@ host = "irc.libera.chat"
             )
             .unwrap();
         assert_eq!(config.networks[0].nicks, ["new"]);
+        let config = file.bind("ctrl-g", "none").unwrap();
+        assert_eq!(config.keys["ctrl-g"], "none");
+        assert!(file.set("ui.keymap", "emacs").is_err());
+        assert_eq!(
+            file.set("ui.keymap", "weechat").unwrap().ui.keymap,
+            "weechat"
+        );
+        let config = file.unbind("ctrl-g").unwrap();
+        assert!(config.keys.is_empty());
+        assert!(file.unbind("ctrl-g").is_err());
         let config = file
             .remove_alias("j")
             .and_then(|_| file.remove_ignore("SPAMMER"))
