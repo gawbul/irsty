@@ -257,6 +257,7 @@ pub struct State {
     buffers: BTreeMap<BufferId, Buffer>,
     next_buffer: u64,
     scrollback: usize,
+    clock: fn() -> Timestamp,
 }
 
 impl State {
@@ -267,7 +268,14 @@ impl State {
             buffers: BTreeMap::new(),
             next_buffer: 0,
             scrollback: scrollback.max(1),
+            clock: Timestamp::now,
         }
+    }
+
+    /// Replaces the clock used for lines without a `server-time` tag, so tests
+    /// and replays are deterministic.
+    pub fn set_clock(&mut self, clock: fn() -> Timestamp) {
+        self.clock = clock;
     }
 
     /// Adds a network and its server buffer.
@@ -334,7 +342,7 @@ impl State {
         if self.buffers.contains_key(&buffer) {
             let text = StyledText::plain(text);
             let line = Line {
-                time: Timestamp::now(),
+                time: (self.clock)(),
                 kind,
                 sender: None,
                 raw: text.to_plain(),
@@ -380,7 +388,7 @@ impl State {
             return (None, effects);
         };
         let line = Line {
-            time: Timestamp::now(),
+            time: (self.clock)(),
             kind,
             sender: Some(nick),
             text: StyledText::parse(text),
@@ -507,8 +515,9 @@ impl State {
         let Some(server_buffer) = self.networks.get(&id).map(|n| n.server_buffer) else {
             return effects;
         };
+        let clock = self.clock;
         let info = |kind, text: StyledText| Line {
-            time: Timestamp::now(),
+            time: clock(),
             kind,
             sender: None,
             raw: text.to_plain(),
@@ -648,7 +657,7 @@ impl State {
         for buffer in std::iter::once(server_buffer).chain(affected) {
             let text = StyledText::plain(&text);
             let line = Line {
-                time: Timestamp::now(),
+                time: (self.clock)(),
                 kind: LineKind::Error,
                 sender: None,
                 raw: text.to_plain(),
@@ -671,7 +680,7 @@ impl State {
             .tags
             .get("time")
             .and_then(|t| t.parse::<Timestamp>().ok())
-            .unwrap_or_else(Timestamp::now);
+            .unwrap_or_else(self.clock);
         let source = msg.source.as_deref().map(Source::parse);
         let nick = source.map_or("", |s| s.nick).to_owned();
         let shown_nick = format::sanitise_identifier(&nick);
@@ -704,13 +713,14 @@ impl State {
                     chan.rejoin = false;
                     chan.members.clear();
                 }
-                chan.members.insert(
-                    CaseKey::new(mapping, &nick),
-                    Member {
+                // A JOIN for someone already listed (a bouncer replay, or state
+                // that drifted) must not wipe their modes.
+                chan.members
+                    .entry(CaseKey::new(mapping, &nick))
+                    .or_insert_with(|| Member {
                         nick: nick.clone(),
                         modes: String::new(),
-                    },
-                );
+                    });
                 let buffer = chan.buffer;
                 let text = Builder::default()
                     .push(&shown_nick, bold())
@@ -1483,6 +1493,16 @@ mod tests {
             s.apply(NetworkId(99), NetEvent::Lag(Duration::ZERO))
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn repeated_join_keeps_modes() {
+        let mut s = state();
+        feed(&mut s, ":me!u@h JOIN #c");
+        feed(&mut s, ":srv 353 me = #c :@op me");
+        feed(&mut s, ":srv 366 me #c :End");
+        feed(&mut s, ":op!o@h JOIN #c");
+        assert_eq!(nicks(&s, "#c"), ["@op", "me"]);
     }
 
     #[test]

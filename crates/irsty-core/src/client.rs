@@ -246,6 +246,11 @@ impl Client {
         Ok(())
     }
 
+    /// Opens (or finds) the query buffer for `nick`.
+    pub fn open_query(&mut self, id: NetworkId, nick: &str) -> Option<BufferId> {
+        self.state.query_buffer(id, nick)
+    }
+
     /// Adds an informational line to any buffer, for command feedback.
     pub fn note_buffer(&mut self, buffer: BufferId, kind: LineKind, text: &str) {
         let effects = self.state.note_buffer(buffer, kind, text);
