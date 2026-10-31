@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- In the irssi preset, Ctrl+B now types bold, as in irssi, instead of moving the cursor left; the WeeChat preset keeps Ctrl+B for moving left.
 - `/server <network>` still connects, but `/server` now also manages networks; `/bind` moved from M6 to M7 with the configurable keymap.
 - Registration no longer waits on the output rate limit, so logging in (especially with SCRAM, which sends more lines) takes a fraction of a second instead of several.
 - The gate and `mise run cov` clear old coverage data first, which could skew the numbers.
@@ -22,6 +23,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- M8:
+  - Formatting keys: irssi's Ctrl+B, Ctrl+C, Ctrl+], Ctrl+_, Ctrl+^, Ctrl+V and Ctrl+O, or WeeChat's Ctrl+C then a letter. Codes show as reversed letters in the input.
+  - Nick colours can be turned off or overridden per nick; highlighted lines show the nick dark on yellow.
+  - Links are underlined, and `/url` lists and opens them (web links only, without a shell).
+  - Desktop notifications for highlights and private messages, through OSC 777, OSC 9 or the bell, when the terminal isn't focused, rate-limited and stripped of control sequences.
+  - CTCP replies (`VERSION`, `PING`, `TIME`, `CLIENTINFO`, `SOURCE`), three per ten seconds per network at most.
+  - Daily or monthly log rotation.
 - M7, input polish:
   - Tab completion of nicks (recent speakers first, `: ` after a nick at the start of a line), channels, commands, aliases and command arguments; Shift+Tab cycles back.
   - Ctrl+G opens a fuzzy buffer switcher; Alt+< and Alt+> go back and forward through the buffers you have shown.

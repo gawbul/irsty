@@ -45,7 +45,8 @@ While you are scrolled back, `-- more --` appears in the status bar and new line
 |---|---|
 | Enter | Send the line, or run the command |
 | Tab, Shift+Tab | Complete, or cycle through matches (below) |
-| Left, Right, Ctrl+B, Ctrl+F | Move one character |
+| Left, Right, Ctrl+F | Move one character |
+| Ctrl+B | Move one character left (WeeChat; in irssi it types bold, below) |
 | Ctrl+Left, Ctrl+Right, Alt+B, Alt+F | Move one word |
 | Home, End, Ctrl+A, Ctrl+E | Move to the start or end |
 | Backspace, Ctrl+H | Delete the character before the cursor |
@@ -73,6 +74,23 @@ Tab completes the word before the cursor; pressing it again cycles through the o
 
 A paste with more than one line doesn't go into the input. Irsty asks first: **Enter** (or Y) sends each line as its own message, **J** joins them into the input as one line to edit, and **Esc** (or N) cancels. Pasted lines are always sent as text, never run as commands, so pasting `/quit` sends the words "/quit". This needs a terminal with bracketed paste, which almost all have.
 
+### Formatting
+
+Type mIRC formatting into your messages. In the input line each code shows as its letter in reverse video (**B** for bold, **C** for colour and so on), and it is sent as typed.
+
+| irssi | WeeChat | Code |
+|---|---|---|
+| Ctrl+B | Ctrl+C, B | Bold |
+| Ctrl+C | Ctrl+C, C | Colour: follow with a number, `4` red, or `4,1` red on black |
+| | Ctrl+C, D | Hex colour: follow with `RRGGBB` |
+| Ctrl+] | Ctrl+C, I | Italic |
+| Ctrl+_ | Ctrl+C, _ | Underline |
+| Ctrl+^ | Ctrl+C, S | Strikethrough |
+| Ctrl+V | Ctrl+C, V | Reverse |
+| Ctrl+O | Ctrl+C, O | Back to plain text |
+
+irssi's keys type the control byte they are named after (Ctrl+B is byte 2, bold), as irssi does. Most terminals send Ctrl+], Ctrl+^ and Ctrl+_ the same way as Ctrl+5, Ctrl+6 and Ctrl+7, so either works.
+
 ## Other
 
 | Keys | Action |
@@ -81,7 +99,7 @@ A paste with more than one line doesn't go into the input. Irsty asks first: **E
 | Ctrl+Z | Suspend Irsty (resume with `fg`); the terminal is restored while suspended |
 | Mouse click in the buffer list | Switch buffer (only with `[ui] mouse = true`) |
 
-Ctrl+C does nothing for now: in irssi it starts a colour code, which arrives with formatting input in M8. Use `/quit` to exit.
+Ctrl+C never quits Irsty: it types a colour code (irssi) or starts a formatting code (WeeChat). Use `/quit` to exit.
 
 ## Customising
 
@@ -122,6 +140,8 @@ A binding Irsty doesn't understand is reported when it starts, and skipped.
 | `kill_word_back`, `kill_word_forward`, `kill_to_start`, `kill_to_end` | Cut text |
 | `yank` | Paste the last cut |
 | `transpose` | Swap the characters around the cursor |
+| `bold`, `colour`, `hex_colour`, `italic`, `underline`, `strikethrough`, `monospace`, `reverse`, `reset` | Type a formatting code |
+| `format_prefix` | Wait for a letter naming a formatting code (WeeChat's Ctrl+C) |
 | `redraw` | Redraw the screen |
 | `suspend` | Suspend Irsty |
 | `none` | Nothing |

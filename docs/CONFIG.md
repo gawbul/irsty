@@ -132,6 +132,7 @@ Plain-text logs, one file per buffer, at `<dir>/<network>/<buffer>.log` (the ser
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `enabled` | boolean | `true` | Write logs. |
+| `rotate` | `"never"`, `"daily"` or `"monthly"` | `"never"` | Start a new file each day (`#irsty-2026-10-31.log`) or month (`#irsty-2026-10.log`), by the line's UTC date. |
 | `dir` | path | platform data directory + `/logs` | Where logs go. Linux: `~/.local/share/irsty/logs`; macOS: `~/Library/Application Support/irsty/logs`. |
 
 Irsty's own diagnostic log is `irsty.log` in the platform data directory. Set `IRSTY_LOG` to change its filter, for example `IRSTY_LOG=irsty_core=debug`. It never contains passwords.
@@ -143,7 +144,40 @@ Irsty's own diagnostic log is `irsty.log` in the platform data directory. Set `I
 | `mouse` | boolean | `false` | Capture the mouse: the wheel scrolls and clicking the buffer list switches buffers. Off by default so your terminal's own text selection keeps working. |
 | `nicklist` | boolean | `true` | Show the nick list in channels when the terminal is at least 100 columns wide. |
 | `timestamp_format` | string | `"%H:%M"` | [`strftime`](https://docs.rs/jiff/latest/jiff/fmt/strftime/index.html) format for timestamps, in your local time zone. |
-| `keymap` | `"irssi"` or `"weechat"` | `"irssi"` | Key binding preset. They differ in buffer switching; see [KEYBINDINGS.md](KEYBINDINGS.md). |
+| `keymap` | `"irssi"` or `"weechat"` | `"irssi"` | Key binding preset. They differ in buffer switching and formatting keys; see [KEYBINDINGS.md](KEYBINDINGS.md). |
+| `nick_colours` | boolean | `true` | Give each nick a colour from a hash of its name, so the same person always has the same colour. `[nick_colours]` overrides particular nicks either way. |
+
+Lines that mention your nick or a highlight word show the sender's nick dark on yellow, and links in messages are underlined; `/url` lists and opens them.
+
+## `[nick_colours]`
+
+Colours for particular nicks, by name: `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `gray`, `dark_gray`, `light_red`, `light_green`, `light_yellow`, `light_blue`, `light_magenta`, `light_cyan`, `white`. Nicks match without regard to case.
+
+```toml
+[nick_colours]
+gawbul = "light_cyan"
+ChanServ = "dark_gray"
+```
+
+## `[notifications]`
+
+Highlights and private messages from others raise a desktop notification through your terminal, by default only while the terminal is not focused. There is at most one a second, and one per buffer every ten seconds. Everything in the text that could act as a terminal control sequence is removed first.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `method` | `"osc777"`, `"osc9"`, `"bell"` or `"none"` | `"osc777"` | How to notify: the OSC 777 or OSC 9 escape sequence (support varies by terminal; try both), the terminal bell, or nothing. Inside tmux the sequence is wrapped so tmux passes it on, which needs `set -g allow-passthrough all` (`on` only passes it while the pane is visible). |
+| `when_focused` | boolean | `false` | Notify even while the terminal has focus. |
+| `show_text` | boolean | `true` | Include the message; off shows only who and where. |
+
+## `[ctcp]`
+
+Irsty answers CTCP `VERSION`, `PING`, `TIME`, `CLIENTINFO` and `SOURCE` requests, at most three every ten seconds per network so a flood of requests can't get you disconnected. Requests and whether they were answered show in the server buffer.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `replies` | boolean | `true` | Answer at all. |
+| `version` | string | `"Irsty <version> (https://github.com/gawbul/irsty)"` | The `VERSION` reply. |
+| `time` | boolean | `true` | Answer `TIME`, which reveals your local time and time zone. |
 
 ## `[keys]`
 
