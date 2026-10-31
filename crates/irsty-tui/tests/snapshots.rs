@@ -30,7 +30,7 @@ fn state() -> State {
     s.apply(
         NET,
         NetEvent::Connected {
-            server: "irc.libera.chat:+6697".into(),
+            server: "irc.libera.chat:6697 (TLS)".into(),
             insecure: false,
         },
     );
@@ -120,7 +120,7 @@ fn insecure_and_disconnected() {
     s.apply(
         NET,
         NetEvent::Connected {
-            server: "bnc.example:+6697".into(),
+            server: "bnc.example:6697 (TLS)".into(),
             insecure: true,
         },
     );
