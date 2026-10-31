@@ -116,7 +116,7 @@ Every milestone ends with the full gate passing locally and in CI: `fmt --check`
 
 - **M4. Multiple networks and per-network config:** autojoin, perform, SOCKS5, IPv6, SASL EXTERNAL, SCRAM-SHA-256. *Accept:* SCRAM test vectors from RFC 7677 pass, and Ergo's CertFP login works.
 - **M5. IRCv3 caps** (the full list in the brief). *Accept:* each cap has a mock-server test. Echo-message dedup and labeled-response correlation are tested.
-- **M6. Full command set, aliases, `/set` and `/bind`, ignore, highlight.** *Accept:* docs/COMMANDS.md is generated from or checked against the command table.
+- **M6. Full command set, aliases, `/set` and `/bind`, ignore, highlight.** Also: start the UI with no config file (an empty server buffer with a hint), and `/server add|del|update|list` to manage networks from inside Irsty. Both `/set` and `/server` write `config.toml` back with `toml_edit`, so comments and layout survive, and secrets stay as keyring or command references. *Accept:* docs/COMMANDS.md is generated from or checked against the command table. A first run with no config reaches a connected channel using only commands, and a round-trip test shows edits keep comments.
 - **M7. Input polish:** tab completion, multi-line paste prompt, emacs keys, Alt+number, fuzzy switcher.
 - **M8. Formatting, nick colours, URLs, activity and highlight tracking, notifications, CTCP with flood protection, long-message splitting, log rotation.**
 

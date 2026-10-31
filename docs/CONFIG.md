@@ -4,8 +4,10 @@ Irsty reads a single `config.toml`:
 
 | Platform | Default location |
 |---|---|
-| Linux | `$XDG_CONFIG_HOME/irsty/config.toml` (usually `~/.config/irsty/config.toml`) |
-| macOS | `~/Library/Application Support/irsty/config.toml` |
+| Linux, macOS | `$XDG_CONFIG_HOME/irsty/config.toml` (usually `~/.config/irsty/config.toml`) |
+| Windows | `%APPDATA%\irsty\config\config.toml` |
+
+A relative `XDG_CONFIG_HOME` is ignored, as the XDG spec requires. Logs and other data still use the platform data directory (see `[logging]`).
 
 Use `irsty --config <PATH>` to read another file. Unknown keys are errors, so typos never pass silently. Error messages give a line and column but never quote the file, which may contain secrets.
 
