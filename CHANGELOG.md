@@ -8,10 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Two iCloud sync duplicates (`dial 2.rs`, `socks 2.rs`) had been committed; they are gone, `.gitignore` ignores such names, and the gate and CI fail if one is tracked.
 - When one event added two lines to the same buffer (such as the user count and the names list after `/names`), the log got the second line twice and never the first. Effects now name the line they added.
 
 ### Changed
 
+- The docs describe what was built rather than the original plan: PLAN.md's layout, task model and state, ARCHITECTURE.md's event flow and back-pressure, and VERSIONS.md's planned crates that went unused or aren't needed yet.
 - In the irssi preset, Ctrl+B now types bold, as in irssi, instead of moving the cursor left; the WeeChat preset keeps Ctrl+B for moving left.
 - `/server <network>` still connects, but `/server` now also manages networks; `/bind` moved from M6 to M7 with the configurable keymap.
 - Registration no longer waits on the output rate limit, so logging in (especially with SCRAM, which sends more lines) takes a fraction of a second instead of several.

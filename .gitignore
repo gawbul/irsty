@@ -5,3 +5,6 @@
 *.pending-snap
 *.snap.new
 .DS_Store
+# iCloud sync duplicates, such as "dial 2.rs" (see CLAUDE.md)
+* [0-9].*
+* [0-9]

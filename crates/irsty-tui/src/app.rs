@@ -1,5 +1,5 @@
-//! Turning terminal events into actions: keys (irssi defaults), paste, mouse,
-//! and commands typed into the input line.
+//! Turning terminal events into actions: keys (through the keymap), paste,
+//! mouse and focus, and running the commands typed into the input line.
 
 use std::fmt::Write as _;
 

@@ -1,5 +1,6 @@
-//! UI state that is not client state: which buffer is shown, scroll positions,
-//! the input line, and layout facts needed to handle the mouse.
+//! UI state that is not client state: which buffer is shown and the history of
+//! those shown, scroll positions, the input line, completion, the switcher and
+//! other prompts, the config file, and layout facts needed to handle the mouse.
 
 use std::collections::HashMap;
 

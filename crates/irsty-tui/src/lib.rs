@@ -1,7 +1,8 @@
 //! Terminal user interface for Irsty, built on ratatui.
 //!
-//! Renders from `irsty-core` state and turns key, mouse and paste events into
-//! actions. It never touches sockets.
+//! Renders from `irsty-core` state and turns key, mouse, paste and focus events
+//! into calls on the client, through a configurable keymap. It never touches
+//! sockets.
 #![forbid(unsafe_code)]
 
 pub mod app;
