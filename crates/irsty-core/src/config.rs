@@ -324,6 +324,14 @@ pub struct NetworkConfig {
     /// Connect at startup. Defaults to true.
     #[serde(default = "default_true")]
     pub autoconnect: bool,
+    /// On a soju bouncer, open each of its networks as its own network here.
+    /// Defaults to true.
+    #[serde(default = "default_true")]
+    pub bouncer_networks: bool,
+    /// Set for a network opened from a bouncer: the bouncer's id for it,
+    /// sent with `BOUNCER BIND`. Never read from or written to the file.
+    #[serde(skip)]
+    pub bouncer_bind: Option<String>,
 }
 
 /// A raw IRC line sent after registration. `Debug` redacts passwords, since
@@ -426,6 +434,28 @@ pub enum NotifyMethod {
     Bell,
     /// Nothing.
     None,
+}
+
+/// Chat history from servers and bouncers.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryConfig {
+    /// Messages to fetch when joining a channel, opening a query or scrolling
+    /// past the oldest line; 0 turns history off. Defaults to 100.
+    #[serde(default = "default_history_lines")]
+    pub lines: u32,
+}
+
+fn default_history_lines() -> u32 {
+    100
+}
+
+impl Default for HistoryConfig {
+    fn default() -> Self {
+        Self {
+            lines: default_history_lines(),
+        }
+    }
 }
 
 /// Notifications.
@@ -667,6 +697,9 @@ pub struct Config {
     /// CTCP replies.
     #[serde(default)]
     pub ctcp: CtcpConfig,
+    /// Chat history.
+    #[serde(default)]
+    pub history: HistoryConfig,
 }
 
 impl Default for Config {
@@ -684,6 +717,7 @@ impl Default for Config {
             nick_colours: std::collections::BTreeMap::new(),
             notifications: NotifyConfig::default(),
             ctcp: CtcpConfig::default(),
+            history: HistoryConfig::default(),
         }
     }
 }

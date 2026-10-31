@@ -15,7 +15,9 @@ use crate::config::{Config, NetworkConfig, Paths, SaslMechanism};
 use crate::event::{NetCommand, NetEvent, NetworkId};
 use crate::log::LogWriter;
 use crate::net::connection::{self, EventSender, Proxy, Server, Settings};
-use crate::state::{BufferId, BufferKind, Effect, Line, LineKind, Notification, State};
+use crate::state::{
+    BouncerNetwork, BufferId, BufferKind, Effect, Line, LineKind, Notification, State,
+};
 
 /// Events buffered between connection tasks and the app loop.
 const EVENT_QUEUE: usize = 1024;
@@ -25,6 +27,14 @@ const COMMAND_QUEUE: usize = 256;
 
 /// Most events applied before returning, so bursts become one redraw.
 const MAX_BATCH: usize = 512;
+
+/// Shortest gap between read-marker updates for the buffer on screen.
+const READ_SYNC: Duration = Duration::from_secs(15);
+
+/// Text from the bouncer, made safe to show.
+fn sanitise(text: &str) -> String {
+    irsty_proto::format::StyledText::plain(text).to_plain()
+}
 
 /// Notifications kept for a frontend that isn't collecting them.
 const MAX_NOTIFICATIONS: usize = 64;
@@ -73,6 +83,10 @@ pub struct Client {
     restarting: std::collections::BTreeSet<NetworkId>,
     /// Notifications waiting for the frontend.
     notifications: Vec<Notification>,
+    /// Networks opened from a bouncer, by bouncer connection and netid.
+    bouncer_children: std::collections::HashMap<(NetworkId, String), NetworkId>,
+    /// The buffer whose read marker was last synced, and when.
+    last_read: Option<(BufferId, std::time::Instant)>,
     /// The next network id. Ids are never reused, so late events from a
     /// removed network's connection can't land on a new one.
     next_network: u32,
@@ -107,7 +121,10 @@ impl Client {
             restarting: std::collections::BTreeSet::new(),
             next_network: 0,
             notifications: Vec::new(),
+            bouncer_children: std::collections::HashMap::new(),
+            last_read: None,
         };
+        client.state.set_history(config.history.lines);
         client.state.set_ctcp(config.ctcp.clone());
         client
             .state
@@ -164,6 +181,17 @@ impl Client {
 
     /// Disconnects a network and removes it and its buffers.
     pub fn remove_network(&mut self, id: NetworkId, reason: Option<&str>) {
+        // A bouncer's networks go with it.
+        let children: Vec<NetworkId> = self
+            .bouncer_children
+            .iter()
+            .filter(|((parent, _), _)| *parent == id)
+            .map(|(_, &child)| child)
+            .collect();
+        self.bouncer_children.retain(|(parent, _), _| *parent != id);
+        for child in children {
+            self.remove_network(child, reason);
+        }
         let _ = self.disconnect(id, reason);
         // The task finishes on its own; we stop listening for it.
         self.commands.remove(&id);
@@ -190,6 +218,7 @@ impl Client {
     /// Applies settings that can change while running: scrollback, ignores
     /// and highlights. (The UI applies its own.)
     pub fn apply_config(&mut self, config: &Config) {
+        self.state.set_history(config.history.lines);
         self.state.set_ctcp(config.ctcp.clone());
         self.state.set_scrollback(config.scrollback);
         self.state
@@ -403,6 +432,82 @@ impl Client {
     /// Marks a buffer as read.
     pub fn mark_read(&mut self, buffer: BufferId) {
         self.state.mark_read(buffer);
+        // Tell the server (draft/read-marker) at most every READ_SYNC per
+        // buffer, and straight away on switching buffers, so read markers
+        // never crowd out messages under the rate limit.
+        let now = std::time::Instant::now();
+        let switched = self.last_read.map(|(b, _)| b) != Some(buffer);
+        let due = self
+            .last_read
+            .is_none_or(|(_, at)| now.duration_since(at) >= READ_SYNC);
+        if switched || due {
+            let effects = self.state.sync_read(buffer);
+            if !effects.is_empty() || switched {
+                self.last_read = Some((buffer, now));
+            }
+            self.run_effects(effects);
+        }
+    }
+
+    /// Asks for history older than the oldest line in a buffer (scrolling
+    /// back past the top).
+    pub fn request_older(&mut self, buffer: BufferId) {
+        let effects = self.state.request_older(buffer);
+        self.run_effects(effects);
+    }
+
+    /// A network on a soju bouncer appeared, changed or went away: open it as
+    /// its own network (bound with `BOUNCER BIND`), or close it. These are
+    /// never written to the config; the bouncer is the source of truth.
+    fn on_bouncer_network(&mut self, network: BouncerNetwork) {
+        let key = (network.parent, network.netid.clone());
+        let Some(parent) = self.configs.get(&network.parent).cloned() else {
+            return;
+        };
+        if !parent.bouncer_networks || parent.bouncer_bind.is_some() {
+            return;
+        }
+        match (network.attributes, self.bouncer_children.get(&key).copied()) {
+            (None, Some(child)) => {
+                self.bouncer_children.remove(&key);
+                self.remove_network(child, Some("Removed from the bouncer"));
+            }
+            (Some(attributes), None) => {
+                let name = attributes
+                    .iter()
+                    .find(|(k, _)| k == "name")
+                    .map_or(network.netid.as_str(), |(_, v)| v.as_str());
+                let mut child = parent.clone();
+                child.name = format!(
+                    "{}/{}",
+                    parent.name,
+                    irsty_proto::format::sanitise_identifier(name)
+                );
+                child.bouncer_bind = Some(network.netid.clone());
+                child.bouncer_networks = false;
+                // The bouncer rejoins channels and runs its own perform.
+                child.autojoin = Vec::new();
+                child.perform = Vec::new();
+                let id = self.add_network(&child);
+                self.bouncer_children.insert(key, id);
+                self.note(
+                    network.parent,
+                    LineKind::Info,
+                    &format!(
+                        "Bouncer network {} opened as {}",
+                        sanitise(name),
+                        child.name
+                    ),
+                );
+            }
+            (Some(attributes), Some(child)) => {
+                if let Some((_, state)) = attributes.iter().find(|(k, _)| k == "state") {
+                    let text = format!("The bouncer is {} to this network", sanitise(state));
+                    self.note(child, LineKind::Info, &text);
+                }
+            }
+            (None, None) => {}
+        }
     }
 
     /// Waits for the next batch of events and applies it. Returns the buffers
@@ -461,6 +566,7 @@ impl Client {
                     changed.push(buffer);
                 }
                 Effect::Updated(buffer) => changed.push(buffer),
+                Effect::Bouncer(network) => self.on_bouncer_network(*network),
                 Effect::Notify(notification) => {
                     if self.notifications.len() < MAX_NOTIFICATIONS {
                         self.notifications.push(*notification);
@@ -561,6 +667,7 @@ async fn settings_for(id: NetworkId, net: &NetworkConfig) -> Result<Settings, St
         settings.realname.clone_from(realname);
     }
     settings.client_cert.clone_from(&net.client_cert);
+    settings.bouncer_bind.clone_from(&net.bouncer_bind);
     if let Some(proxy) = &net.proxy {
         let credentials = match (&proxy.username, &proxy.password) {
             (Some(user), Some(source)) => Some((

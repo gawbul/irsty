@@ -111,6 +111,9 @@ pub struct Line {
     pub delivery: Delivery,
     /// It mentions our nick or a highlight word (set when added).
     pub highlight: bool,
+    /// The server's id for the message (`message-tags`), used to avoid
+    /// showing a message twice when history overlaps what we have.
+    pub msgid: Option<String>,
 }
 
 /// A buffer: a window of scrollback.
@@ -132,6 +135,12 @@ pub struct Buffer {
     pub unread: usize,
     /// The most interesting kind of unread line.
     pub activity: Activity,
+    /// The last read time the server knows (`draft/read-marker`).
+    pub read_marker: Option<Timestamp>,
+    /// Older history has been asked for and hasn't arrived yet.
+    pub history_pending: bool,
+    /// The server has no older history for this buffer.
+    pub history_done: bool,
 }
 
 impl Buffer {
@@ -267,6 +276,8 @@ pub struct Network {
     next_label: u64,
     awaiting: Vec<(Awaiting, BufferId)>,
     ctcp_sent: VecDeque<Timestamp>,
+    /// Buffers waiting for older history, by target.
+    history_before: HashMap<CaseKey, BufferId>,
     monitor_sent: bool,
 }
 
@@ -349,6 +360,20 @@ pub enum Effect {
     Log(BufferId, Box<Line>),
     /// Tell the user: a highlight or a private message.
     Notify(Box<Notification>),
+    /// A soju bouncer reported one of its networks (`soju.im/bouncer-networks`).
+    Bouncer(Box<BouncerNetwork>),
+}
+
+/// A network on a soju bouncer, from `BOUNCER NETWORK`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BouncerNetwork {
+    /// The connection to the bouncer that reported it.
+    pub parent: NetworkId,
+    /// The bouncer's id for the network, for `BOUNCER BIND`.
+    pub netid: String,
+    /// Its attributes (`name`, `state`, `host` and so on), or `None` when it
+    /// has been removed. Updates carry only what changed.
+    pub attributes: Option<Vec<(String, String)>>,
 }
 
 /// Something worth a notification.
@@ -434,6 +459,23 @@ pub struct State {
     highlight_words: Vec<String>,
     highlight_regex: Vec<regex::Regex>,
     ctcp: CtcpConfig,
+    /// Messages to fetch from history at a time; 0 turns it off.
+    history_lines: u32,
+    /// How lines are being added: live, or replayed from history.
+    replay: Replay,
+}
+
+/// Whether lines being added are live or replayed history.
+#[derive(Clone, Debug, Default)]
+enum Replay {
+    /// Live: notify, answer CTCP, count as new.
+    #[default]
+    Live,
+    /// History appended after what we have: no notifications or CTCP
+    /// replies, and nothing already shown is shown again.
+    Append,
+    /// Older history: collected here, then put at the top of its buffer.
+    Prepend(Vec<(BufferId, Line)>),
 }
 
 impl State {
@@ -449,6 +491,8 @@ impl State {
             highlight_words: Vec::new(),
             highlight_regex: Vec::new(),
             ctcp: CtcpConfig::default(),
+            history_lines: 100,
+            replay: Replay::Live,
         }
     }
 
@@ -491,6 +535,7 @@ impl State {
                 next_label: 0,
                 awaiting: Vec::new(),
                 ctcp_sent: VecDeque::new(),
+                history_before: HashMap::new(),
                 monitor_sent: false,
             },
         );
@@ -720,6 +765,7 @@ impl State {
                 text,
                 delivery: Delivery::Delivered,
                 highlight: false,
+                msgid: None,
             };
             self.push_line(buffer, line, &mut effects);
         }
@@ -784,6 +830,7 @@ impl State {
                 Delivery::Delivered
             },
             highlight: false,
+            msgid: None,
         };
         self.push_line(buffer, line, &mut own.effects);
         if echo {
@@ -821,7 +868,7 @@ impl State {
     fn confirm_echo(
         &mut self,
         buffer: BufferId,
-        label: Option<&str>,
+        (label, msgid): (Option<&str>, Option<&str>),
         kind: LineKind,
         raw: &str,
         time: Timestamp,
@@ -842,6 +889,7 @@ impl State {
         };
         line.delivery = Delivery::Delivered;
         line.time = time;
+        line.msgid = msgid.map(str::to_owned);
         let logged = Box::new(line.clone());
         effects.push(Effect::Updated(buffer));
         effects.push(Effect::Log(buffer, logged));
@@ -921,6 +969,9 @@ impl State {
                 total: 0,
                 unread: 0,
                 activity: Activity::None,
+                read_marker: None,
+                history_pending: false,
+                history_done: false,
             },
         );
         id
@@ -931,6 +982,14 @@ impl State {
         let Some(buf) = self.buffers.get(&buffer) else {
             return;
         };
+        let replaying = !matches!(self.replay, Replay::Live);
+        // History can overlap what is already here; the msgid says so.
+        if replaying
+            && let Some(id) = &line.msgid
+            && buf.lines.iter().any(|l| l.msgid.as_ref() == Some(id))
+        {
+            return;
+        }
         let net = self.networks.get(&buf.network);
         let from_others = line
             .sender
@@ -943,7 +1002,7 @@ impl State {
         if talk && from_others {
             line.highlight = self.is_highlight(buf.network, &line.raw);
             let private = buf.kind == BufferKind::Query;
-            if line.highlight || private {
+            if (line.highlight || private) && !replaying {
                 effects.push(Effect::Notify(Box::new(Notification {
                     buffer,
                     network: net.map(|n| n.name.clone()).unwrap_or_default(),
@@ -965,7 +1024,33 @@ impl State {
             }
             _ => Activity::Events,
         };
+        if let Replay::Prepend(collected) = &mut self.replay {
+            collected.push((buffer, line));
+            return;
+        }
         if let Some(buf) = self.buffers.get_mut(&buffer) {
+            // Replayed history can arrive after newer live lines: it goes in
+            // time order, and is logged directly, since it isn't at the end.
+            let mut at = buf
+                .lines
+                .iter()
+                .rposition(|l| l.time <= line.time)
+                .map_or(0, |i| i + 1);
+            if replaying && at < buf.lines.len() {
+                if buf.lines.len() >= limit {
+                    // Full: older than everything kept means it isn't kept.
+                    if at == 0 {
+                        return;
+                    }
+                    buf.lines.pop_front();
+                    at -= 1;
+                }
+                effects.push(Effect::Log(buffer, Box::new(line.clone())));
+                effects.push(Effect::Updated(buffer));
+                buf.lines.insert(at, line);
+                buf.activity = buf.activity.max(activity);
+                return;
+            }
             if buf.lines.len() >= limit {
                 buf.lines.pop_front();
             }
@@ -1025,6 +1110,7 @@ impl State {
             text,
             delivery: Delivery::Delivered,
             highlight: false,
+            msgid: None,
         };
         match event {
             NetEvent::Connecting { server } => {
@@ -1127,6 +1213,288 @@ impl State {
         for msg in join_messages(&targets) {
             effects.push(Effect::Send(id, msg));
         }
+        self.catch_up(id, effects);
+    }
+
+    /// After registering: fetch what we missed in open queries, find private
+    /// conversations we don't have open (`TARGETS`), and ask ZNC to play back
+    /// only what came after the newest line we have.
+    fn catch_up(&mut self, id: NetworkId, effects: &mut Vec<Effect>) {
+        if self.history_lines == 0 {
+            return;
+        }
+        let Some(net) = self.networks.get(&id) else {
+            return;
+        };
+        let newest = self.newest_on_network(id);
+        if net.has_cap("draft/chathistory") {
+            let queries: Vec<BufferId> = net.queries.values().copied().collect();
+            for buffer in queries {
+                effects.extend(self.history_latest(buffer));
+            }
+            // Since the newest line we have, or a day back on a first connect.
+            let now = (self.clock)();
+            let since = newest.unwrap_or_else(|| now - jiff::SignedDuration::from_hours(24));
+            let limit = self.history_limit(id).min(50);
+            effects.push(Effect::Send(
+                id,
+                Message::new("CHATHISTORY")
+                    .param("TARGETS")
+                    .param(history_ref(since))
+                    .param(history_ref(now))
+                    .param(limit.to_string()),
+            ));
+        } else if net.has_cap("znc.in/playback") {
+            // ZNC takes Unix seconds, with a fraction.
+            let since = newest.map_or_else(
+                || "0".to_owned(),
+                |t| format!("{}.{:03}", t.as_second(), t.subsec_millisecond()),
+            );
+            effects.push(Effect::Send(
+                id,
+                Message::new("PRIVMSG")
+                    .param("*playback")
+                    .param(format!("PLAY * {since}")),
+            ));
+        }
+    }
+
+    /// The newest time of a message in any of a network's buffers.
+    fn newest_on_network(&self, id: NetworkId) -> Option<Timestamp> {
+        self.buffers
+            .values()
+            .filter(|b| b.network == id)
+            .filter_map(newest_message)
+            .max()
+    }
+
+    /// How many messages to ask for at once: our setting, capped by the
+    /// server's `CHATHISTORY` limit (0 means it has none).
+    fn history_limit(&self, id: NetworkId) -> u32 {
+        let server = self
+            .networks
+            .get(&id)
+            .and_then(|n| n.isupport.raw.get("CHATHISTORY"))
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(u32::MAX);
+        self.history_lines.min(server)
+    }
+
+    /// `CHATHISTORY LATEST` for a buffer: everything after its newest message,
+    /// or the latest messages if it has none.
+    fn history_latest(&self, buffer: BufferId) -> Option<Effect> {
+        let buf = self.buffers.get(&buffer)?;
+        let net = self.networks.get(&buf.network)?;
+        if self.history_lines == 0
+            || !net.has_cap("draft/chathistory")
+            || buf.kind == BufferKind::Server
+        {
+            return None;
+        }
+        let reference = buf
+            .lines
+            .iter()
+            .rev()
+            .find(|l| is_settled_message(l))
+            .map_or_else(|| "*".to_owned(), |l| self.reference_for(buf.network, l));
+        Some(Effect::Send(
+            buf.network,
+            Message::new("CHATHISTORY")
+                .param("LATEST")
+                .param(buf.name.as_str())
+                .param(reference)
+                .param(self.history_limit(buf.network).to_string()),
+        ))
+    }
+
+    /// How to point at a message in a history request: by `msgid` where the
+    /// line has one and the server accepts them (`MSGREFTYPES`, both when it
+    /// doesn't say), since several messages can share a timestamp; otherwise
+    /// by time.
+    fn reference_for(&self, id: NetworkId, line: &Line) -> String {
+        let msgid_ok = self
+            .networks
+            .get(&id)
+            .and_then(|n| n.isupport.raw.get("MSGREFTYPES"))
+            .is_none_or(|types| types.split(',').any(|t| t == "msgid"));
+        match &line.msgid {
+            Some(msgid) if msgid_ok => format!("msgid={msgid}"),
+            _ => history_ref(line.time),
+        }
+    }
+
+    /// Asks for history older than the oldest line in a buffer, when the user
+    /// scrolls past it. Does nothing while a request is outstanding, once the
+    /// server has said there is no more, or without `draft/chathistory`.
+    pub fn request_older(&mut self, buffer: BufferId) -> Vec<Effect> {
+        let Some(buf) = self.buffers.get(&buffer) else {
+            return Vec::new();
+        };
+        let id = buf.network;
+        let usable = self.history_lines > 0
+            && buf.kind != BufferKind::Server
+            && !buf.history_pending
+            && !buf.history_done
+            && self
+                .networks
+                .get(&id)
+                .is_some_and(|n| n.has_cap("draft/chathistory"));
+        if !usable {
+            return Vec::new();
+        }
+        let reference = buf
+            .lines
+            .iter()
+            .find(|l| is_settled_message(l))
+            .map_or_else(
+                || history_ref((self.clock)()),
+                |l| self.reference_for(id, l),
+            );
+        let msg = Message::new("CHATHISTORY")
+            .param("BEFORE")
+            .param(buf.name.as_str())
+            .param(reference)
+            .param(self.history_limit(id).to_string());
+        let key = self.networks.get(&id).map(|n| n.key(&buf.name));
+        if let (Some(buf), Some(net), Some(key)) = (
+            self.buffers.get_mut(&buffer),
+            self.networks.get_mut(&id),
+            key,
+        ) {
+            buf.history_pending = true;
+            net.history_before.insert(key, buffer);
+        }
+        vec![Effect::Send(id, msg)]
+    }
+
+    /// A `chathistory` or `znc.in/playback` batch: replayed without
+    /// notifications, and put at the top of the buffer if it answers a
+    /// request for older history.
+    fn on_history_batch(&mut self, id: NetworkId, batch: &Batch, effects: &mut Vec<Effect>) {
+        let target = batch.params.first().cloned().unwrap_or_default();
+        let older = self.networks.get_mut(&id).and_then(|net| {
+            let key = net.key(&target);
+            net.history_before.remove(&key)
+        });
+        self.replay = if older.is_some() {
+            Replay::Prepend(Vec::new())
+        } else {
+            Replay::Append
+        };
+        for msg in &batch.messages {
+            self.on_message(id, msg, None, effects);
+        }
+        let replay = std::mem::take(&mut self.replay);
+        let Some(buffer) = older else {
+            return;
+        };
+        let Replay::Prepend(collected) = replay else {
+            return;
+        };
+        let limit = self.scrollback;
+        let Some(buf) = self.buffers.get_mut(&buffer) else {
+            return;
+        };
+        buf.history_pending = false;
+        let lines: Vec<Line> = collected
+            .into_iter()
+            .filter(|(b, _)| *b == buffer)
+            .map(|(_, l)| l)
+            .collect();
+        if lines.is_empty() {
+            buf.history_done = true;
+        }
+        // Keep within scrollback: older lines that don't fit are dropped.
+        let room = limit.saturating_sub(buf.lines.len());
+        let skip = lines.len().saturating_sub(room);
+        for line in lines.into_iter().skip(skip).rev() {
+            buf.lines.push_front(line);
+        }
+        effects.push(Effect::Updated(buffer));
+    }
+
+    /// `CHATHISTORY TARGETS`: open and fill queries we don't have yet.
+    fn on_history_targets(&mut self, id: NetworkId, batch: &Batch, effects: &mut Vec<Effect>) {
+        for msg in &batch.messages {
+            let target = msg.params.get(1).map_or("", String::as_str).to_owned();
+            let is_channel = self
+                .networks
+                .get(&id)
+                .is_some_and(|n| n.isupport.is_channel(&target));
+            if target.is_empty() || is_channel || !msg.command.eq_ignore_ascii_case("CHATHISTORY") {
+                continue;
+            }
+            if self.find_buffer(id, &target).is_none()
+                && let Some(buffer) = self.query_buffer(id, &target)
+            {
+                effects.extend(self.history_latest(buffer));
+            }
+        }
+    }
+
+    /// `MARKREAD <target> timestamp=...`: another client (or the server)
+    /// says where we have read up to. A buffer read to its newest line stops
+    /// counting as unread.
+    fn on_markread(&mut self, id: NetworkId, target: &str, value: &str, effects: &mut Vec<Effect>) {
+        let Some(buffer) = self.find_buffer(id, target) else {
+            return;
+        };
+        let Some(time) = value
+            .strip_prefix("timestamp=")
+            .and_then(|t| t.parse::<Timestamp>().ok())
+        else {
+            return;
+        };
+        let Some(buf) = self.buffers.get_mut(&buffer) else {
+            return;
+        };
+        if buf.read_marker.is_some_and(|m| m >= time) {
+            return;
+        }
+        buf.read_marker = Some(time);
+        if newest_message(buf).is_none_or(|n| n <= time) && buf.unread > 0 {
+            buf.unread = 0;
+            buf.activity = Activity::None;
+            effects.push(Effect::Updated(buffer));
+        }
+    }
+
+    /// Tells the server (`draft/read-marker`) that a buffer has been read up
+    /// to its newest message, if that is news.
+    pub fn sync_read(&mut self, buffer: BufferId) -> Vec<Effect> {
+        let Some(buf) = self.buffers.get(&buffer) else {
+            return Vec::new();
+        };
+        let id = buf.network;
+        let supported = self
+            .networks
+            .get(&id)
+            .is_some_and(|n| n.has_cap("draft/read-marker"));
+        let Some(newest) = newest_message(buf) else {
+            return Vec::new();
+        };
+        if !supported
+            || buf.kind == BufferKind::Server
+            || buf.read_marker.is_some_and(|m| m >= newest)
+        {
+            return Vec::new();
+        }
+        let name = buf.name.clone();
+        if let Some(buf) = self.buffers.get_mut(&buffer) {
+            buf.read_marker = Some(newest);
+        }
+        vec![Effect::Send(
+            id,
+            Message::new("MARKREAD")
+                .param(name)
+                .param(history_ref(newest)),
+        )]
+    }
+
+    /// Sets how many messages to fetch from history at a time.
+    pub fn set_history(&mut self, lines: u32) {
+        self.history_lines = lines;
     }
 
     fn on_disconnected(
@@ -1150,6 +1518,7 @@ impl State {
         net.batches.clear();
         net.labels.clear();
         net.awaiting.clear();
+        net.history_before.clear();
         net.monitor_sent = false;
         for watch in &mut net.watches {
             watch.online = None;
@@ -1201,6 +1570,7 @@ impl State {
                 text,
                 delivery: Delivery::Delivered,
                 highlight: false,
+                msgid: None,
             };
             self.push_line(buffer, line, effects);
         }
@@ -1278,10 +1648,13 @@ impl State {
                         text,
                         delivery: Delivery::Delivered,
                         highlight: false,
+                        msgid: None,
                     };
                     self.push_line(buffer, line, effects);
                 }
             }
+            "chathistory" | "znc.in/playback" => self.on_history_batch(id, batch, effects),
+            "draft/chathistory-targets" => self.on_history_targets(id, batch, effects),
             "labeled-response" => {
                 for msg in &batch.messages {
                     self.on_message(id, msg, batch.label.as_deref(), effects);
@@ -1340,6 +1713,7 @@ impl State {
             raw,
             delivery: Delivery::Delivered,
             highlight: false,
+            msgid: None,
         };
         let event = |text: StyledText| {
             let raw = text.to_plain();
@@ -1426,6 +1800,26 @@ impl State {
                 );
             }
             "730" | "731" => self.on_monitor(id, param(1), command == "730", time, effects),
+            "MARKREAD" => self.on_markread(id, param(0), param(1), effects),
+            "BOUNCER" if param(0).eq_ignore_ascii_case("NETWORK") => {
+                // Only a connection not bound to one of the bouncer's networks
+                // (no BOUNCER_NETID) opens the others.
+                let unbound = net.has_cap("soju.im/bouncer-networks")
+                    && !net.isupport.raw.contains_key("BOUNCER_NETID");
+                if unbound && !param(1).is_empty() {
+                    let attributes = (param(2) != "*").then(|| {
+                        irsty_proto::Tags::from_raw(param(2))
+                            .iter()
+                            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+                            .collect()
+                    });
+                    effects.push(Effect::Bouncer(Box::new(BouncerNetwork {
+                        parent: id,
+                        netid: param(1).to_owned(),
+                        attributes,
+                    })));
+                }
+            }
             "734" => {
                 let text = StyledText::plain(&format!(
                     "The server's MONITOR list is full (limit {}); not watching {}",
@@ -1443,6 +1837,11 @@ impl State {
                 let Some(buffer) = self.on_join(id, msg) else {
                     return;
                 };
+                if self.networks.get(&id).is_some_and(|n| n.is_me(&nick))
+                    && matches!(self.replay, Replay::Live)
+                {
+                    effects.extend(self.history_latest(buffer));
+                }
                 if self.hides(id, msg, Some(&channel), IgnoreKind::Events) {
                     return;
                 }
@@ -1674,7 +2073,8 @@ impl State {
                 }
             }
             // Handled by the connection task; nothing to show.
-            "CAP" | "AUTHENTICATE" | "900" | "903" | "908" => {}
+            // BOUNCER replies other than NETWORK confirm what we asked for.
+            "CAP" | "AUTHENTICATE" | "900" | "903" | "908" | "BOUNCER" => {}
             c if crate::replies::WHOIS.contains(&c)
                 || crate::replies::WHOWAS.contains(&c)
                 || c == crate::replies::END_OF_WHOIS
@@ -1942,6 +2342,7 @@ impl State {
                     text,
                     delivery: Delivery::Delivered,
                     highlight: false,
+                    msgid: None,
                 };
                 self.push_line(buffer, line, effects);
             }
@@ -1964,6 +2365,7 @@ impl State {
             text,
             delivery: Delivery::Delivered,
             highlight: false,
+            msgid: None,
         };
         self.push_line(buffer, line, effects);
     }
@@ -2091,6 +2493,7 @@ impl State {
                 text,
                 delivery: Delivery::Delivered,
                 highlight: false,
+                msgid: None,
             };
             self.push_line(buffer, line, effects);
         }
@@ -2180,7 +2583,8 @@ impl State {
         let Some(buffer) = buffer else {
             return;
         };
-        if echo && self.confirm_echo(buffer, label, kind, &raw, time, effects) {
+        let msgid = msg.tags.get("msgid");
+        if echo && self.confirm_echo(buffer, (label, msgid), kind, &raw, time, effects) {
             if let Some(label) = label {
                 self.forget_label(id, label);
             }
@@ -2195,6 +2599,7 @@ impl State {
             raw,
             delivery: Delivery::Delivered,
             highlight: false,
+            msgid: msg.tags.get("msgid").map(str::to_owned),
         };
         self.push_line(buffer, line, effects);
     }
@@ -2211,7 +2616,7 @@ impl State {
         effects: &mut Vec<Effect>,
     ) {
         let mut answer = "";
-        if answer_it {
+        if answer_it && matches!(self.replay, Replay::Live) {
             let command = ctcp.command.to_ascii_uppercase();
             answer = match self.ctcp_reply(id, &command, ctcp.params) {
                 CtcpAnswer::Sent(reply) => {
@@ -2242,6 +2647,7 @@ impl State {
             text,
             delivery: Delivery::Delivered,
             highlight: false,
+            msgid: None,
         };
         self.push_line(server_buffer, line, effects);
     }
@@ -2323,6 +2729,7 @@ impl State {
                 text,
                 delivery: Delivery::Delivered,
                 highlight: false,
+                msgid: None,
             };
             self.push_line(buffer, line, effects);
         }
@@ -2366,9 +2773,37 @@ impl State {
             text,
             delivery: Delivery::Delivered,
             highlight: false,
+            msgid: None,
         };
         self.push_line(buffer, line, effects);
     }
+}
+
+/// A message (not an event) the server has: not our own still pending or
+/// failed.
+fn is_settled_message(line: &Line) -> bool {
+    matches!(
+        line.kind,
+        LineKind::Message | LineKind::Action | LineKind::Notice
+    ) && !matches!(
+        line.delivery,
+        Delivery::Pending { .. } | Delivery::Failed { .. }
+    )
+}
+
+/// The newest time of a message (not an event) in a buffer.
+fn newest_message(buffer: &Buffer) -> Option<Timestamp> {
+    buffer
+        .lines
+        .iter()
+        .rev()
+        .find(|l| is_settled_message(l))
+        .map(|l| l.time)
+}
+
+/// A history reference: `timestamp=YYYY-MM-DDThh:mm:ss.sssZ`.
+fn history_ref(time: Timestamp) -> String {
+    format!("timestamp={}", time.strftime("%Y-%m-%dT%H:%M:%S%.3fZ"))
 }
 
 /// The `server-time` of a message, if it has one.
@@ -2783,6 +3218,88 @@ mod tests {
         // Our own message mentioning our nick, and events, never notify.
         assert!(notified(&feed(&mut s, ":me!u@h PRIVMSG #c :me me me")).is_none());
         assert!(notified(&feed(&mut s, ":me!u@h JOIN #d")).is_none());
+    }
+
+    /// History that arrives after newer live lines goes in time order.
+    #[test]
+    fn history_is_inserted_in_time_order() {
+        let mut s = state();
+        s.set_clock(|| "2026-10-31T09:00:00Z".parse().unwrap());
+        feed(&mut s, ":me!u@h JOIN #c");
+        let channel = channel_buffer(&s, "#c");
+        feed(
+            &mut s,
+            "@time=2026-10-31T10:05:00.000Z;msgid=live :a!a@h PRIVMSG #c :live",
+        );
+        let effects = feed(&mut s, "BATCH +h chathistory #c");
+        assert!(effects.is_empty());
+        feed(
+            &mut s,
+            "@batch=h;time=2026-10-31T10:01:00.000Z;msgid=h1 :b!b@h PRIVMSG #c :earlier",
+        );
+        feed(
+            &mut s,
+            "@batch=h;time=2026-10-31T10:05:00.000Z;msgid=live :a!a@h PRIVMSG #c :live",
+        );
+        let effects = feed(&mut s, "BATCH -h");
+        let texts: Vec<String> = s
+            .buffer(channel)
+            .unwrap()
+            .lines()
+            .iter()
+            .map(|l| l.text.to_plain())
+            .collect();
+        assert_eq!(texts, ["me (u@h) has joined #c", "earlier", "live"]);
+        // The inserted line is logged as itself, not as "the newest line".
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::Log(_, l) if l.raw == "earlier"))
+        );
+        assert!(!effects.iter().any(|e| matches!(e, Effect::Line(..))));
+    }
+
+    /// Rejoining after a reconnect asks only for what came after the newest
+    /// message we have; history off, or no server support, asks nothing.
+    #[test]
+    fn rejoining_fills_the_gap() {
+        let mut s = state();
+        s.apply(
+            NET,
+            NetEvent::Caps {
+                enabled: vec!["draft/chathistory".into()],
+            },
+        );
+        feed(&mut s, ":srv 005 me CHATHISTORY=50 :are supported");
+        feed(&mut s, ":me!u@h JOIN #c");
+        feed(
+            &mut s,
+            "@time=2026-10-31T10:00:00.123Z :a!a@h PRIVMSG #c :hi",
+        );
+        let latest = |effects: Vec<Effect>| -> Vec<String> {
+            effects
+                .into_iter()
+                .filter_map(|e| match e {
+                    Effect::Send(_, m) if m.command == "CHATHISTORY" => Some(m.to_wire().unwrap()),
+                    _ => None,
+                })
+                .collect()
+        };
+        // The server's limit (50) caps our 100.
+        assert_eq!(
+            latest(feed(&mut s, ":me!u@h JOIN #c")),
+            ["CHATHISTORY LATEST #c timestamp=2026-10-31T10:00:00.123Z 50"]
+        );
+        s.set_history(0);
+        assert!(latest(feed(&mut s, ":me!u@h JOIN #c")).is_empty());
+        s.set_history(100);
+        s.apply(
+            NET,
+            NetEvent::Caps {
+                enabled: Vec::new(),
+            },
+        );
+        assert!(latest(feed(&mut s, ":me!u@h JOIN #c")).is_empty());
     }
 
     #[test]

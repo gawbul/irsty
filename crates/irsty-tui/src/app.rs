@@ -134,11 +134,21 @@ fn run_action(action: Action, client: &mut Client, ui: &mut Ui) -> Flow {
         Action::Forward => ui.go_forward(state),
         Action::Buffer(n) => ui.switch_to_number(state, usize::from(n)),
         Action::Jump => ui.jump = Some(String::new()),
-        Action::PageUp => ui.page(state, true),
+        Action::PageUp | Action::ScrollUp | Action::ScrollTop => {
+            match action {
+                Action::PageUp => ui.page(state, true),
+                Action::ScrollUp => ui.scroll_by(state, 3),
+                _ => ui.scroll_by(state, isize::MAX / 2),
+            }
+            // Past the oldest line: ask the server for older history.
+            if ui.at_oldest(client.state())
+                && let Some(buffer) = ui.active
+            {
+                client.request_older(buffer);
+            }
+        }
         Action::PageDown => ui.page(state, false),
-        Action::ScrollUp => ui.scroll_by(state, 3),
         Action::ScrollDown => ui.scroll_by(state, -3),
-        Action::ScrollTop => ui.scroll_by(state, isize::MAX / 2),
         Action::ScrollBottom => ui.scroll_by(state, isize::MIN / 2),
         Action::HistoryPrev => ui.input.history_prev(),
         Action::HistoryNext => ui.input.history_next(),
@@ -1201,6 +1211,7 @@ fn run_set(
             "ctcp.replies" => config.ctcp.replies.to_string(),
             "ctcp.version" => config.ctcp.version.clone(),
             "ctcp.time" => config.ctcp.time.to_string(),
+            "history.lines" => config.history.lines.to_string(),
             _ => String::new(),
         }
     };

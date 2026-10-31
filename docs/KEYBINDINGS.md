@@ -31,7 +31,7 @@ Ctrl+G opens a box listing every buffer. Type part of a name, in order but not n
 
 | Keys | Action |
 |---|---|
-| Page Up, Page Down | Scroll back or forward a page |
+| Page Up, Page Down | Scroll back or forward a page; back past the oldest line fetches older history from servers that keep it |
 | Alt+Page Up, Alt+Page Down | Scroll back or forward three lines |
 | Alt+Home | The oldest lines |
 | Alt+End, Ctrl+End | The newest lines |

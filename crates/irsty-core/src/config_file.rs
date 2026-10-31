@@ -54,6 +54,7 @@ pub const SETTINGS: &[(&str, SettingKind)] = &[
     ("ctcp.replies", SettingKind::Bool),
     ("ctcp.version", SettingKind::Text),
     ("ctcp.time", SettingKind::Bool),
+    ("history.lines", SettingKind::Integer),
 ];
 
 /// The type of a setting.

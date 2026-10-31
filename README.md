@@ -4,7 +4,7 @@
 
 A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](https://ratatui.rs). It is a spiritual successor to irssi and WeeChat: fast, readable out of the box, scriptable, with first-class IRCv3 support and good support for bouncers (soju, ZNC).
 
-> **Status:** early development, but usable day to day. The foundation and daily-driver phases are done (milestones M0 to M8): several networks at once, the core IRCv3 extensions, the full command set, tab completion, configurable keys, nick colours and notifications. Chat history and bouncer support (M9) are next. See [`PLAN.md`](PLAN.md) for the roadmap.
+> **Status:** early development, but usable day to day. The foundation and daily-driver phases are done (milestones M0 to M8), and chat history and bouncer support (M9) have landed: several networks at once, the core IRCv3 extensions, the full command set, tab completion, configurable keys, nick colours, notifications and history. See [`PLAN.md`](PLAN.md) for the roadmap.
 
 ## Goals
 
@@ -19,6 +19,7 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **Untrusted text:** escape sequences, control characters and bidi tricks from the network are neutralised before anything is displayed or logged.
 - **Connections** (`irsty-core`): TLS with OS certificate verification and plain-English certificate errors, client certificates, IPv6 with Happy Eyeballs, SOCKS5 proxies (Tor-friendly: DNS goes through the proxy), `CAP LS 302`, SASL SCRAM-SHA-256, PLAIN and EXTERNAL (CertFP) with no silent downgrade, perform lines, nick fallback, keepalive with lag measurement, rate-limited output, and reconnection with backoff, server rotation and automatic rejoin.
 - **State:** networks, channels, members and their modes, topics, queries and per-buffer scrollback, plus each user's account, host, real name and away status.
+- **History and bouncers:** chat history (`draft/chathistory`: what you missed on join and reconnect, private conversations you missed, and older messages as you scroll back), read markers shared between devices (`draft/read-marker`), soju's networks opened as networks of their own (`soju.im/bouncer-networks`), and ZNC playback of only what you missed (`znc.in/playback`).
 - **IRCv3:** `account-notify`, `account-tag`, `away-notify`, `batch` (netsplits and netjoins collapse to one line), `cap-notify`, `chghost`, `echo-message`, `extended-join`, `invite-notify`, `labeled-response`, `message-tags`, `multi-prefix`, `sasl`, `server-time`, `setname`, `standard-replies`, `userhost-in-names`, and `MONITOR`. With `echo-message`, your messages show dimmed until the server confirms them, and say why if they fail.
 - **Secrets:** read from the OS keyring or a command such as `pass`. Plaintext works but triggers a warning at every start.
 - **Logs:** one plain-text file per buffer, safe to `cat`, optionally rotated daily or monthly.
@@ -30,7 +31,7 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **CTCP:** answers `VERSION`, `PING`, `TIME`, `CLIENTINFO` and `SOURCE`, rate-limited.
 - **Headless mode:** `--headless` prints every buffer's new lines to stdout.
 
-Not yet: chat history and bouncer networks (M9), typing indicators, replies and reactions (M10), search and split windows (M11), themes (M12), scripting (M13) and DCC (M16). See [`PLAN.md`](PLAN.md).
+Not yet: typing indicators, replies and reactions (M10), search and split windows (M11), themes (M12), scripting (M13) and DCC (M16). See [`PLAN.md`](PLAN.md).
 
 ## Quick start
 

@@ -52,6 +52,13 @@ Joining channels is not its job: on `Registered`, `State::apply` returns `Send` 
 - **Users**: `Network::user` keeps account, `user@host`, real name and away message for people who share a channel with us, fed by `extended-join`, `account-tag`, `account-notify`, `chghost`, `setname`, `away-notify` and `userhost-in-names`, and forgotten when we no longer share a channel.
 - **`MONITOR`**: the per-network watch list is sent once `RPL_ISUPPORT` advertises it; 730 and 731 update `Network::watches`.
 
+## History and bouncers
+
+- **Chat history** (`draft/chathistory`): `State` asks for `LATEST` when we join a channel (after the newest message we have, so a reconnect fills the gap), for `TARGETS` and each missed query on registering, and for `BEFORE` from `State::request_older` when the UI scrolls past the oldest line. References use `msgid` where `MSGREFTYPES` allows, because messages can share a timestamp. `chathistory` and `znc.in/playback` batches are handled in a replay mode: no notifications or CTCP answers, deduplication by `msgid`, and insertion in time order when history arrives after newer live lines (such lines are logged with `Effect::Log`, not as the newest line). Answers to `BEFORE` are collected and put at the top of the buffer, without being logged; an empty answer marks the buffer's history as done.
+- **Read markers** (`draft/read-marker`): `MARKREAD` from the server updates `Buffer::read_marker` and clears unread lines it covers. `Client::mark_read` sends ours through `State::sync_read`, at most every 15 seconds per buffer or on switching, so markers never crowd out messages under the rate limit.
+- **soju** (`soju.im/bouncer-networks`): on a connection with no network bound (no `BOUNCER_NETID`), `BOUNCER NETWORK` lines become `Effect::Bouncer`. The client opens each network as a network of its own, a copy of the parent's config with `bouncer_bind` set (never written to the file), which sends `BOUNCER BIND` just before `CAP END`; removals and the parent's removal close them.
+- **ZNC** (`znc.in/playback`): after registering, `PLAY * <seconds>` asks for what came after the newest line we have.
+
 ## Keys and input
 
 `irsty_tui::keymap` maps key chords (`ctrl-n`, `alt-left`) to named `Action`s: the shared bindings plus the `irssi` or `weechat` preset, then `[keys]` overrides. `app::handle_key` asks the keymap first; unbound plain characters are typed. Three modes take keys before the keymap while they are open: the multi-line paste prompt, the buffer switcher and WeeChat's two-digit jump. `irsty_tui::complete` finds Tab completions from `State` and the input (pure, so tested directly) and scores the switcher's fuzzy matches.

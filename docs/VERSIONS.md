@@ -117,7 +117,8 @@ Ergo v2.19.1 (2026-08-05) for integration tests: the container `ghcr.io/ergochat
 ### Test data
 
 - `ircdocs/parser-tests`: CC0-1.0. Last commit was 2023-05-29, which is fine because it is a stable corpus. Files: `msg-split`, `msg-join`, `userhost-split`, `mask-match` and `validate-hostname` (`.yaml`).
-- Ergo v2.19.1 (2026-08-05) for integration tests. `mise run ergo` downloads and verifies the release binary; CI uses the container image.
+- Ergo v2.19.1 (2026-08-05) for integration tests. `mise run ergo` downloads and verifies the release binary; CI uses the container image. Its in-memory history is on by default, which the chat history tests use.
+- soju v0.11.1 (2026-09-24) is the bouncer M9 targets. It ships source only (signed tarballs, no checksums or binaries), so it would be built with `go install codeberg.org/emersion/soju/cmd/soju@v0.11.1`, which checks every module against Go's checksum database. Not yet automated: the bouncer-networks code is tested against a scripted server.
 
 ## Rejected or flagged
 

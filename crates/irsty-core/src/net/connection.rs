@@ -31,6 +31,8 @@ pub const DEFAULT_CAPS: &[&str] = &[
     "batch",
     "cap-notify",
     "chghost",
+    "draft/chathistory",
+    "draft/read-marker",
     "echo-message",
     "extended-join",
     "invite-notify",
@@ -39,8 +41,12 @@ pub const DEFAULT_CAPS: &[&str] = &[
     "multi-prefix",
     "server-time",
     "setname",
+    "soju.im/bouncer-networks",
+    "soju.im/bouncer-networks-notify",
     "standard-replies",
     "userhost-in-names",
+    "znc.in/playback",
+    "znc.in/self-message",
 ];
 
 /// Most messages held for sending before new ones are refused.
@@ -129,6 +135,8 @@ pub struct Settings {
     pub sasl: Option<Mechanism>,
     /// TLS client certificate.
     pub client_cert: Option<ClientCertConfig>,
+    /// A bouncer network to bind to (`BOUNCER BIND`), before `CAP END`.
+    pub bouncer_bind: Option<String>,
     /// SOCKS5 proxy.
     pub proxy: Option<Proxy>,
     /// Capabilities to request when offered.
@@ -155,6 +163,7 @@ impl Settings {
             nicks,
             sasl: None,
             client_cert: None,
+            bouncer_bind: None,
             proxy: None,
             caps: DEFAULT_CAPS.iter().map(|&c| c.to_owned()).collect(),
             timeouts: Timeouts::default(),
@@ -409,6 +418,19 @@ impl<'a> Session<'a> {
 
     /// Queues a message; it is sent when the rate limit allows.
     fn enqueue(&mut self, msg: &Message) -> Result<(), String> {
+        // soju: a connection for one of its networks binds to it just before
+        // registration ends.
+        let ends_cap = msg.command.eq_ignore_ascii_case("CAP")
+            && msg
+                .params
+                .first()
+                .is_some_and(|p| p.eq_ignore_ascii_case("END"));
+        if ends_cap && let Some(netid) = &self.settings.bouncer_bind {
+            let bind = Message::new("BOUNCER").param("BIND").param(netid.as_str());
+            if let Ok(line) = bind.to_wire() {
+                self.queue.push_back(line);
+            }
+        }
         let line = msg
             .to_wire()
             .map_err(|e| format!("cannot send {}: {e}", msg.command))?;
@@ -717,7 +739,7 @@ impl<'a> Session<'a> {
 /// Whether a wire line is part of connection registration.
 fn is_registration(line: &str) -> bool {
     let command = line.split(' ').next().unwrap_or_default();
-    ["CAP", "AUTHENTICATE", "PASS", "NICK", "USER"]
+    ["CAP", "AUTHENTICATE", "PASS", "NICK", "USER", "BOUNCER"]
         .iter()
         .any(|c| command.eq_ignore_ascii_case(c))
 }

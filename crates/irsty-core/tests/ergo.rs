@@ -603,3 +603,149 @@ async fn ircv3_extensions_against_ergo() {
     .await;
     client.quit(None).await;
 }
+
+/// M9 against a real server: a client joining later gets the channel's
+/// history, without notifications, and read markers round-trip.
+#[tokio::test]
+async fn chathistory_and_read_markers_against_ergo() {
+    let Some(ergo) = ergo() else { return };
+    let channel = format!("#{}", unique("hist"));
+    let (alice, bob) = (unique("a"), unique("b"));
+    let dir = tempfile::tempdir().unwrap();
+    let net = |name: &str, nick: &str| {
+        format!(
+            r#"
+            [[network]]
+            name = "{name}"
+            nicks = ["{nick}"]
+            autojoin = ["{channel}"]
+            [[network.servers]]
+            host = "{{host}}"
+            port = {{port}}
+            tls = false
+            "#
+        )
+    };
+    // Alice talks first, alone.
+    let mut first = Client::start(
+        &config(&ergo, &net("alice", &alice), dir.path()),
+        None,
+        None,
+    );
+    until(&mut first, "alice joined", |c| {
+        network(c, "alice")
+            .channel(&channel)
+            .is_some_and(|ch| ch.joined)
+    })
+    .await;
+    let alice_id = network(&first, "alice").id;
+    for text in ["first message", &format!("{bob}: are you there?")] {
+        first.say(alice_id, &channel, text, false).unwrap();
+    }
+    until(&mut first, "echoes", |c| {
+        texts(c, "alice", Some(&channel))
+            .iter()
+            .any(|l| l.ends_with("are you there?"))
+    })
+    .await;
+    let caps = network(&first, "alice").caps.clone();
+    assert!(caps.iter().any(|c| c == "draft/chathistory"), "{caps:?}");
+
+    // Bob joins later and gets the history, without being notified.
+    let mut second = Client::start(&config(&ergo, &net("bob", &bob), dir.path()), None, None);
+    until(&mut second, "bob sees the history", |c| {
+        texts(c, "bob", Some(&channel))
+            .iter()
+            .any(|l| l == "first message")
+    })
+    .await;
+    assert!(
+        second.take_notifications().is_empty(),
+        "history doesn't notify"
+    );
+
+    // Reading marks it on the server; Ergo echoes the marker back.
+    let buffer = network(&second, "bob").channel(&channel).unwrap().buffer;
+    second.mark_read(buffer);
+    until(&mut second, "read marker", |c| {
+        c.state().buffer(buffer).unwrap().read_marker.is_some()
+    })
+    .await;
+    first.quit(None).await;
+    second.quit(None).await;
+}
+
+/// Paging back: with two messages at a time, older history arrives on top in
+/// order, until the server has no more.
+#[tokio::test]
+async fn older_history_against_ergo() {
+    let Some(ergo) = ergo() else { return };
+    let channel = format!("#{}", unique("old"));
+    let (alice, bob) = (unique("a"), unique("b"));
+    let dir = tempfile::tempdir().unwrap();
+    let net = |name: &str, nick: &str| {
+        format!(
+            "[history]\nlines = 2\n[[network]]\nname = \"{name}\"\nnicks = [\"{nick}\"]\nautojoin = [\"{channel}\"]\n[[network.servers]]\nhost = \"{{host}}\"\nport = {{port}}\ntls = false\n"
+        )
+    };
+    let mut first = Client::start(
+        &config(&ergo, &net("alice", &alice), dir.path()),
+        None,
+        None,
+    );
+    until(&mut first, "alice joined", |c| {
+        network(c, "alice")
+            .channel(&channel)
+            .is_some_and(|ch| ch.joined)
+    })
+    .await;
+    let alice_id = network(&first, "alice").id;
+    for n in 1..=6 {
+        first
+            .say(alice_id, &channel, &format!("message {n}"), false)
+            .unwrap();
+    }
+    // Our own lines show at once as pending; wait until the server has the
+    // last one (the rate limiter sends them a couple of seconds apart).
+    until(&mut first, "all delivered", |c| {
+        let ch = network(c, "alice").channel(&channel).unwrap();
+        c.state()
+            .buffer(ch.buffer)
+            .unwrap()
+            .lines()
+            .iter()
+            .any(|l| l.raw == "message 6" && l.delivery == irsty_core::state::Delivery::Delivered)
+    })
+    .await;
+
+    let mut second = Client::start(&config(&ergo, &net("bob", &bob), dir.path()), None, None);
+    let said = |c: &Client| -> Vec<String> {
+        texts(c, "bob", Some(&channel))
+            .into_iter()
+            .filter(|l| l.starts_with("message "))
+            .collect()
+    };
+    // Ergo counts its HistServ join lines towards the limit, so page back
+    // until all six messages are here, then check their order.
+    until(&mut second, "some history", |c| !said(c).is_empty()).await;
+    let buffer = network(&second, "bob").channel(&channel).unwrap().buffer;
+    let all: Vec<String> = (1..=6).map(|n| format!("message {n}")).collect();
+    for _ in 0..20 {
+        if said(&second) == all {
+            break;
+        }
+        second.request_older(buffer);
+        until(&mut second, "a page of history", |c| {
+            !c.state().buffer(buffer).unwrap().history_pending
+        })
+        .await;
+    }
+    assert_eq!(
+        said(&second),
+        all,
+        "every message, oldest first: {:?}",
+        texts(&second, "bob", Some(&channel))
+    );
+    first.quit(None).await;
+    second.quit(None).await;
+}

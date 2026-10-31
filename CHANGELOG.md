@@ -25,6 +25,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- M9, history and bouncers:
+  - Chat history (`draft/chathistory`): recent messages on joining, what you missed after a reconnect, private conversations you missed, and older messages when you scroll back past the top. History never notifies or answers CTCP, isn't shown twice, and appears in time order.
+  - Read markers shared with your other clients (`draft/read-marker`).
+  - soju's networks open as networks of their own (`soju.im/bouncer-networks`), bound with `BOUNCER BIND`.
+  - ZNC playback of only what you missed (`znc.in/playback`).
+  - `[history] lines` (default 100; 0 turns it off) and a per-network `bouncer_networks` switch.
 - M8:
   - Formatting keys: irssi's Ctrl+B, Ctrl+C, Ctrl+], Ctrl+_, Ctrl+^, Ctrl+V and Ctrl+O, or WeeChat's Ctrl+C then a letter. Codes show as reversed letters in the input.
   - Nick colours can be turned off or overridden per nick; highlighted lines show the nick dark on yellow.

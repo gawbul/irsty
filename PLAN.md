@@ -117,7 +117,7 @@ Every milestone ends with the full gate passing locally and in CI: `fmt --check`
 
 ### Phase 3: modern and bouncer
 
-- **M9.** chathistory, read-marker, soju bouncer-networks, ZNC playback. *Accept:* tested against soju in Docker.
+- **M9.** chathistory, read-marker, soju bouncer-networks, ZNC playback. *Accept:* tested against soju in Docker. *(Code complete 2026-10-31. Chat history and read markers are tested against Ergo, which implements them; bouncer-networks and ZNC playback against scripted servers. The run against a real soju is still to do: building soju locally needs your go-ahead.)*
 - **M10.** typing, reply, react, multiline.
 - **M11.** Search (SQLite index), jump-to-unread, split windows and layouts.
 - **M12.** Themes, colour fallback, NO_COLOR, `/reload`, `--check-config`, `--print-default-config`.
