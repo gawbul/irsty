@@ -116,7 +116,7 @@ const LIGHT_NICKS: [Color; 12] = [
 ];
 
 /// The theme presets.
-pub const PRESETS: &[&str] = &["dark", "light"];
+pub const PRESETS: &[&str] = &["dark", "light", "high-contrast"];
 
 /// Every element a theme can style, with what it is, in `[theme]` order.
 pub const ELEMENTS: &[(&str, &str)] = &[
@@ -128,6 +128,7 @@ pub const ELEMENTS: &[(&str, &str)] = &[
         "dim",
         "timestamps, separators, and joins, parts and other events",
     ),
+    ("pending", "your messages until the server confirms them"),
     ("error", "errors"),
     ("highlight", "the nick on a line that mentions you"),
     ("selected", "the current buffer in the buffer list"),
@@ -160,6 +161,7 @@ pub const ELEMENTS: &[(&str, &str)] = &[
 pub struct Theme {
     pub bar: Style,
     pub dim: Style,
+    pub pending: Style,
     pub error: Style,
     pub highlight: Style,
     pub selected: Style,
@@ -179,6 +181,9 @@ pub struct Theme {
     pub activity_highlight: Style,
     /// Colours for nicks, by a hash of the nick.
     pub nicks: Vec<Color>,
+    /// `[ui] accessible`: draw in ASCII, and put text beside anything shown
+    /// only by colour or style.
+    pub accessible: bool,
 }
 
 impl Default for Theme {
@@ -197,6 +202,7 @@ impl Theme {
         Self {
             bar: fg(Color::White).bg(Color::Blue),
             dim: fg(Color::DarkGray),
+            pending: fg(Color::DarkGray),
             error: fg(Color::LightRed),
             highlight: fg(Color::Black).bg(Color::Yellow),
             selected: fg(Color::Black).bg(Color::Cyan),
@@ -215,6 +221,7 @@ impl Theme {
             activity_messages: fg(Color::LightYellow),
             activity_highlight: fg(Color::LightMagenta).add_modifier(Modifier::BOLD),
             nicks: DARK_NICKS.to_vec(),
+            accessible: false,
         }
     }
 
@@ -239,13 +246,50 @@ impl Theme {
         }
     }
 
+    /// For any background, and for low vision: no grey and no colour that
+    /// carries meaning alone. Bold, italic and reverse video do the work, on
+    /// the terminal's own background and foreground.
+    pub fn high_contrast() -> Self {
+        let plain = Style::default();
+        let bold = plain.add_modifier(Modifier::BOLD);
+        let reversed = plain.add_modifier(Modifier::REVERSED);
+        let loud = reversed.add_modifier(Modifier::BOLD);
+        Self {
+            bar: reversed,
+            dim: plain,
+            pending: plain.add_modifier(Modifier::ITALIC),
+            error: bold.add_modifier(Modifier::UNDERLINED),
+            highlight: loud,
+            selected: reversed,
+            unread: bold,
+            join: bold,
+            part: bold,
+            notice: bold,
+            action: bold,
+            prompt: bold,
+            hint: bold,
+            nick_mode: bold,
+            warning: loud,
+            question: reversed,
+            activity_none: plain,
+            activity_events: plain,
+            activity_messages: bold,
+            activity_highlight: loud,
+            nicks: vec![Color::Reset],
+            accessible: false,
+        }
+    }
+
     /// The theme `[theme]` describes, and anything wrong with it (the parts
-    /// that are wrong are left as the preset has them).
-    pub fn from_config(config: &ThemeConfig) -> (Self, Vec<String>) {
+    /// that are wrong are left as the preset has them). Without a preset,
+    /// `accessible` picks high contrast.
+    pub fn from_config(config: &ThemeConfig, accessible: bool) -> (Self, Vec<String>) {
         let mut problems = Vec::new();
-        let mut theme = match config.preset.as_str() {
+        let fallback = if accessible { "high-contrast" } else { "dark" };
+        let mut theme = match config.preset.as_deref().unwrap_or(fallback) {
             "dark" => Self::dark(),
             "light" => Self::light(),
+            "high-contrast" => Self::high_contrast(),
             other => {
                 problems.push(format!(
                     "[theme] preset {other:?} is not one of {}",
@@ -278,6 +322,7 @@ impl Theme {
                 Err(e) => problems.push(format!("[theme] {name}: {e}")),
             }
         }
+        theme.accessible = accessible;
         (theme, problems)
     }
 
@@ -285,6 +330,7 @@ impl Theme {
         Some(match name {
             "bar" => &mut self.bar,
             "dim" => &mut self.dim,
+            "pending" => &mut self.pending,
             "error" => &mut self.error,
             "highlight" => &mut self.highlight,
             "selected" => &mut self.selected,
@@ -753,18 +799,31 @@ mod tests {
 
     #[test]
     fn themes_from_config() {
-        let (theme, problems) = Theme::from_config(&ThemeConfig::default());
+        let (theme, problems) = Theme::from_config(&ThemeConfig::default(), false);
         assert!(problems.is_empty());
         assert_eq!(theme, Theme::dark());
+        assert_eq!(
+            Theme::from_config(&ThemeConfig::default(), true).0,
+            Theme {
+                accessible: true,
+                ..Theme::high_contrast()
+            },
+            "accessible picks high contrast"
+        );
         let mut config = ThemeConfig {
-            preset: "light".into(),
+            preset: Some("light".into()),
             ..ThemeConfig::default()
         };
         config.styles.insert("bar".into(), "black on white".into());
         config.styles.insert("nicks".into(), "red #00ff00".into());
         config.styles.insert("sparkle".into(), "red".into());
         config.styles.insert("error".into(), "puce".into());
-        let (theme, problems) = Theme::from_config(&config);
+        assert_eq!(
+            Theme::from_config(&config, true).0.notice,
+            Theme::light().notice,
+            "a chosen preset wins"
+        );
+        let (theme, problems) = Theme::from_config(&config, false);
         assert_eq!(theme.bar, fg(Color::Black).bg(Color::White));
         assert_eq!(theme.nicks, [Color::Red, Color::Rgb(0, 255, 0)]);
         assert_eq!(
@@ -773,12 +832,28 @@ mod tests {
             "a bad style keeps the preset's"
         );
         assert_eq!(problems.len(), 2, "{problems:?}");
-        config.preset = "neon".into();
-        assert_eq!(Theme::from_config(&config).1.len(), 3);
+        config.preset = Some("neon".into());
+        assert_eq!(Theme::from_config(&config, false).1.len(), 3);
         // Every element can be set, and has a slot.
         let mut theme = Theme::dark();
         for (name, _) in ELEMENTS.iter().filter(|(n, _)| *n != "nicks") {
             assert!(theme.slot(name).is_some(), "{name}");
+        }
+    }
+
+    /// High contrast uses no colour of its own: only the terminal's
+    /// foreground and background, with modifiers.
+    #[test]
+    fn high_contrast_has_no_colours() {
+        let mut theme = Theme::high_contrast();
+        assert_eq!(theme.nicks, [Color::Reset]);
+        assert_ne!(
+            theme.pending, theme.dim,
+            "unconfirmed messages still stand out"
+        );
+        for (name, _) in ELEMENTS.iter().filter(|(n, _)| *n != "nicks") {
+            let style = *theme.slot(name).unwrap();
+            assert!(style.fg.is_none() && style.bg.is_none(), "{name}");
         }
     }
 

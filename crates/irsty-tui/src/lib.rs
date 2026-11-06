@@ -28,7 +28,7 @@ pub use run::run;
 /// alone doesn't check: key bindings, the theme and the saved layout.
 pub fn check_config(config: &irsty_core::Config) -> Vec<String> {
     let mut problems = keymap::Keymap::new(&config.ui.keymap, &config.keys).1;
-    problems.extend(theme::Theme::from_config(&config.theme).1);
+    problems.extend(theme::Theme::from_config(&config.theme, config.ui.accessible).1);
     if let Some(layout) = &config.ui.layout
         && let Err(error) = panes::Panes::from_spec(layout)
     {

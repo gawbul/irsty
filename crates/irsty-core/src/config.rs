@@ -402,6 +402,10 @@ fn default_timestamp() -> String {
 /// Terminal UI settings.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent settings, each its own key in [ui]"
+)]
 pub struct UiConfig {
     /// Capture the mouse (wheel scrolling, clicking buffers). Off by default so
     /// the terminal's own selection keeps working.
@@ -419,6 +423,11 @@ pub struct UiConfig {
     /// Colour nicks by a hash of their name. Defaults to true.
     #[serde(default = "default_true")]
     pub nick_colours: bool,
+    /// Accessibility: no side panels, ASCII instead of box-drawing and
+    /// symbols, text alongside anything shown only by colour, and the
+    /// high-contrast theme unless another is chosen. Defaults to false.
+    #[serde(default)]
+    pub accessible: bool,
     /// Split windows to restore at startup, as `/layout save` writes them
     /// (see `docs/KEYBINDINGS.md`). The UI checks it.
     #[serde(default)]
@@ -501,9 +510,10 @@ impl std::fmt::Display for ColourMode {
 /// element names and styles.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct ThemeConfig {
-    /// The starting point: `dark` (the default) or `light`.
-    #[serde(default = "default_preset")]
-    pub preset: String,
+    /// The starting point: `dark`, `light` or `high-contrast`. Unset, it
+    /// is `dark`, or `high-contrast` with `[ui] accessible`.
+    #[serde(default)]
+    pub preset: Option<String>,
     /// How many colours to use. Defaults to `auto`.
     #[serde(default)]
     pub colours: ColourMode,
@@ -513,14 +523,10 @@ pub struct ThemeConfig {
     pub styles: std::collections::BTreeMap<String, String>,
 }
 
-fn default_preset() -> String {
-    "dark".into()
-}
-
 impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
-            preset: default_preset(),
+            preset: None,
             colours: ColourMode::Auto,
             styles: std::collections::BTreeMap::new(),
         }
@@ -661,6 +667,7 @@ impl Default for UiConfig {
             timestamp_format: default_timestamp(),
             keymap: default_keymap(),
             nick_colours: true,
+            accessible: false,
             layout: None,
         }
     }

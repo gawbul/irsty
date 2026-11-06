@@ -49,6 +49,7 @@ pub const SETTINGS: &[(&str, SettingKind)] = &[
     ("ui.keymap", SettingKind::Text),
     ("ui.nick_colours", SettingKind::Bool),
     ("ui.layout", SettingKind::Text),
+    ("ui.accessible", SettingKind::Bool),
     ("notifications.method", SettingKind::Text),
     ("notifications.when_focused", SettingKind::Bool),
     ("notifications.show_text", SettingKind::Bool),

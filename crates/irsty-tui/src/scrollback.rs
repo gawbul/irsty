@@ -19,6 +19,17 @@ use crate::{theme, urls};
 
 /// Separator between the nick column and the text.
 const SEPARATOR: &str = " │ ";
+/// The same in ASCII, for `[ui] accessible`.
+const SEPARATOR_ASCII: &str = " | ";
+
+/// The separator for a theme.
+fn separator(theme: &Theme) -> &'static str {
+    if theme.accessible {
+        SEPARATOR_ASCII
+    } else {
+        SEPARATOR
+    }
+}
 
 /// Draws a buffer's lines.
 #[derive(Debug)]
@@ -114,6 +125,12 @@ fn gutter(line: &Line, colours: &theme::NickColours, theme: &Theme) -> (String, 
         } else {
             nick.to_owned()
         };
+        // Not by style alone: a mark anyone can see or hear.
+        let shown = if theme.accessible {
+            format!("!{shown}")
+        } else {
+            shown
+        };
         return (shown, theme.highlight);
     }
     match line.kind {
@@ -168,12 +185,12 @@ fn pieces<'a>(
 ) -> Vec<Piece<'a>> {
     let mut base = theme.line_style(line.kind);
     if matches!(line.delivery, Delivery::Pending { .. }) {
-        base = base.patch(theme.dim);
+        base = base.patch(theme.pending);
     }
     let mut out = Vec::new();
     if let Some(reply) = &line.reply {
         let dim = theme.dim;
-        out.push(("↪ ", dim));
+        out.push((if theme.accessible { "re: " } else { "↪ " }, dim));
         match &reply.parent {
             Some((nick, excerpt)) => {
                 out.push((nick.as_str(), dim.fg(colours.colour(nick))));
@@ -201,6 +218,9 @@ fn pieces<'a>(
             .iter()
             .map(|s| (s.text(), base.patch(theme::span_style(s.style())))),
     );
+    if theme.accessible && matches!(line.delivery, Delivery::Pending { .. }) {
+        out.push((" (sending)", base));
+    }
     if let Delivery::Failed { reason } = &line.delivery {
         let red = theme.error;
         out.extend([(" [not sent: ", red), (reason.as_str(), red), ("]", red)]);
@@ -310,7 +330,8 @@ impl Widget for Scrollback<'_> {
             text: text_width,
         } = self.geometry(area);
         let full = usize::from(area.width);
-        let gutter_width = time_width + 1 + nick_width + SEPARATOR.width();
+        let sep = separator(self.theme);
+        let gutter_width = time_width + 1 + nick_width + sep.width();
         let text_x = area.x + u16::try_from(gutter_width.min(full)).unwrap_or(area.width);
         let max_x = area.right();
         // A separator only between read and unread lines: with nothing
@@ -340,17 +361,13 @@ impl Widget for Scrollback<'_> {
                 if index > 0 {
                     // Continuation rows keep the separator, so the text column
                     // reads as one block.
-                    let sep_x =
-                        text_x.saturating_sub(u16::try_from(SEPARATOR.width()).unwrap_or(0));
-                    draw_pieces(cells, sep_x, y, max_x, &[(SEPARATOR, self.theme.dim)]);
+                    let sep_x = text_x.saturating_sub(u16::try_from(sep.width()).unwrap_or(0));
+                    draw_pieces(cells, sep_x, y, max_x, &[(sep, self.theme.dim)]);
                 } else if line.continued {
                     // The rest of a multi-line message: one block, under
                     // the first line's time and nick.
                     let blank = " ".repeat(time_width + 1 + nick_width);
-                    let gutter_pieces = [
-                        (blank.as_str(), Style::default()),
-                        (SEPARATOR, self.theme.dim),
-                    ];
+                    let gutter_pieces = [(blank.as_str(), Style::default()), (sep, self.theme.dim)];
                     draw_pieces(cells, area.x, y, max_x, &gutter_pieces);
                 } else {
                     let time = line
@@ -364,7 +381,7 @@ impl Widget for Scrollback<'_> {
                         (time.as_str(), self.theme.dim),
                         (" ", Style::default()),
                         (nick.as_str(), nick_style),
-                        (SEPARATOR, self.theme.dim),
+                        (sep, self.theme.dim),
                     ];
                     draw_pieces(cells, area.x, y, max_x, &gutter_pieces);
                 }
@@ -372,11 +389,12 @@ impl Widget for Scrollback<'_> {
             if Some(seq) == first_unread && y > area.top() {
                 y -= 1;
                 let label = " unread ";
+                let rule_char = if self.theme.accessible { "-" } else { "─" };
                 let side = full.saturating_sub(label.width()) / 2;
                 let rule = format!(
                     "{}{label}{}",
-                    "─".repeat(side),
-                    "─".repeat(full.saturating_sub(side + label.width()))
+                    rule_char.repeat(side),
+                    rule_char.repeat(full.saturating_sub(side + label.width()))
                 );
                 draw_pieces(
                     cells,

@@ -311,7 +311,8 @@ impl Ui {
         self.time_format.clone_from(&config.ui.timestamp_format);
         let (keymap, mut problems) = Keymap::new(&config.ui.keymap, &config.keys);
         self.keymap = keymap;
-        let (theme, theme_problems) = crate::theme::Theme::from_config(&config.theme);
+        let (theme, theme_problems) =
+            crate::theme::Theme::from_config(&config.theme, config.ui.accessible);
         problems.extend(theme_problems);
         self.nick_colours = crate::theme::NickColours::new(
             config.ui.nick_colours,

@@ -371,3 +371,53 @@ fn no_colour_and_sixteen_colours() {
             && !matches!(c.bg, Color::Rgb(..) | Color::Indexed(16..))
     }));
 }
+
+/// Accessible mode: no side panels, ASCII instead of box drawing, and text
+/// beside what was shown only by style (a mention, a message still being
+/// sent, the focused pane, a highlight in the activity list).
+#[test]
+fn accessible_mode() {
+    let mut s = state();
+    s.apply(
+        NET,
+        NetEvent::Caps {
+            enabled: vec!["echo-message".into()],
+            values: Vec::new(),
+        },
+    );
+    let channel = s.find_buffer(NET, "#irsty").unwrap();
+    s.mark_read(channel);
+    let mut ui = ui(&s, "#irsty");
+    ui.theme =
+        irsty_tui::theme::Theme::from_config(&irsty_core::config::ThemeConfig::default(), true).0;
+    render(&s, &mut ui, 80, 16);
+    ui.marker = None;
+    for line in [
+        "@time=2026-10-30T09:11:00Z :alice!a@host PRIVMSG #irsty :gawbul: lunch?",
+        "@+typing=active :eve!e@host TAGMSG #irsty",
+    ] {
+        s.apply(NET, NetEvent::Message(Message::parse(line).unwrap()));
+    }
+    s.own_message(
+        NET,
+        "#irsty",
+        irsty_core::state::LineKind::Message,
+        "on my way",
+    );
+    assert!(ui.split(irsty_tui::panes::Direction::Stacked));
+    ui.switch(s.find_buffer(NET, "frank").unwrap());
+    ui.now = fixed_clock() + jiff::SignedDuration::from_secs(2);
+    ui.focus_pane(0);
+    let terminal = render(&s, &mut ui, 80, 16);
+    let text: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect();
+    for symbol in ["│", "─", "↪", "…"] {
+        assert!(!text.contains(symbol), "{symbol} drawn in accessible mode");
+    }
+    insta::assert_snapshot!(terminal.backend());
+}

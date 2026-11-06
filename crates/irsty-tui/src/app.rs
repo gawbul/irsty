@@ -1769,7 +1769,12 @@ fn setting_value(config: &Config, key: &str) -> Option<String> {
         "typing.send" => config.typing.send.to_string(),
         "typing.show" => config.typing.show.to_string(),
         "search.enabled" => config.search.enabled.to_string(),
-        "theme.preset" => config.theme.preset.clone(),
+        "theme.preset" => config
+            .theme
+            .preset
+            .clone()
+            .unwrap_or_else(|| "(default)".into()),
+        "ui.accessible" => config.ui.accessible.to_string(),
         "theme.colours" => config.theme.colours.to_string(),
         _ => return None,
     })
