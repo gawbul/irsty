@@ -71,13 +71,15 @@ pub fn render(frame: &mut Frame<'_>, state: &State, ui: &mut Ui) {
     if let (Some(channel), Some(net)) = (channel, network)
         && nick_width > 0
     {
-        render_nicks(frame, nicks, channel, net, &ui.nick_colours);
+        render_nicks(frame, nicks, channel, net, ui);
     }
     render_status(frame, status, state, ui);
     render_input(frame, input, state, ui);
     if ui.switcher.is_some() {
         render_switcher(frame, middle, state, ui);
     }
+    // Fit every colour to what the terminal shows (NO_COLOR included).
+    ui.depth.apply(frame.buffer_mut());
 }
 
 /// The split panes, each with its scrollback; with more than one, each has a
@@ -106,7 +108,7 @@ fn render_panes(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &mut Ui) {
         if rect.x > area.x && rect.width > 1 {
             let rule = Rect { width: 1, ..rect };
             let bar = vec![Line::from("│"); usize::from(rule.height)];
-            frame.render_widget(Paragraph::new(bar).style(theme::dim()), rule);
+            frame.render_widget(Paragraph::new(bar).style(ui.theme.dim), rule);
             rect.x += 1;
             rect.width -= 1;
         }
@@ -117,9 +119,9 @@ fn render_panes(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &mut Ui) {
             rect.height -= 1;
             let name = pane_title(state, ui, &order, pane, buffer);
             let style = if pane == focus {
-                theme::bar().add_modifier(Modifier::BOLD)
+                ui.theme.bar.add_modifier(Modifier::BOLD)
             } else {
-                theme::dim().add_modifier(Modifier::REVERSED)
+                ui.theme.dim.add_modifier(Modifier::REVERSED)
             };
             frame.render_widget(Paragraph::new(name).style(style), title_area);
         }
@@ -142,6 +144,7 @@ fn render_panes(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &mut Ui) {
             tz: &ui.tz,
             nick_width: NICK_COLUMN,
             colours: &ui.nick_colours,
+            theme: &ui.theme,
             marker,
         };
         let mut jumped = None;
@@ -212,20 +215,20 @@ fn render_switcher(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
     frame.render_widget(ratatui::widgets::Clear, popup);
     let block = ratatui::widgets::Block::bordered()
         .title(" Go to buffer (Enter, Esc) ")
-        .border_style(Style::default().fg(Color::Cyan));
+        .border_style(ui.theme.prompt);
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
     let mut lines = vec![Line::from(vec![
-        Span::styled("> ", Style::default().fg(Color::Cyan)),
+        Span::styled("> ", ui.theme.prompt),
         Span::raw(sanitise_identifier(&switcher.query)),
     ])];
     let visible = usize::from(inner.height.saturating_sub(1));
     let skip = (switcher.selected + 1).saturating_sub(visible);
     for (row, (number, id, label)) in matches.iter().enumerate().skip(skip).take(visible) {
         let activity = state.buffer(*id).map(|b| b.activity).unwrap_or_default();
-        let mut style = theme::activity(activity);
+        let mut style = ui.theme.activity(activity);
         if row == switcher.selected {
-            style = theme::selected();
+            style = ui.theme.selected;
         }
         lines.push(Line::from(Span::styled(
             format!("{number:>3}. {}", sanitise_identifier(label)),
@@ -233,7 +236,7 @@ fn render_switcher(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
         )));
     }
     if matches.is_empty() {
-        lines.push(Line::from(Span::styled("No match", theme::dim())));
+        lines.push(Line::from(Span::styled("No match", ui.theme.dim)));
     }
     frame.render_widget(Paragraph::new(lines), inner);
     let cursor = u16::try_from(2 + switcher.query.width()).unwrap_or(0);
@@ -271,7 +274,7 @@ fn render_topic(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
         ))),
         _ => spans.push(Span::raw("Irsty")),
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)).style(theme::bar()), area);
+    frame.render_widget(Paragraph::new(Line::from(spans)).style(ui.theme.bar), area);
 }
 
 fn status_text(net: &Network) -> &'static str {
@@ -312,11 +315,13 @@ fn render_buffer_list(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &mut
             };
             let label = truncate(&label, width);
             let style = if Some(id) == ui.active {
-                theme::selected()
+                ui.theme.selected
             } else if buffer.kind == BufferKind::Server {
-                theme::activity(buffer.activity).add_modifier(Modifier::BOLD)
+                ui.theme
+                    .activity(buffer.activity)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                theme::activity(buffer.activity)
+                ui.theme.activity(buffer.activity)
             };
             Some(Line::from(Span::styled(format!("{label:<width$}"), style)))
         })
@@ -325,7 +330,7 @@ fn render_buffer_list(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &mut
     // A divider down the right-hand edge.
     let divider = Rect::new(area.right().saturating_sub(1), area.y, 1, area.height);
     let bar: Vec<Line<'_>> = (0..area.height).map(|_| Line::from("│")).collect();
-    frame.render_widget(Paragraph::new(bar).style(theme::dim()), divider);
+    frame.render_widget(Paragraph::new(bar).style(ui.theme.dim), divider);
 }
 
 /// What to show before there is any network: how to add one, then the
@@ -340,18 +345,18 @@ fn first_run(ui: &Ui) -> Paragraph<'static> {
         Line::from("No networks yet. Add one, for example:"),
         Line::from(Span::styled(
             "  /server add libera irc.libera.chat -nick yournick -autojoin #irsty",
-            Style::default().fg(Color::LightCyan),
+            ui.theme.hint,
         )),
         Line::from(Span::styled(
             "  /help server for every option, /help for all commands.",
-            theme::dim(),
+            ui.theme.dim,
         )),
         Line::from(""),
     ];
     lines.extend(ui.status.iter().map(|(kind, text)| {
         Line::from(Span::styled(
             irsty_proto::format::StyledText::plain(text).to_plain(),
-            theme::line_style(*kind),
+            ui.theme.line_style(*kind),
         ))
     }));
     Paragraph::new(lines).wrap(Wrap { trim: false })
@@ -362,8 +367,9 @@ fn render_nicks(
     area: Rect,
     channel: &irsty_core::state::Channel,
     net: &Network,
-    colours: &theme::NickColours,
+    ui: &Ui,
 ) {
+    let colours = &ui.nick_colours;
     let mapping: CaseMapping = net.isupport.casemapping;
     let mut members: Vec<_> = channel.members().collect();
     members.sort_by_cached_key(|m| {
@@ -395,13 +401,13 @@ fn render_nicks(
             let nick = sanitise_identifier(&m.nick);
             // Away users (away-notify) are dimmed.
             let style = if net.user(&m.nick).is_some_and(|u| u.away.is_some()) {
-                theme::dim()
+                ui.theme.dim
             } else {
                 Style::default().fg(colours.colour(&nick))
             };
             Line::from(vec![
                 Span::raw(" "),
-                Span::styled(symbol, Style::default().fg(Color::LightGreen)),
+                Span::styled(symbol, ui.theme.nick_mode),
                 Span::styled(truncate(&nick, width.saturating_sub(2)), style),
             ])
         })
@@ -409,7 +415,7 @@ fn render_nicks(
     if overflow {
         lines.push(Line::from(Span::styled(
             format!(" +{} more", members.len() - shown),
-            theme::dim(),
+            ui.theme.dim,
         )));
     }
     frame.render_widget(Paragraph::new(lines), area);
@@ -449,7 +455,9 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
         .map(|(i, a)| {
             (
                 i,
-                theme::activity(a).bg(theme::bar().bg.unwrap_or(Color::Reset)),
+                ui.theme
+                    .activity(a)
+                    .bg(ui.theme.bar.bg.unwrap_or(Color::Reset)),
             )
         })
         .collect();
@@ -472,13 +480,7 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
             spans.push(Span::raw(format!("[{}] ", status_text(net))));
         }
         if net.insecure {
-            spans.push(Span::styled(
-                "[INSECURE TLS] ",
-                Style::default()
-                    .fg(Color::White)
-                    .bg(Color::Red)
-                    .add_modifier(Modifier::BOLD),
-            ));
+            spans.push(Span::styled("[INSECURE TLS] ", ui.theme.warning));
         }
     }
     if ui.offset() > 0 {
@@ -498,7 +500,7 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
             Style::default().add_modifier(Modifier::ITALIC),
         ));
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)).style(theme::bar()), area);
+    frame.render_widget(Paragraph::new(Line::from(spans)).style(ui.theme.bar), area);
 }
 
 /// Who is typing in a buffer, as the status bar says it.
@@ -531,20 +533,14 @@ fn render_input(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
             "Paste {} lines to {target}? Enter sends them {how}, J joins them into one line, Esc cancels",
             lines.len()
         );
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                text,
-                Style::default().fg(Color::Black).bg(Color::Yellow),
-            )),
-            area,
-        );
+        frame.render_widget(Paragraph::new(Span::styled(text, ui.theme.question)), area);
         return;
     }
     if let Some(digits) = &ui.jump {
         frame.render_widget(
             Paragraph::new(Span::styled(
                 format!("Jump to buffer: {digits}_"),
-                Style::default().fg(Color::Cyan),
+                ui.theme.prompt,
             )),
             area,
         );
@@ -562,7 +558,7 @@ fn render_input(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
     // reach the terminal raw: each shows as its letter in reverse video, as in
     // irssi, and other control characters as a dot. Each takes one cell, so
     // the cursor stays put.
-    let mut spans = vec![Span::styled(prompt, Style::default().fg(Color::Cyan))];
+    let mut spans = vec![Span::styled(prompt, ui.theme.prompt)];
     let mut plain = String::new();
     for c in visible.chars() {
         let marker = match c {

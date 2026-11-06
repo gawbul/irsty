@@ -11,6 +11,10 @@ A relative `XDG_CONFIG_HOME` is ignored, as the XDG spec requires. Logs and othe
 
 Use `irsty --config <PATH>` to read another file. Unknown keys are errors, so typos never pass silently. Error messages give a line and column but never quote the file, which may contain secrets.
 
+- `irsty --print-default-config` prints a file with every setting at its default and a commented example network, a good start: `irsty --print-default-config > ~/.config/irsty/config.toml`.
+- `irsty --check-config` checks a file without starting: errors (anything Irsty would refuse, or skip, such as an unknown key binding or theme element) exit with status 1, and plaintext secrets are warnings.
+- `/reload` reads the file again after you edit it and applies it: settings, keys, theme and highlights at once; networks by name (new ones are added, changed ones reconnect, ones no longer there are closed). Logging, `ui.mouse` and `[search]` changes wait for a restart. A file that doesn't parse changes nothing.
+
 ## A complete example
 
 ```toml
@@ -160,13 +164,52 @@ Lines that mention your nick or a highlight word show the sender's nick dark on 
 
 ## `[nick_colours]`
 
-Colours for particular nicks, by name: `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `gray`, `dark_gray`, `light_red`, `light_green`, `light_yellow`, `light_blue`, `light_magenta`, `light_cyan`, `white`. Nicks match without regard to case.
+Colours for particular nicks. Nicks match without regard to case. A colour is written as in `[theme]`: a name (`black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `gray`, `dark_gray`, `light_red`, `light_green`, `light_yellow`, `light_blue`, `light_magenta`, `light_cyan`, `white`, or `default`), `#rrggbb`, or `colour0` to `colour255` from the 256-colour palette.
 
 ```toml
 [nick_colours]
 gawbul = "light_cyan"
 ChanServ = "dark_gray"
+alice = "#ff8000"
 ```
+
+## `[theme]`
+
+Colours and styles. Start from a preset, then restyle any element.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `preset` | `"dark"` or `"light"` | `"dark"` | `light` avoids light colours that vanish on a white background. |
+| `colours` | `"auto"`, `"truecolor"`, `"256"`, `"16"` or `"none"` | `"auto"` | How many colours the terminal shows. Every colour on screen (IRC colours included) is fitted to it: 24-bit colours become the nearest of the 256-colour palette or of the 16 basic colours. With `none`, colours are dropped and anything that had a background (bars, the selected buffer, highlights) is shown in reverse video. `auto` uses `none` if `NO_COLOR` is set (and not empty), truecolor if `COLORTERM` is `truecolor` or `24bit`, 256 colours if `TERM` mentions `256color`, and 16 otherwise (`none` for `TERM=dumb`). Any other value overrides `NO_COLOR`, as the [convention](https://no-color.org) allows. |
+
+A style is words: modifiers (`bold`, `dim`, `italic`, `underline`, `reversed`, `crossed`), a colour, and `on` a background colour, for example `"bold white on blue"` or `"#ff8000 on colour236"`. Colours are written as in `[nick_colours]`; `default` is the terminal's own.
+
+| Element | What it styles | Dark preset |
+|---|---|---|
+| `bar` | The topic and status bars, and the focused pane's title | `white on blue` |
+| `dim` | Timestamps, separators, and joins, parts and other events | `dark_gray` |
+| `error` | Errors | `light_red` |
+| `highlight` | The nick on a line that mentions you | `black on yellow` |
+| `selected` | The current buffer in the buffer list | `black on cyan` |
+| `unread` | The rule above the first unread line | `light_red` |
+| `join`, `part` | The `-->` of a join; the `<--` of a part, kick or quit | `light_green`; `light_red` |
+| `notice`, `action` | The `-nick-` of a notice; the `*` of an action | `light_magenta`; `bold` |
+| `prompt` | The input prompt and the buffer switcher | `cyan` |
+| `hint` | Examples on the welcome screen | `light_cyan` |
+| `nick_mode` | `@` and `+` in the nick list | `light_green` |
+| `warning` | The `INSECURE TLS` warning | `bold white on red` |
+| `question` | Questions such as the paste prompt | `black on yellow` |
+| `activity_none`, `activity_events`, `activity_messages`, `activity_highlight` | Buffers in the list by what is new in them | `gray`, `white`, `light_yellow`, `bold light_magenta` |
+| `nicks` | The colours nicks are given, space-separated | `cyan magenta green yellow light_blue light_red light_cyan light_magenta light_green light_yellow blue red` |
+
+```toml
+[theme]
+preset = "light"
+bar = "black on colour252"
+nicks = "blue magenta green red #8b4513"
+```
+
+An unknown element or a style that doesn't parse is reported at startup (and by `--check-config` and `/reload`) and skipped. `/set theme.preset` and `/set theme.colours` change those two from inside Irsty; edit the file and `/reload` for the rest.
 
 ## `[notifications]`
 

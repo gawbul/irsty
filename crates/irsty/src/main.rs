@@ -3,6 +3,8 @@
 
 mod headless;
 
+use std::fmt::Write as _;
+use std::io::Write as _;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -22,11 +24,26 @@ struct Cli {
     /// Run without the terminal UI, printing every buffer's new lines to stdout
     #[arg(long)]
     headless: bool,
+
+    /// Check the configuration file, report any problems, and exit (status 1
+    /// if there are any)
+    #[arg(long, conflicts_with_all = ["headless", "print_default_config"])]
+    check_config: bool,
+
+    /// Print a configuration file with every setting at its default, and exit
+    #[arg(long, conflicts_with = "headless")]
+    print_default_config: bool,
 }
 
 fn main() -> Result<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
+    if cli.print_default_config {
+        std::io::stdout()
+            .lock()
+            .write_all(irsty_core::config::DEFAULT_CONFIG.as_bytes())?;
+        return Ok(());
+    }
     let paths = Paths::platform();
 
     let config_path = cli
@@ -34,6 +51,11 @@ fn main() -> Result<()> {
         .or_else(|| paths.as_ref().map(Paths::config_file))
         .ok_or_else(|| eyre!("cannot determine the configuration directory; pass --config"))?;
     // A missing file is fine: the UI starts empty and /server add creates it.
+    if cli.check_config {
+        let (report, ok) = check(&config_path);
+        std::io::stdout().lock().write_all(report.as_bytes())?;
+        std::process::exit(i32::from(!ok));
+    }
     let (file, config) = ConfigFile::open(&config_path)
         .wrap_err("see docs/CONFIG.md for the configuration format")?;
 
@@ -58,6 +80,46 @@ fn main() -> Result<()> {
         irsty_tui::run(client, config, Some(file)).await
     })?;
     Ok(())
+}
+
+/// `--check-config`: a report on the file, and whether it is fine.
+/// Plaintext secrets are warnings; anything Irsty would refuse or skip is
+/// an error.
+fn check(path: &std::path::Path) -> (String, bool) {
+    if !path.exists() {
+        return (
+            format!(
+                "{} doesn't exist; Irsty would start with no networks (see --print-default-config)\n",
+                path.display()
+            ),
+            true,
+        );
+    }
+    let config = match ConfigFile::open(path) {
+        Ok((_, config)) => config,
+        Err(error) => return (format!("error: {error}\n"), false),
+    };
+    let mut report = String::new();
+    let problems = irsty_tui::check_config(&config);
+    for problem in &problems {
+        let _ = writeln!(report, "error: {problem}");
+    }
+    for warning in config.plaintext_secrets() {
+        let _ = writeln!(
+            report,
+            "warning: plaintext secret ({warning}); prefer keyring or command"
+        );
+    }
+    if problems.is_empty() {
+        let networks = config.networks.len();
+        let _ = writeln!(
+            report,
+            "{} is fine: {networks} network{}",
+            path.display(),
+            if networks == 1 { "" } else { "s" }
+        );
+    }
+    (report, problems.is_empty())
 }
 
 /// Sends tracing output to `<data dir>/irsty.log`, never to the terminal.
@@ -88,6 +150,42 @@ mod tests {
     #[test]
     fn cli_definition_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn checks_config_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let (report, ok) = super::check(&path);
+        assert!(ok && report.contains("doesn't exist"), "{report}");
+
+        std::fs::write(&path, irsty_core::config::DEFAULT_CONFIG).unwrap();
+        let (report, ok) = super::check(&path);
+        assert!(ok && report.contains("is fine: 0 networks"), "{report}");
+
+        std::fs::write(
+            &path,
+            "[keys]\n\"ctrl-q\" = \"fly\"\n[theme]\nbar = \"puce\"\n[ui]\nlayout = \"v(\"\n",
+        )
+        .unwrap();
+        let (report, ok) = super::check(&path);
+        assert!(!ok);
+        assert_eq!(report.matches("error:").count(), 3, "{report}");
+
+        std::fs::write(&path, "scrollback = \"lots\"\n").unwrap();
+        let (report, ok) = super::check(&path);
+        assert!(!ok && report.starts_with("error:"), "{report}");
+
+        std::fs::write(
+            &path,
+            "[[network]]\nname = \"n\"\nnicks = [\"me\"]\n[[network.servers]]\nhost = \"h\"\npassword = { plain = \"x\" }\n",
+        )
+        .unwrap();
+        let (report, ok) = super::check(&path);
+        assert!(
+            ok && report.contains("warning: plaintext secret"),
+            "{report}"
+        );
     }
 
     #[test]

@@ -59,6 +59,8 @@ pub const SETTINGS: &[(&str, SettingKind)] = &[
     ("typing.send", SettingKind::Bool),
     ("typing.show", SettingKind::Bool),
     ("search.enabled", SettingKind::Bool),
+    ("theme.preset", SettingKind::Text),
+    ("theme.colours", SettingKind::Text),
 ];
 
 /// The type of a setting.

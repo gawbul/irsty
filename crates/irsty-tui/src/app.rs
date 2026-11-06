@@ -17,7 +17,7 @@ use ratatui::layout::Position;
 
 use crate::command::{self, Command, LayoutCommand, ServerCommand, Window};
 use crate::complete;
-use crate::keymap::{Action, Chord, Format, Keymap};
+use crate::keymap::{Action, Chord, Format};
 use crate::panes::{Direction, MAX_PANES};
 use crate::ui::{Completion, Switcher, Ui};
 
@@ -515,11 +515,7 @@ fn save(
         .ok_or("There is no config file to change")?;
     let config = change(file).map_err(|e| e.to_string())?;
     client.apply_config(&config);
-    ui.show_nicklist = config.ui.nicklist;
-    ui.time_format.clone_from(&config.ui.timestamp_format);
-    ui.keymap = Keymap::new(&config.ui.keymap, &config.keys).0;
-    ui.nick_colours = crate::theme::NickColours::new(config.ui.nick_colours, &config.nick_colours);
-    ui.config = config.clone();
+    ui.apply_config(&config);
     Ok(config)
 }
 
@@ -883,6 +879,7 @@ fn run(cmd: Command, client: &mut Client, ui: &mut Ui) -> Outcome {
             };
             client.search(buffer, query)?;
         }
+        Command::Reload => reload(client, ui)?,
         Command::Layout(layout) => match layout {
             LayoutCommand::Show => {
                 let now = ui.layout_spec(client.state());
@@ -1403,6 +1400,83 @@ fn run_set(
     Ok(())
 }
 
+/// `/reload`: reads the config file again and applies it. A file that
+/// doesn't parse changes nothing. Networks are matched by name: new ones are
+/// added (and connect if they autoconnect), changed ones reconnect with their
+/// new settings, and ones no longer in the file are closed.
+fn reload(client: &mut Client, ui: &mut Ui) -> Result<(), String> {
+    let path = ui
+        .config_file
+        .as_ref()
+        .map(|f| f.path().to_owned())
+        .ok_or("There is no config file to reload")?;
+    let (file, config) = ConfigFile::open(&path).map_err(|e| format!("Not reloaded: {e}"))?;
+    let old = std::mem::replace(&mut ui.config, config.clone());
+    let (mut added, mut changed, mut removed) = (0, 0, 0);
+    for net in &config.networks {
+        match old.networks.iter().find(|o| o.name == net.name) {
+            None => {
+                client.add_network(net);
+                added += 1;
+            }
+            Some(before) if before != net => {
+                if let Some(id) = network_named(client, &net.name) {
+                    client.update_network(id, net);
+                    changed += 1;
+                }
+            }
+            Some(_) => {}
+        }
+    }
+    for before in &old.networks {
+        if !config.networks.iter().any(|n| n.name == before.name)
+            && let Some(id) = network_named(client, &before.name)
+        {
+            client.remove_network(id, Some("Removed from the config"));
+            removed += 1;
+        }
+    }
+    client.apply_config(&config);
+    let problems = ui.apply_config(&config);
+    ui.config_file = Some(file);
+    let mut layout_problem = None;
+    if config.ui.layout != old.ui.layout
+        && let Some(spec) = &config.ui.layout
+        && let Err(error) = ui.apply_layout(spec, client.state())
+    {
+        layout_problem = Some(format!("ui.layout: {error}"));
+    }
+    let mut summary = format!("Reloaded {}", path.display());
+    if added + changed + removed > 0 {
+        let _ = write!(
+            summary,
+            ": networks {added} added, {changed} changed (reconnecting), {removed} removed"
+        );
+    }
+    let restart: Vec<&str> = [
+        ("logging", old.logging != config.logging),
+        ("ui.mouse", old.ui.mouse != config.ui.mouse),
+        ("search", old.search != config.search),
+    ]
+    .into_iter()
+    .filter_map(|(name, differs)| differs.then_some(name))
+    .collect();
+    if !restart.is_empty() {
+        let _ = write!(
+            summary,
+            "; {} take effect when Irsty restarts",
+            restart.join(", ")
+        );
+    }
+    // Feedback goes where the user is, which may have closed with a network.
+    ui.on_update(client.state());
+    feedback(client, ui, LineKind::Info, &summary);
+    for problem in problems.into_iter().chain(layout_problem) {
+        feedback(client, ui, LineKind::Error, &problem);
+    }
+    Ok(())
+}
+
 /// A setting's value as `/set` shows it, for every key in [`SETTINGS`].
 fn setting_value(config: &Config, key: &str) -> Option<String> {
     Some(match key {
@@ -1434,6 +1508,8 @@ fn setting_value(config: &Config, key: &str) -> Option<String> {
         "typing.send" => config.typing.send.to_string(),
         "typing.show" => config.typing.show.to_string(),
         "search.enabled" => config.search.enabled.to_string(),
+        "theme.preset" => config.theme.preset.clone(),
+        "theme.colours" => config.theme.colours.to_string(),
         _ => return None,
     })
 }

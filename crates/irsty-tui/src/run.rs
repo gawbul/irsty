@@ -109,11 +109,8 @@ pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -
     let guard = TerminalGuard::enter(config.ui.mouse)?;
     let mut terminal = fresh_terminal()?;
     let mut ui = Ui::new(&config.ui, client.state());
-    let (keymap, problems) = crate::keymap::Keymap::new(&config.ui.keymap, &config.keys);
-    ui.keymap = keymap;
-    ui.nick_colours = crate::theme::NickColours::new(config.ui.nick_colours, &config.nick_colours);
+    let problems = ui.apply_config(&config);
     let layout = config.ui.layout.clone();
-    ui.config = config;
     ui.config_file = file;
     if let Some(spec) = layout
         && let Err(error) = ui.apply_layout(&spec, client.state())

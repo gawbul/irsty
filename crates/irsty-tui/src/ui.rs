@@ -96,6 +96,10 @@ pub struct Ui {
     pub format_prefix: bool,
     /// How nicks are coloured.
     pub nick_colours: crate::theme::NickColours,
+    /// Styles (`[theme]`).
+    pub theme: crate::theme::Theme,
+    /// How many colours the terminal shows; the view fits each frame to it.
+    pub depth: crate::theme::Depth,
     /// The terminal has focus (from focus events; assumed until told).
     pub focused: bool,
     /// Split windows. The focused pane's buffer is [`Ui::active`].
@@ -139,10 +143,9 @@ impl Ui {
             jump: None,
             format_prefix: false,
             focused: true,
-            nick_colours: crate::theme::NickColours::new(
-                config.nick_colours,
-                &std::collections::BTreeMap::new(),
-            ),
+            nick_colours: crate::theme::NickColours::default(),
+            theme: crate::theme::Theme::default(),
+            depth: crate::theme::Depth::Truecolor,
             panes: Panes::default(),
             pane_areas: Vec::new(),
             marker: None,
@@ -294,6 +297,28 @@ impl Ui {
         if let Some((_, id)) = best {
             self.switch(id);
         }
+    }
+
+    /// Takes the UI's settings from a config: the nick list, timestamps,
+    /// keys, theme, nick colours and colour depth (from the environment
+    /// too). Returns anything wrong with the keys or the theme, which are
+    /// skipped. The layout and mouse are applied separately.
+    pub fn apply_config(&mut self, config: &Config) -> Vec<String> {
+        self.show_nicklist = config.ui.nicklist;
+        self.time_format.clone_from(&config.ui.timestamp_format);
+        let (keymap, mut problems) = Keymap::new(&config.ui.keymap, &config.keys);
+        self.keymap = keymap;
+        let (theme, theme_problems) = crate::theme::Theme::from_config(&config.theme);
+        problems.extend(theme_problems);
+        self.nick_colours = crate::theme::NickColours::new(
+            config.ui.nick_colours,
+            &config.nick_colours,
+            &theme.nicks,
+        );
+        self.theme = theme;
+        self.depth = crate::theme::Depth::from_env(config.theme.colours);
+        self.config = config.clone();
+        problems
     }
 
     /// Lines scrolled back in the active buffer.

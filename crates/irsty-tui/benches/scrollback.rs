@@ -47,6 +47,7 @@ fn bench(c: &mut Criterion) {
     let buffer = state.buffer(buffer_id).unwrap_or_else(|| unreachable!());
     assert_eq!(buffer.lines().len(), LINES);
     let tz = TimeZone::UTC;
+    let theme = irsty_tui::theme::Theme::default();
 
     for (name, offset) in [("bottom", 0), ("middle", LINES / 2)] {
         c.bench_function(&format!("scrollback/100k/{name}/200x50"), |b| {
@@ -62,6 +63,7 @@ fn bench(c: &mut Criterion) {
                     tz: &tz,
                     nick_width: 10,
                     colours: &irsty_tui::theme::NickColours::default(),
+                    theme: &theme,
                 }
                 .render(area, &mut cells);
                 black_box(&cells);
