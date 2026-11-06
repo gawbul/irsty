@@ -113,6 +113,8 @@ pub struct Ui {
     pub marker: Option<(BufferId, u64)>,
     /// Scroll to the first unread line at the next draw.
     pub jump_unread: bool,
+    /// Loaded scripts.
+    pub scripts: crate::script::Scripts,
     back: Vec<BufferId>,
     forward: Vec<BufferId>,
 }
@@ -150,6 +152,7 @@ impl Ui {
             pane_areas: Vec::new(),
             marker: None,
             jump_unread: false,
+            scripts: crate::script::Scripts::default(),
             back: Vec::new(),
             forward: Vec::new(),
         };

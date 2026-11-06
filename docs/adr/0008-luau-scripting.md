@@ -15,3 +15,7 @@ Use mlua with the `luau` feature, vendored. Scripts get only the documented Irst
 
 - Scripts written for WeeChat's Lua API won't run unchanged. We don't plan to support that API anyway.
 - Luau differs slightly from Lua 5.4 (no `goto`, different integer handling). The script docs will note the differences.
+
+## Update (2026-11-06, M13)
+
+Scripting shipped with no filesystem or network API at all, so no capability grants them; `require`, which mlua would let read files, is removed. The one capability is `send`, for acting on the network (sending messages and running commands). Each script also has its own Luau state, a 32 MiB memory limit and a 250 ms limit on every call.

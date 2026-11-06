@@ -121,6 +121,9 @@ pub struct Line {
     /// It continues the line before as part of one multi-line message
     /// (`draft/multiline`), so the sender needn't be shown again.
     pub continued: bool,
+    /// It came from chat history or a bouncer's playback rather than live,
+    /// so nothing should react to it as if it had just been said.
+    pub history: bool,
 }
 
 /// What a line replies to.
@@ -868,6 +871,7 @@ impl State {
                 reply: None,
                 reactions: Vec::new(),
                 continued: false,
+                history: false,
             };
             self.push_line(buffer, line, &mut effects);
         }
@@ -952,6 +956,7 @@ impl State {
                 reply: if i == 0 { reply.clone() } else { None },
                 reactions: Vec::new(),
                 continued: i > 0,
+                history: false,
             };
             self.push_line(buffer, line, &mut own.effects);
         }
@@ -1313,6 +1318,7 @@ impl State {
             return;
         };
         let replaying = !matches!(self.replay, Replay::Live);
+        line.history = replaying;
         // History can overlap what is already here; the msgid says so.
         if replaying
             && let Some(id) = &line.msgid
@@ -1444,6 +1450,7 @@ impl State {
             reply: None,
             reactions: Vec::new(),
             continued: false,
+            history: false,
         };
         match event {
             NetEvent::Connecting { server } => {
@@ -1908,6 +1915,7 @@ impl State {
                 reply: None,
                 reactions: Vec::new(),
                 continued: false,
+                history: false,
             };
             self.push_line(buffer, line, effects);
         }
@@ -1989,6 +1997,7 @@ impl State {
                         reply: None,
                         reactions: Vec::new(),
                         continued: false,
+                        history: false,
                     };
                     self.push_line(buffer, line, effects);
                 }
@@ -2201,6 +2210,7 @@ impl State {
             reply: None,
             reactions: Vec::new(),
             continued: false,
+            history: false,
         };
         let event = |text: StyledText| {
             let raw = text.to_plain();
@@ -2345,6 +2355,7 @@ impl State {
                     .finish();
                 let mut l = event(text);
                 l.kind = LineKind::Join;
+                l.sender = Some(shown_nick.clone());
                 self.push_line(buffer, l, effects);
             }
             "PART" => {
@@ -2379,6 +2390,7 @@ impl State {
                 }
                 let mut l = event(b.finish());
                 l.kind = LineKind::Part;
+                l.sender = Some(shown_nick.clone());
                 self.push_line(buffer, l, effects);
             }
             "KICK" => {
@@ -2416,6 +2428,7 @@ impl State {
                         .finish(),
                 );
                 l.kind = LineKind::Kick;
+                l.sender = Some(shown_nick.clone());
                 self.push_line(buffer, l, effects);
             }
             "QUIT" => {
@@ -2434,6 +2447,7 @@ impl State {
                         .push(" has quit (", Style::default());
                     let mut l = event(append(b, &reason).push(")", Style::default()).finish());
                     l.kind = LineKind::Quit;
+                    l.sender = Some(shown_nick.clone());
                     self.push_line(buffer, l, effects);
                 }
             }
@@ -2458,6 +2472,7 @@ impl State {
                     .push(" to: ", Style::default());
                 let mut l = event(append(b, &topic).finish());
                 l.kind = LineKind::Topic;
+                l.sender = Some(shown_nick.clone());
                 self.push_line(buffer, l, effects);
             }
             "005" => {
@@ -2841,6 +2856,7 @@ impl State {
                     reply: None,
                     reactions: Vec::new(),
                     continued: false,
+                    history: false,
                 };
                 self.push_line(buffer, line, effects);
             }
@@ -2867,6 +2883,7 @@ impl State {
             reply: None,
             reactions: Vec::new(),
             continued: false,
+            history: false,
         };
         self.push_line(buffer, line, effects);
     }
@@ -2998,6 +3015,7 @@ impl State {
                 reply: None,
                 reactions: Vec::new(),
                 continued: false,
+                history: false,
             };
             self.push_line(buffer, line, effects);
         }
@@ -3118,6 +3136,7 @@ impl State {
             reply: reply.map(|parent| self.reply_to(buffer, parent)),
             reactions: Vec::new(),
             continued,
+            history: false,
         };
         self.push_line(buffer, line, effects);
     }
@@ -3169,6 +3188,7 @@ impl State {
             reply: None,
             reactions: Vec::new(),
             continued: false,
+            history: false,
         };
         self.push_line(server_buffer, line, effects);
     }
@@ -3245,7 +3265,7 @@ impl State {
             let line = Line {
                 time,
                 kind: LineKind::Nick,
-                sender: None,
+                sender: Some(format::sanitise_identifier(old)),
                 raw: text.to_plain(),
                 text,
                 delivery: Delivery::Delivered,
@@ -3254,6 +3274,7 @@ impl State {
                 reply: None,
                 reactions: Vec::new(),
                 continued: false,
+                history: false,
             };
             self.push_line(buffer, line, effects);
         }
@@ -3301,6 +3322,7 @@ impl State {
             reply: None,
             reactions: Vec::new(),
             continued: false,
+            history: false,
         };
         self.push_line(buffer, line, effects);
     }
@@ -4616,6 +4638,11 @@ mod tests {
         let lines = lines_of(&s, c);
         let texts: Vec<String> = lines.iter().map(|l| l.text.to_plain()).collect();
         assert_eq!(texts, ["old", "me: line one", "line two", "now"]);
+        assert!(
+            lines[..3].iter().all(|l| l.history),
+            "replayed lines say so"
+        );
+        assert!(!lines[3].history, "live lines don't");
         assert_eq!(
             lines[0].reactions.len(),
             1,

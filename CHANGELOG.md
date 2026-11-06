@@ -28,6 +28,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- M13, scripting: Luau scripts (`[[script]]`, `/script load|unload|reload|list`) react to events (`irsty.on`), add commands (`irsty.command`), print, set timers and read buffers and nicks, each in a sandboxed state of its own with no file or network access and time, memory and error limits. Sending messages and running commands needs `allow = ["send"]` and is rate-limited. `docs/SCRIPTING.md` documents the API, and `examples/scripts` has working examples.
+- Join, part, quit, kick, nick-change and topic-change lines now record who did it.
 - M12, looks and config tools:
   - Themes: `[theme] preset` (`dark`, the existing look, or `light`) and a style for any element (`bar = "white on blue"`), including the nick palette. Style strings take modifiers, names, `#rrggbb`, `colour0` to `colour255` and `on` a background.
   - Colour fallback: `[theme] colours` (`auto`, `truecolor`, `256`, `16` or `none`); every colour on screen is fitted to what the terminal shows. `auto` honours `NO_COLOR`, `COLORTERM` and `TERM`; with no colour, bars and highlights show in reverse video.

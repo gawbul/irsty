@@ -1,6 +1,6 @@
 # Irsty plan
 
-Status: Phases 1 and 2 (M0 to M8) are done as of 2026-10-31; Phase 3 starts with M9. This plan was written before the code (2026-10-30) and has been updated where the code went another way; [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes what exists. Versions and the evidence for them are in [`docs/VERSIONS.md`](docs/VERSIONS.md).
+Status (2026-11-06): M0 to M13 are done. Phases 1 and 2 are complete, Phase 3 is complete apart from DCC (M16), and Phase 4 has M14 (accessibility) and M15 (releases) left. This plan was written before the code (2026-10-30) and has been updated where the code went another way; [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes what exists. Versions and the evidence for them are in [`docs/VERSIONS.md`](docs/VERSIONS.md).
 
 ## 1. Stack, in brief
 
@@ -126,7 +126,7 @@ Every milestone ends with the full gate passing locally and in CI: `fmt --check`
 
 ### Phase 4: extensibility and polish
 
-- **M13.** Scripting API (events, commands, buffers, timers), sandboxed by default.
+- **M13.** Scripting API (events, commands, buffers, timers), sandboxed by default. *(Done 2026-11-06. Luau through mlua 0.12.2. There is no file or network API at all, so the one capability is `send`, for acting on the network; time, memory, error and send-rate limits keep a bad script from hurting. Events are lines (live only, never history); scripts don't yet filter or rewrite what you type or receive, which can come later if it's wanted.)*
 - **M14.** Accessibility mode, high-contrast theme.
 - **M15.** Man page, completions, cargo-dist releases, Homebrew, AUR and Nix notes.
 

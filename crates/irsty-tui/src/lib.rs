@@ -13,6 +13,7 @@ pub mod keymap;
 pub mod notify;
 pub mod panes;
 pub mod run;
+pub mod script;
 pub mod scrollback;
 pub mod terminal;
 pub mod theme;

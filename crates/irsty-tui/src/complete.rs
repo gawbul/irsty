@@ -2,7 +2,7 @@
 //! input text, so they are easy to test.
 
 use irsty_core::event::NetworkId;
-use irsty_core::state::{BufferId, BufferKind, State};
+use irsty_core::state::{BufferId, BufferKind, LineKind, State};
 use irsty_proto::casemap::CaseMapping;
 
 use crate::command::{self, COMMANDS};
@@ -165,8 +165,13 @@ fn nicks(state: &State, buffer: Option<BufferId>) -> Vec<String> {
                 .channel(&buf.name)
                 .map(|c| c.members().map(|m| m.nick.as_str()).collect())
                 .unwrap_or_default();
+            // People who spoke recently, not those who only joined or left.
             for line in buf.lines().iter().rev().take(500) {
-                if let Some(sender) = &line.sender
+                let talk = matches!(
+                    line.kind,
+                    LineKind::Message | LineKind::Action | LineKind::Notice
+                );
+                if let Some(sender) = line.sender.as_ref().filter(|_| talk)
                     && members.iter().any(|m| mapping.eq(m, sender))
                 {
                     push(sender, &mut out);

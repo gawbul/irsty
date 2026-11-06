@@ -3,6 +3,7 @@
 ## Setup
 
 - Rust: rustup installs the toolchain in `rust-toolchain.toml` on first use.
+- A C and C++ compiler: rusqlite builds the bundled SQLite and mlua builds Luau from source (Xcode's command line tools on macOS, `build-essential` or similar on Linux). The first build takes a little longer for them.
 - Everything else: `mise run setup` installs the tools pinned in `mise.toml`, the MSRV toolchain and nightly (for fuzzing). Without mise, install `cargo-nextest`, `cargo-deny`, `cargo-audit`, `cargo-llvm-cov`, `cargo-insta` and `cargo-fuzz` yourself, then `rustup toolchain install 1.97 nightly --profile minimal`.
 
 ## Tasks

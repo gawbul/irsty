@@ -251,6 +251,7 @@ mod tests {
             reply: None,
             reactions: Vec::new(),
             continued: false,
+            history: false,
         }
     }
 

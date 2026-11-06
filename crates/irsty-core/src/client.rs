@@ -600,6 +600,13 @@ impl Client {
         self.run_effects(effects);
     }
 
+    /// Like [`Client::note_buffer`], with mIRC formatting in `text` applied
+    /// (and sanitised), for scripts' output.
+    pub fn note_formatted(&mut self, buffer: BufferId, kind: LineKind, text: &str) {
+        let effects = self.state.note_formatted(buffer, kind, text);
+        self.run_effects(effects);
+    }
+
     /// Closes a buffer, parting the channel first if we are in it. Server
     /// buffers cannot be closed.
     pub fn close_buffer(

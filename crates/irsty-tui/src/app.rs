@@ -15,10 +15,11 @@ use irsty_core::state::{Awaiting, BufferId, BufferKind, LineKind};
 use irsty_proto::{Message, ctcp};
 use ratatui::layout::Position;
 
-use crate::command::{self, Command, LayoutCommand, ServerCommand, Window};
+use crate::command::{self, Command, LayoutCommand, ScriptCommand, ServerCommand, Window};
 use crate::complete;
 use crate::keymap::{Action, Chord, Format};
 use crate::panes::{Direction, MAX_PANES};
+use crate::script::{self, Action as ScriptAction};
 use crate::ui::{Completion, Switcher, Ui};
 
 /// What the run loop should do after an event.
@@ -43,6 +44,10 @@ pub fn handle_event(event: Event, client: &mut Client, ui: &mut Ui) -> Flow {
     let flow = dispatch(event, client, ui);
     if ui.input.text() != before {
         typed(client, ui);
+    }
+    // Scripts hear what that added (our own messages, say).
+    if flow == Flow::Continue {
+        return script_lines(client, ui);
     }
     flow
 }
@@ -208,7 +213,14 @@ fn complete(client: &Client, ui: &mut Ui, forward: bool) {
         .is_some_and(|c| c.text == ui.input.text());
     if !continuing {
         let (start, word) = ui.input.word_before_cursor();
-        let aliases: Vec<&str> = ui.config.aliases.keys().map(String::as_str).collect();
+        let script_commands = ui.scripts.commands();
+        let aliases: Vec<&str> = ui
+            .config
+            .aliases
+            .keys()
+            .map(String::as_str)
+            .chain(script_commands.iter().map(String::as_str))
+            .collect();
         let matches = complete::complete(
             ui.input.text(),
             start,
@@ -386,6 +398,22 @@ fn run_line(line: &str, client: &mut Client, ui: &mut Ui, depth: usize) -> Flow 
             }
         }
         return Flow::Continue;
+    }
+    // A command a script added (built-in commands win, as for aliases).
+    if let Some(body) = line.strip_prefix('/').filter(|b| !b.starts_with('/')) {
+        let (name, args) = body.split_once(' ').unwrap_or((body, ""));
+        if command::canonical(name).is_none() && ui.scripts.has_command(name) {
+            let flow = script_lines(client, ui);
+            if flow != Flow::Continue {
+                return flow;
+            }
+            let ctx = script::Context {
+                state: client.state(),
+                current: ui.active,
+            };
+            let actions = ui.scripts.run_command(name, args, ctx);
+            return run_script_actions(client, ui, actions, depth);
+        }
     }
     match command::parse(line) {
         Ok(cmd) => execute(cmd, client, ui),
@@ -880,6 +908,7 @@ fn run(cmd: Command, client: &mut Client, ui: &mut Ui) -> Outcome {
             client.search(buffer, query)?;
         }
         Command::Reload => reload(client, ui)?,
+        Command::Script(cmd) => return run_script_command(cmd, client, ui),
         Command::Layout(layout) => match layout {
             LayoutCommand::Show => {
                 let now = ui.layout_spec(client.state());
@@ -1038,7 +1067,12 @@ fn run(cmd: Command, client: &mut Client, ui: &mut Ui) -> Outcome {
             ));
         }
         Command::Help(name) => {
-            for line in command::help(name.as_deref()).map_err(|e| e.to_string())? {
+            let mut lines = command::help(name.as_deref()).map_err(|e| e.to_string())?;
+            let added = ui.scripts.commands();
+            if name.is_none() && !added.is_empty() {
+                lines.push(format!("Script commands: /{}", added.join(" /")));
+            }
+            for line in lines {
                 feedback(client, ui, LineKind::Info, &line);
             }
         }
@@ -1400,6 +1434,230 @@ fn run_set(
     Ok(())
 }
 
+/// Hands lines that arrived since the last call to scripts listening for
+/// them, and carries out what they ask for.
+pub fn script_lines(client: &mut Client, ui: &mut Ui) -> Flow {
+    if ui.scripts.is_empty() {
+        return Flow::Continue;
+    }
+    let ctx = script::Context {
+        state: client.state(),
+        current: ui.active,
+    };
+    let actions = ui.scripts.dispatch_lines(ctx);
+    run_script_actions(client, ui, actions, 0)
+}
+
+/// Runs the scripts' timers that are due.
+pub fn script_timers(client: &mut Client, ui: &mut Ui) -> Flow {
+    let flow = script_lines(client, ui);
+    if flow != Flow::Continue {
+        return flow;
+    }
+    let ctx = script::Context {
+        state: client.state(),
+        current: ui.active,
+    };
+    let actions = ui.scripts.fire_due(std::time::Instant::now(), ctx);
+    run_script_actions(client, ui, actions, 0)
+}
+
+/// Carries out what scripts asked for. Lines this adds are marked as seen,
+/// so a script never hears its own output (or its own messages) back.
+fn run_script_actions(
+    client: &mut Client,
+    ui: &mut Ui,
+    actions: Vec<ScriptAction>,
+    depth: usize,
+) -> Flow {
+    if actions.is_empty() {
+        return Flow::Continue;
+    }
+    let before: std::collections::HashMap<BufferId, u64> =
+        client.state().buffers().map(|b| (b.id, b.total)).collect();
+    let mut flow = Flow::Continue;
+    for action in actions {
+        match action {
+            ScriptAction::Print { place, text } => {
+                let buffer = match place {
+                    Some((network, name)) => {
+                        let found = network_named(client, &network).and_then(|id| match &name {
+                            Some(name) => client.state().find_buffer(id, name),
+                            None => client.state().network(id).map(|n| n.server_buffer),
+                        });
+                        found.or(ui.active)
+                    }
+                    None => ui.active,
+                };
+                match buffer {
+                    Some(buffer) => client.note_formatted(buffer, LineKind::Info, &text),
+                    None => feedback(client, ui, LineKind::Info, &text),
+                }
+            }
+            ScriptAction::Say {
+                network,
+                target,
+                text,
+            } => {
+                let sent = network_named(client, &network)
+                    .ok_or_else(|| format!("No network {network}"))
+                    .and_then(|id| {
+                        client
+                            .say(id, &target, &text, false)
+                            .map_err(|e| e.to_string())
+                    });
+                if let Err(error) = sent {
+                    feedback(client, ui, LineKind::Error, &format!("Script: {error}"));
+                }
+            }
+            ScriptAction::Exec(line) => {
+                if depth >= MAX_ALIAS_DEPTH {
+                    feedback(
+                        client,
+                        ui,
+                        LineKind::Error,
+                        "Scripts and aliases nest too deeply; stopping",
+                    );
+                    continue;
+                }
+                flow = run_line(&line, client, ui, depth + 1);
+                if flow != Flow::Continue {
+                    break;
+                }
+            }
+            ScriptAction::Error(text) => feedback(client, ui, LineKind::Error, &text),
+        }
+    }
+    ui.scripts.skip_added(client.state(), &before);
+    flow
+}
+
+/// Where a script path points: `~/` is the home directory, and a relative
+/// path is relative to the config file's directory.
+fn script_path(ui: &Ui, path: &std::path::Path) -> std::path::PathBuf {
+    if let (Ok(rest), Some(home)) = (path.strip_prefix("~"), std::env::var_os("HOME")) {
+        return std::path::PathBuf::from(home).join(rest);
+    }
+    if path.is_relative()
+        && let Some(dir) = ui.config_file.as_ref().and_then(|f| f.path().parent())
+    {
+        return dir.join(path);
+    }
+    path.to_owned()
+}
+
+/// Loads one script file, reporting the outcome.
+fn load_script(
+    client: &mut Client,
+    ui: &mut Ui,
+    path: &std::path::Path,
+    allow: &[irsty_core::config::Capability],
+) -> Flow {
+    let ctx = script::Context {
+        state: client.state(),
+        current: ui.active,
+    };
+    match ui.scripts.load_file(path, allow, ctx) {
+        Ok(actions) => {
+            let name = script::name_of(path);
+            let flow = run_script_actions(client, ui, actions, 0);
+            let send = if allow.is_empty() { "" } else { " (may send)" };
+            feedback(
+                client,
+                ui,
+                LineKind::Info,
+                &format!("Loaded script {name}{send}"),
+            );
+            flow
+        }
+        Err(error) => {
+            feedback(
+                client,
+                ui,
+                LineKind::Error,
+                &format!("Script not loaded: {error}"),
+            );
+            Flow::Continue
+        }
+    }
+}
+
+/// Loads the scripts the config lists, replacing any loaded.
+pub fn load_scripts(client: &mut Client, ui: &mut Ui) -> Flow {
+    ui.scripts.clear();
+    for entry in ui.config.scripts.clone() {
+        if !entry.enabled {
+            continue;
+        }
+        let path = script_path(ui, &entry.path);
+        let flow = load_script(client, ui, &path, &entry.allow);
+        if flow != Flow::Continue {
+            return flow;
+        }
+    }
+    Flow::Continue
+}
+
+fn run_script_command(cmd: ScriptCommand, client: &mut Client, ui: &mut Ui) -> Outcome {
+    match cmd {
+        ScriptCommand::List => {
+            let list = ui.scripts.list();
+            if list.is_empty() {
+                feedback(client, ui, LineKind::Info, "No scripts loaded");
+            }
+            for s in list {
+                let mut line = s.name.clone();
+                if s.allow.contains(&irsty_core::config::Capability::Send) {
+                    line.push_str(" (may send)");
+                }
+                if let Some(path) = &s.path {
+                    let _ = write!(line, ": {}", path.display());
+                }
+                if !s.commands.is_empty() {
+                    let _ = write!(line, "; commands /{}", s.commands.join(" /"));
+                }
+                feedback(client, ui, LineKind::Info, &line);
+            }
+        }
+        ScriptCommand::Load { path, send } => {
+            let path = script_path(ui, std::path::Path::new(&path));
+            let allow: Vec<_> = send
+                .then_some(irsty_core::config::Capability::Send)
+                .into_iter()
+                .collect();
+            return Ok(load_script(client, ui, &path, &allow));
+        }
+        ScriptCommand::Unload(name) => {
+            if !ui.scripts.unload(&name) {
+                return Err(format!("No script {name} loaded; /script lists them"));
+            }
+            feedback(
+                client,
+                ui,
+                LineKind::Info,
+                &format!("Unloaded script {name}"),
+            );
+        }
+        ScriptCommand::Reload(name) => {
+            let names: Vec<String> = match name {
+                Some(name) => vec![name],
+                None => ui.scripts.list().into_iter().map(|s| s.name).collect(),
+            };
+            for name in names {
+                let (path, allow) = ui
+                    .scripts
+                    .origin(&name)
+                    .ok_or_else(|| format!("No script {name} loaded from a file"))?;
+                let flow = load_script(client, ui, &path, &allow);
+                if flow != Flow::Continue {
+                    return Ok(flow);
+                }
+            }
+        }
+    }
+    Ok(Flow::Continue)
+}
+
 /// `/reload`: reads the config file again and applies it. A file that
 /// doesn't parse changes nothing. Networks are matched by name: new ones are
 /// added (and connect if they autoconnect), changed ones reconnect with their
@@ -1439,6 +1697,9 @@ fn reload(client: &mut Client, ui: &mut Ui) -> Result<(), String> {
     client.apply_config(&config);
     let problems = ui.apply_config(&config);
     ui.config_file = Some(file);
+    if config.scripts != old.scripts {
+        load_scripts(client, ui);
+    }
     let mut layout_problem = None;
     if config.ui.layout != old.ui.layout
         && let Some(spec) = &config.ui.layout

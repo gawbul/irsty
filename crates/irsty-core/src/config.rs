@@ -527,6 +527,30 @@ impl Default for ThemeConfig {
     }
 }
 
+/// What a script may do beyond the default of watching, printing, adding
+/// commands and setting timers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Capability {
+    /// Act for you on the network: send messages and run commands.
+    Send,
+}
+
+/// A Luau script to load at startup (`[[script]]`).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScriptConfig {
+    /// The script file. Relative paths are relative to the config file's
+    /// directory, and `~/` is the home directory.
+    pub path: PathBuf,
+    /// Capabilities granted. Defaults to none.
+    #[serde(default)]
+    pub allow: Vec<Capability>,
+    /// Load it. Defaults to true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
 /// The search index.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -837,6 +861,9 @@ pub struct Config {
     /// Colours and styles.
     #[serde(default)]
     pub theme: ThemeConfig,
+    /// Scripts to load at startup.
+    #[serde(default, rename = "script")]
+    pub scripts: Vec<ScriptConfig>,
 }
 
 impl Default for Config {
@@ -858,6 +885,7 @@ impl Default for Config {
             typing: TypingConfig::default(),
             search: SearchConfig::default(),
             theme: ThemeConfig::default(),
+            scripts: Vec::new(),
         }
     }
 }

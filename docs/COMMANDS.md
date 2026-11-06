@@ -106,6 +106,7 @@ These change `config.toml` and take effect at once.
 | `/alias` | `/alias [name [/command ...[; /command ...]]]` | Define an alias, show one, or list them. See below. |
 | `/unalias` | `/unalias <name>` | Remove an alias. |
 | `/set` | `/set [setting [value]] \| /set -reset <setting>` | List settings, show one, change one, or reset it to the default. |
+| `/script` | `/script [list] \| /script load <path> [-allow send] \| /script unload <name> \| /script reload [name]` | List, load, unload or reload Luau scripts; see [SCRIPTING.md](SCRIPTING.md). Scripts loaded this way last until Irsty quits; `[[script]]` in the config loads them at startup. |
 | `/reload` | `/reload` | Read the config file again after you edit it, and apply it: settings, keys, theme and highlights at once, and networks by name (new ones added, changed ones reconnect, missing ones closed). A file that doesn't parse changes nothing, and problems in it are listed. Logging, mouse and search changes wait for a restart. |
 | `/bind` | `/bind [key [action]] \| /bind -reset <key>` | List key bindings, show one, change one, or go back to the preset's. Keys and actions are in [KEYBINDINGS.md](KEYBINDINGS.md#customising). |
 | `/unbind` | `/unbind <key>` | Make a key do nothing (the same as `/bind <key> none`). |
