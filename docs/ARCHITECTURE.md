@@ -87,6 +87,8 @@ CTCP requests are answered in `State` (VERSION, PING, TIME, CLIENTINFO, SOURCE) 
 - `view::render` draws everything from `&State` and `&mut Ui` and nothing else, so it is snapshot-tested with ratatui's `TestBackend` and `insta`.
 - `Scrollback` lays lines out from the bottom of the screen upwards and stops at the top, so only visible lines are wrapped. A 100,000-line buffer draws in about 0.3 ms at 200×50, wherever it is scrolled to.
 - `Ui` holds what isn't client state: the active buffer, per-buffer scroll offsets (anchored so new lines don't move a scrolled-back view), the input line and its history.
+- Split windows are `irsty_tui::panes::Panes`, a binary tree of splits whose leaves are panes. The focused pane's buffer is `Ui::active`, so every way of switching buffers works on it unchanged; other panes keep theirs. `Ui::layout_spec` and `Ui::apply_layout` turn the panes into `ui.layout` text and back, and panes from a layout name their buffer (`Place`) until it exists. The run loop marks every visible buffer read with `Client::mark_shown`, which syncs read markers per buffer.
+- The unread marker is set by the view when a buffer comes into the focused pane: the line count before its unread lines (none if nothing was unread). `Scrollback` draws a rule above the first unread line, and `Scrollback::offset_showing` works out the scroll offset that brings it to the top, using the same wrapping as drawing, when `Ui::jump_unread` is set.
 - `TerminalGuard` enters raw mode and the alternate screen with bracketed paste and focus reporting (and mouse capture if configured), and restores the terminal on drop, on panic through a chained hook, and around suspend. The UI never asks the terminal for the cursor position, so a terminal that doesn't answer such queries can't stall it.
 - On `/quit`, the terminal is restored before waiting for networks to close, so a slow server never leaves the screen frozen.
 
@@ -97,6 +99,7 @@ CTCP requests are answered in `State` (VERSION, PING, TIME, CLIENTINFO, SOURCE) 
 | Network to app | bounded `send().await` | The connection pauses reads, and TCP pushes back on the server. Nothing is dropped. |
 | App to network | `try_send` | A "send queue full" error appears in the buffer. The app loop never blocks. |
 | App to log writer | `try_send` into a queue of 4096 | Dropped lines are counted, and a marker line is written once there is space. |
+| App to search index | `try_send` into a queue of 4096 | The line is left out of the index (it is still logged); a search says the index is busy. |
 
 ## Untrusted text
 
@@ -105,6 +108,10 @@ Remote text becomes `StyledText` once, at ingest, through `StyledText::parse` (o
 ## Logging
 
 `irsty_core::log::LogWriter` writes one plain-text file per buffer on its own thread, behind a bounded queue, so the app loop never waits on disk. Each `Effect::Line` names the line it added (by its sequence number in the buffer), so several lines added by one event are all logged. With `[logging] rotate`, the file name carries the line's UTC date. Files are created with mode `0600`.
+
+## Search
+
+`irsty_core::search::Index` keeps messages in SQLite (rusqlite with the bundled SQLite and FTS5), on a thread of its own, at `search.sqlite` in the data directory. `Client::log` hands it every message, action and notice it logs, through a bounded queue (`try_send`; a full queue drops the line from the index, never from the logs), and the thread writes whatever is waiting in one transaction. A unique index on network, buffer and msgid keeps history seen twice from being indexed twice. A search is another job on the same queue, so it sees every line queued before it; the answer comes back on a Tokio channel that `Client::next` reads alongside network events, and is noted in the buffer that asked, not logged. Typed words are quoted before they reach FTS5, so nothing a user types is query syntax.
 
 ## Terminal safety
 

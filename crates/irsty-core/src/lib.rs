@@ -16,6 +16,7 @@ pub mod log;
 pub mod net;
 pub mod redact;
 pub mod replies;
+pub mod search;
 pub mod state;
 
 pub use client::Client;

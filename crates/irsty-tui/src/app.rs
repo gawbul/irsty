@@ -10,13 +10,15 @@ use irsty_core::Client;
 use irsty_core::config::{Alias, Config, IgnoreKind, IgnoreRule, SaslMechanism};
 use irsty_core::config_file::{ConfigFile, EditError, SETTINGS};
 use irsty_core::event::NetworkId;
+use irsty_core::search::Query;
 use irsty_core::state::{Awaiting, BufferId, BufferKind, LineKind};
 use irsty_proto::{Message, ctcp};
 use ratatui::layout::Position;
 
-use crate::command::{self, Command, ServerCommand, Window};
+use crate::command::{self, Command, LayoutCommand, ServerCommand, Window};
 use crate::complete;
 use crate::keymap::{Action, Chord, Format, Keymap};
+use crate::panes::{Direction, MAX_PANES};
 use crate::ui::{Completion, Switcher, Ui};
 
 /// What the run loop should do after an event.
@@ -189,6 +191,9 @@ fn run_action(action: Action, client: &mut Client, ui: &mut Ui) -> Flow {
         Action::Transpose => ui.input.transpose(),
         Action::Format(format) => ui.input.insert(&format.code().to_string()),
         Action::FormatPrefix => ui.format_prefix = true,
+        Action::NextPane => ui.cycle_pane(true),
+        Action::PrevPane => ui.cycle_pane(false),
+        Action::JumpUnread => ui.jump_unread = true,
         Action::None => {}
     }
     Flow::Continue
@@ -308,9 +313,25 @@ fn paste_key(key: KeyEvent, client: &mut Client, ui: &mut Ui) -> Flow {
 
 fn handle_mouse(mouse: MouseEvent, client: &Client, ui: &mut Ui) -> Flow {
     let state = client.state();
+    // The wheel scrolls the pane under the pointer; a click focuses it.
+    let pane = ui.pane_at(mouse.column, mouse.row);
     match mouse.kind {
-        MouseEventKind::ScrollUp => ui.scroll_by(state, 3),
-        MouseEventKind::ScrollDown => ui.scroll_by(state, -3),
+        MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+            let delta = if mouse.kind == MouseEventKind::ScrollUp {
+                3
+            } else {
+                -3
+            };
+            match pane.and_then(|p| ui.pane_buffer(p)) {
+                Some(buffer) => ui.scroll_buffer(state, buffer, delta),
+                None => ui.scroll_by(state, delta),
+            }
+        }
+        MouseEventKind::Down(MouseButton::Left) if pane.is_some() => {
+            if let Some(pane) = pane {
+                ui.focus_pane(pane);
+            }
+        }
         MouseEventKind::Down(MouseButton::Left) => {
             let (area, order) = &ui.buffer_list;
             if area.contains(Position::new(mouse.column, mouse.row)) {
@@ -836,7 +857,92 @@ fn run(cmd: Command, client: &mut Client, ui: &mut Ui) -> Outcome {
         }
         Command::Clear => client.clear_buffer(here(ui)?),
         Command::Url(choice) => run_url(choice, client, ui)?,
+        Command::Search {
+            words,
+            all,
+            from,
+            limit,
+        } => {
+            let buffer = here(ui)?;
+            let state = client.state();
+            // Here: this channel or query, or the whole network from its
+            // server buffer.
+            let (network, place) = match state.buffer(buffer).filter(|_| !all) {
+                Some(b) => (
+                    state.network(b.network).map(|n| n.name.clone()),
+                    (b.kind != BufferKind::Server).then(|| b.name.clone()),
+                ),
+                None => (None, None),
+            };
+            let query = Query {
+                words,
+                network,
+                buffer: place,
+                from,
+                limit: limit.unwrap_or(50).min(irsty_core::search::MAX_RESULTS),
+            };
+            client.search(buffer, query)?;
+        }
+        Command::Layout(layout) => match layout {
+            LayoutCommand::Show => {
+                let now = ui.layout_spec(client.state());
+                let saved = ui.config.ui.layout.clone().unwrap_or_else(|| "none".into());
+                feedback(
+                    client,
+                    ui,
+                    LineKind::Info,
+                    &format!("Layout: {now} (saved: {saved})"),
+                );
+            }
+            LayoutCommand::Save => {
+                let spec = ui.layout_spec(client.state());
+                save(client, ui, |f| f.set("ui.layout", &spec))?;
+                feedback(
+                    client,
+                    ui,
+                    LineKind::Info,
+                    &format!("Layout saved: {spec}; it is restored when Irsty starts"),
+                );
+            }
+            LayoutCommand::Apply => {
+                let spec = ui
+                    .config
+                    .ui
+                    .layout
+                    .clone()
+                    .ok_or("No saved layout; /layout save saves the panes you have")?;
+                ui.apply_layout(&spec, client.state())?;
+            }
+            LayoutCommand::Reset => {
+                save(client, ui, |f| f.unset("ui.layout"))?;
+                ui.only_pane();
+                feedback(
+                    client,
+                    ui,
+                    LineKind::Info,
+                    "Saved layout forgotten; one pane",
+                );
+            }
+        },
         Command::Window(window) => match window {
+            Window::Split { side_by_side } => {
+                let direction = if side_by_side {
+                    Direction::SideBySide
+                } else {
+                    Direction::Stacked
+                };
+                if !ui.split(direction) {
+                    return Err(format!("At most {MAX_PANES} panes"));
+                }
+            }
+            Window::Merge { all: false } => {
+                if !ui.close_pane() {
+                    return Err("This is the only pane".into());
+                }
+            }
+            Window::Merge { all: true } => ui.only_pane(),
+            Window::Pane { forward } => ui.cycle_pane(forward),
+            Window::Unread => ui.jump_unread = true,
             Window::Number(n) => ui.switch_to_number(client.state(), n),
             Window::Next => ui.cycle(client.state(), true),
             Window::Prev => ui.cycle(client.state(), false),
@@ -1250,32 +1356,9 @@ fn run_set(
     client: &mut Client,
     ui: &mut Ui,
 ) -> Result<(), String> {
-    let current = |config: &Config, key: &str| -> String {
-        match key {
-            "scrollback" => config.scrollback.to_string(),
-            "logging.enabled" => config.logging.enabled.to_string(),
-            "logging.dir" => config
-                .logging
-                .dir
-                .as_ref()
-                .map_or_else(|| "(default)".into(), |d| d.display().to_string()),
-            "ui.mouse" => config.ui.mouse.to_string(),
-            "ui.nicklist" => config.ui.nicklist.to_string(),
-            "ui.timestamp_format" => config.ui.timestamp_format.clone(),
-            "ui.keymap" => config.ui.keymap.clone(),
-            "ui.nick_colours" => config.ui.nick_colours.to_string(),
-            "logging.rotate" => format!("{:?}", config.logging.rotate).to_lowercase(),
-            "notifications.method" => format!("{:?}", config.notifications.method).to_lowercase(),
-            "notifications.when_focused" => config.notifications.when_focused.to_string(),
-            "notifications.show_text" => config.notifications.show_text.to_string(),
-            "ctcp.replies" => config.ctcp.replies.to_string(),
-            "ctcp.version" => config.ctcp.version.clone(),
-            "ctcp.time" => config.ctcp.time.to_string(),
-            "history.lines" => config.history.lines.to_string(),
-            _ => String::new(),
-        }
-    };
-    let restart = |key: &str| key.starts_with("logging.") || key == "ui.mouse";
+    let current = |config: &Config, key: &str| setting_value(config, key).unwrap_or_default();
+    let restart =
+        |key: &str| key.starts_with("logging.") || key == "ui.mouse" || key == "search.enabled";
     match (key, value) {
         (None, _) => {
             let lines: Vec<String> = SETTINGS
@@ -1302,7 +1385,14 @@ fn run_set(
             feedback(client, ui, LineKind::Info, &line);
         }
         (Some(key), Some(value)) => {
+            if key == "ui.layout" {
+                // Check it before saving it.
+                crate::panes::Panes::from_spec(&value)?;
+            }
             let config = save(client, ui, |f| f.set(&key, &value))?;
+            if key == "ui.layout" {
+                ui.apply_layout(&value, client.state())?;
+            }
             let mut text = format!("{key} = {}", current(&config, &key));
             if restart(&key) {
                 text.push_str(" (takes effect when Irsty restarts)");
@@ -1311,4 +1401,55 @@ fn run_set(
         }
     }
     Ok(())
+}
+
+/// A setting's value as `/set` shows it, for every key in [`SETTINGS`].
+fn setting_value(config: &Config, key: &str) -> Option<String> {
+    Some(match key {
+        "scrollback" => config.scrollback.to_string(),
+        "logging.enabled" => config.logging.enabled.to_string(),
+        "logging.dir" => config
+            .logging
+            .dir
+            .as_ref()
+            .map_or_else(|| "(default)".into(), |d| d.display().to_string()),
+        "ui.mouse" => config.ui.mouse.to_string(),
+        "ui.nicklist" => config.ui.nicklist.to_string(),
+        "ui.timestamp_format" => config.ui.timestamp_format.clone(),
+        "ui.keymap" => config.ui.keymap.clone(),
+        "ui.nick_colours" => config.ui.nick_colours.to_string(),
+        "ui.layout" => config
+            .ui
+            .layout
+            .clone()
+            .unwrap_or_else(|| "(one pane)".into()),
+        "logging.rotate" => format!("{:?}", config.logging.rotate).to_lowercase(),
+        "notifications.method" => format!("{:?}", config.notifications.method).to_lowercase(),
+        "notifications.when_focused" => config.notifications.when_focused.to_string(),
+        "notifications.show_text" => config.notifications.show_text.to_string(),
+        "ctcp.replies" => config.ctcp.replies.to_string(),
+        "ctcp.version" => config.ctcp.version.clone(),
+        "ctcp.time" => config.ctcp.time.to_string(),
+        "history.lines" => config.history.lines.to_string(),
+        "typing.send" => config.typing.send.to_string(),
+        "typing.show" => config.typing.show.to_string(),
+        "search.enabled" => config.search.enabled.to_string(),
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_setting_has_a_value_to_show() {
+        let config = Config::default();
+        for (key, _) in SETTINGS {
+            assert!(
+                setting_value(&config, key).is_some_and(|v| !v.is_empty()),
+                "/set can't show {key}"
+            );
+        }
+    }
 }

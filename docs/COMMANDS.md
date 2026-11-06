@@ -54,7 +54,9 @@ These act on the current channel.
 
 | Command | Usage | What it does |
 |---|---|---|
-| `/window` (`/buffer`, `/w`) | `/window <number>\|next\|prev\|close\|list` | Go to a buffer by its number in the list, step through them, close the current one, or list them. Ctrl+G opens a fuzzy switcher instead. |
+| `/window` (`/buffer`, `/w`) | `/window <number>\|next\|prev\|close\|list\|split\|vsplit\|merge [all]\|pane [next\|prev]\|unread` | Go to a buffer by its number in the list, step through them, close the current one, or list them (Ctrl+G opens a fuzzy switcher instead). `split` divides the focused pane into two, one above the other, and `vsplit` side by side; the new pane shows the same buffer and takes focus, and switching buffers changes only the focused pane. `merge` closes the focused pane and `merge all` keeps only it. `pane` moves focus to the next or previous pane (F8 and F7, or click one). `unread` scrolls to the first line you hadn't read when you came to the buffer (Alt+U in WeeChat's keys, Shift+Alt+U in irssi's). |
+| `/layout` | `/layout [save\|apply\|reset]` | Show the panes as a layout, save them (`ui.layout`, restored when Irsty starts), put the saved layout back, or forget it and go back to one pane. See [KEYBINDINGS.md](KEYBINDINGS.md#split-windows). |
+| `/search` (`/grep`) | `/search [-all] [-from <nick>] [-limit <n>] <words>` | Search the messages kept in the logs: those in the current channel or query, all of the network's from its server buffer, or everywhere with `-all`. Every word must appear, as a word or the start of one, ignoring case and accents. Up to 50 results (or `-limit`, at most 500) are listed oldest first, with the matching words in bold. Needs logging and `search.enabled` (both on by default); see [CONFIG.md](CONFIG.md#search). |
 | `/close` (`/wc`) | `/close [reason]` | Close the current buffer, leaving the channel first if you are in it. Server buffers can't be closed. |
 | `/clear` | `/clear` | Clear the current buffer's scrollback. Logs are untouched. |
 | `/url` | `/url [number]` | List the ten newest links in the buffer, newest first, or open one in your browser (`/url 1` opens the newest). Only `http` and `https` links are opened, and `www.` links as `https`; Irsty starts your system's opener (`open`, `xdg-open`) directly, never through a shell. |
@@ -118,7 +120,7 @@ In an alias, `$*` is everything typed after it, `$1` to `$9` single words, and `
 
 ### Settings
 
-`/set` changes `scrollback`, `logging.enabled`, `logging.dir`, `logging.rotate`, `ui.mouse`, `ui.nicklist`, `ui.timestamp_format`, `ui.keymap`, `ui.nick_colours`, `notifications.method`, `notifications.when_focused`, `notifications.show_text`, `ctcp.replies`, `ctcp.version`, `ctcp.time`, `history.lines`, `typing.send` and `typing.show` (see [CONFIG.md](CONFIG.md)). `/set` with no arguments lists them with their values. Booleans accept `on`/`off`, `true`/`false` and `yes`/`no`. Logging and mouse changes take effect when Irsty restarts; the rest apply at once.
+`/set` changes `scrollback`, `logging.enabled`, `logging.dir`, `logging.rotate`, `ui.mouse`, `ui.nicklist`, `ui.timestamp_format`, `ui.keymap`, `ui.nick_colours`, `notifications.method`, `notifications.when_focused`, `notifications.show_text`, `ctcp.replies`, `ctcp.version`, `ctcp.time`, `history.lines`, `typing.send`, `typing.show`, `search.enabled` and `ui.layout` (see [CONFIG.md](CONFIG.md)). `/set` with no arguments lists them with their values. Booleans accept `on`/`off`, `true`/`false` and `yes`/`no`. Logging and mouse changes take effect when Irsty restarts; the rest apply at once.
 
 ## Leaving
 

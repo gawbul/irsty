@@ -61,20 +61,12 @@ pub fn render(frame: &mut Frame<'_>, state: &State, ui: &mut Ui) {
 
     render_topic(frame, topic, state, ui);
     render_buffer_list(frame, list, state, ui);
-    ui.page = usize::from(main.height);
-    match active {
-        Some(buffer) => frame.render_widget(
-            Scrollback {
-                buffer,
-                offset: ui.offset(),
-                time_format: &ui.time_format,
-                tz: &ui.tz,
-                nick_width: NICK_COLUMN,
-                colours: &ui.nick_colours,
-            },
-            main,
-        ),
-        None => frame.render_widget(first_run(ui), main),
+    if active.is_none() && ui.panes.len() == 1 {
+        ui.page = usize::from(main.height);
+        ui.pane_areas = vec![(ui.panes.focus(), main)];
+        frame.render_widget(first_run(ui), main);
+    } else {
+        render_panes(frame, main, state, ui);
     }
     if let (Some(channel), Some(net)) = (channel, network)
         && nick_width > 0
@@ -85,6 +77,117 @@ pub fn render(frame: &mut Frame<'_>, state: &State, ui: &mut Ui) {
     render_input(frame, input, state, ui);
     if ui.switcher.is_some() {
         render_switcher(frame, middle, state, ui);
+    }
+}
+
+/// The split panes, each with its scrollback; with more than one, each has a
+/// title row naming its buffer (highlighted for the focused pane) and panes
+/// side by side are divided by a rule.
+fn render_panes(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &mut Ui) {
+    let focus = ui.panes.focus();
+    let split = ui.panes.len() > 1;
+    // The unread marker belongs to the focused buffer, from when it came on
+    // screen (before it is marked read). With nothing unread then, there is
+    // none: lines arriving while you watch are not unread.
+    if ui.marker.map(|(b, _)| b) != ui.active {
+        ui.marker = ui.active.and_then(|id| state.buffer(id)).map(|b| {
+            let unread = u64::try_from(b.unread).unwrap_or(u64::MAX);
+            let marker = if unread == 0 {
+                u64::MAX
+            } else {
+                b.total.saturating_sub(unread)
+            };
+            (b.id, marker)
+        });
+    }
+    let order = ui.order(state);
+    let mut pane_areas = Vec::new();
+    for (pane, mut rect) in ui.panes.areas(area) {
+        if rect.x > area.x && rect.width > 1 {
+            let rule = Rect { width: 1, ..rect };
+            let bar = vec![Line::from("│"); usize::from(rule.height)];
+            frame.render_widget(Paragraph::new(bar).style(theme::dim()), rule);
+            rect.x += 1;
+            rect.width -= 1;
+        }
+        let buffer = ui.pane_buffer(pane).and_then(|id| state.buffer(id));
+        if split && rect.height > 1 {
+            let title_area = Rect { height: 1, ..rect };
+            rect.y += 1;
+            rect.height -= 1;
+            let name = pane_title(state, ui, &order, pane, buffer);
+            let style = if pane == focus {
+                theme::bar().add_modifier(Modifier::BOLD)
+            } else {
+                theme::dim().add_modifier(Modifier::REVERSED)
+            };
+            frame.render_widget(Paragraph::new(name).style(style), title_area);
+        }
+        if pane == focus {
+            ui.page = usize::from(rect.height);
+        }
+        pane_areas.push((pane, rect));
+        let Some(buffer) = buffer else {
+            continue;
+        };
+        let marker = ui
+            .marker
+            .filter(|(b, _)| pane == focus && *b == buffer.id)
+            .map(|(_, m)| m);
+        let jump = pane == focus && std::mem::take(&mut ui.jump_unread);
+        let mut widget = Scrollback {
+            buffer,
+            offset: ui.offset_of(buffer.id),
+            time_format: &ui.time_format,
+            tz: &ui.tz,
+            nick_width: NICK_COLUMN,
+            colours: &ui.nick_colours,
+            marker,
+        };
+        let mut jumped = None;
+        if jump && let Some(marker) = marker.filter(|&m| m < buffer.total) {
+            let offset = widget.offset_showing(rect, marker + 1);
+            widget.offset = offset;
+            jumped = Some(offset);
+        }
+        frame.render_widget(widget, rect);
+        if let Some(offset) = jumped {
+            ui.scroll_to(buffer.id, offset);
+        }
+    }
+    ui.pane_areas = pane_areas;
+}
+
+/// A pane's title: its buffer's number and name, or what it is waiting for.
+fn pane_title(
+    state: &State,
+    ui: &Ui,
+    order: &[irsty_core::state::BufferId],
+    pane: usize,
+    buffer: Option<&irsty_core::state::Buffer>,
+) -> String {
+    let Some(b) = buffer else {
+        let waiting = ui
+            .panes
+            .get(pane)
+            .and_then(|p| p.want.as_ref())
+            .map(|w| match &w.buffer {
+                Some(b) => format!("{}/{b}", w.network),
+                None => w.network.clone(),
+            })
+            .unwrap_or_default();
+        return format!(" waiting for {} ", sanitise_identifier(&waiting));
+    };
+    let number = order.iter().position(|&id| id == b.id).map_or(0, |i| i + 1);
+    let network = state.network(b.network).map_or("", |n| n.name.as_str());
+    if b.kind == BufferKind::Server {
+        format!(" {number}:{} ", sanitise_identifier(network))
+    } else {
+        format!(
+            " {number}:{}/{} ",
+            sanitise_identifier(network),
+            sanitise_identifier(&b.name)
+        )
     }
 }
 

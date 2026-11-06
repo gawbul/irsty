@@ -15,6 +15,7 @@ use crate::config::{Config, NetworkConfig, Paths, SaslMechanism};
 use crate::event::{NetCommand, NetEvent, NetworkId};
 use crate::log::LogWriter;
 use crate::net::connection::{self, EventSender, Proxy, Server, Settings};
+use crate::search::{self, Index, Query};
 use crate::state::{
     BouncerNetwork, BufferId, BufferKind, Effect, Line, LineKind, Notification, OwnMessage, State,
 };
@@ -91,8 +92,10 @@ pub struct Client {
     notifications: Vec<Notification>,
     /// Networks opened from a bouncer, by bouncer connection and netid.
     bouncer_children: std::collections::HashMap<(NetworkId, String), NetworkId>,
-    /// The buffer whose read marker was last synced, and when.
-    last_read: Option<(BufferId, std::time::Instant)>,
+    /// When each buffer's read marker was last synced.
+    last_read: std::collections::HashMap<BufferId, std::time::Instant>,
+    /// The buffers on screen at the last [`Client::mark_shown`].
+    shown: Vec<BufferId>,
     /// The next network id. Ids are never reused, so late events from a
     /// removed network's connection can't land on a new one.
     next_network: u32,
@@ -102,6 +105,14 @@ pub struct Client {
     typing_sent: std::collections::HashMap<(NetworkId, String), std::time::Instant>,
     /// The next multi-line batch reference.
     next_batch: u64,
+    /// The search index, if on.
+    index: Option<Index>,
+    /// Answers from the index.
+    answers: mpsc::UnboundedReceiver<search::Answer>,
+    answers_tx: mpsc::UnboundedSender<search::Answer>,
+    /// Searches waiting for answers: where to show them, and what was asked.
+    searches: std::collections::HashMap<u64, (BufferId, Query)>,
+    next_search: u64,
 }
 
 impl std::fmt::Debug for Client {
@@ -121,6 +132,7 @@ impl Client {
     /// are reported in its server buffer rather than failing the rest.
     pub fn start(config: &Config, paths: Option<&Paths>, hook: Option<SettingsHook>) -> Self {
         let (events_tx, events) = mpsc::channel(EVENT_QUEUE);
+        let (answers_tx, answers) = mpsc::unbounded_channel();
         let mut client = Self {
             state: State::new(config.scrollback),
             events,
@@ -134,10 +146,16 @@ impl Client {
             next_network: 0,
             notifications: Vec::new(),
             bouncer_children: std::collections::HashMap::new(),
-            last_read: None,
+            last_read: std::collections::HashMap::new(),
+            shown: Vec::new(),
             send_typing: config.typing.send,
             typing_sent: std::collections::HashMap::new(),
             next_batch: 0,
+            index: None,
+            answers,
+            answers_tx,
+            searches: std::collections::HashMap::new(),
+            next_search: 0,
         };
         client.state.set_history(config.history.lines);
         client.state.set_ctcp(config.ctcp.clone());
@@ -158,6 +176,16 @@ impl Client {
                     tracing::warn!(%error, "logging disabled: cannot create the log directory");
                 }
                 None => tracing::warn!("logging disabled: no log directory"),
+            }
+        }
+        // The index holds what the logs hold, so only while logging is on.
+        if config.logging.enabled
+            && config.search.enabled
+            && let Some(paths) = paths
+        {
+            match Index::open(&paths.search_index(), client.answers_tx.clone()) {
+                Ok(index) => client.index = Some(index),
+                Err(error) => tracing::warn!(%error, "search index disabled"),
             }
         }
 
@@ -614,24 +642,35 @@ impl Client {
         &self.state
     }
 
-    /// Marks a buffer as read.
+    /// Marks a buffer as read: it is on screen. See [`Client::mark_shown`].
     pub fn mark_read(&mut self, buffer: BufferId) {
-        self.state.mark_read(buffer);
-        // Tell the server (draft/read-marker) at most every READ_SYNC per
-        // buffer, and straight away on switching buffers, so read markers
-        // never crowd out messages under the rate limit.
+        self.mark_shown(&[buffer]);
+    }
+
+    /// Marks the buffers on screen (one per split pane) as read, and tells
+    /// the server (`draft/read-marker`) at most every 15 seconds per buffer,
+    /// and straight away when a buffer comes on screen, so read markers never
+    /// crowd out messages under the rate limit.
+    pub fn mark_shown(&mut self, buffers: &[BufferId]) {
         let now = std::time::Instant::now();
-        let switched = self.last_read.map(|(b, _)| b) != Some(buffer);
-        let due = self
-            .last_read
-            .is_none_or(|(_, at)| now.duration_since(at) >= READ_SYNC);
-        if switched || due {
-            let effects = self.state.sync_read(buffer);
-            if !effects.is_empty() || switched {
-                self.last_read = Some((buffer, now));
+        for &buffer in buffers {
+            self.state.mark_read(buffer);
+            let arrived = !self.shown.contains(&buffer);
+            let due = self
+                .last_read
+                .get(&buffer)
+                .is_none_or(|at| now.duration_since(*at) >= READ_SYNC);
+            if arrived || due {
+                let effects = self.state.sync_read(buffer);
+                if !effects.is_empty() || arrived {
+                    self.last_read.insert(buffer, now);
+                }
+                self.run_effects(effects);
             }
-            self.run_effects(effects);
         }
+        self.shown = buffers.to_vec();
+        self.last_read
+            .retain(|b, _| self.state.buffer(*b).is_some());
     }
 
     /// Asks for history older than the oldest line in a buffer (scrolling
@@ -701,10 +740,15 @@ impl Client {
     /// Cancel-safe: the only await is the channel receive, so it can be used in
     /// `select!` alongside terminal input.
     pub async fn next(&mut self) -> Option<Vec<BufferId>> {
-        if self.commands.is_empty() {
+        if self.commands.is_empty() && self.searches.is_empty() {
             return None;
         }
-        let first = self.events.recv().await?;
+        let first = tokio::select! {
+            Some(answer) = self.answers.recv(), if !self.searches.is_empty() => {
+                return Some(self.on_answer(answer));
+            }
+            first = self.events.recv() => first?,
+        };
         let mut changed = Vec::new();
         let mut event = Some(first);
         let mut applied = 0;
@@ -766,10 +810,11 @@ impl Client {
         changed
     }
 
+    /// Writes a line to the logs, and messages to the search index too.
     fn log(&self, buffer: BufferId, line: &Line) {
-        let Some(logger) = &self.logger else {
+        if self.logger.is_none() && self.index.is_none() {
             return;
-        };
+        }
         let Some(buf) = self.state.buffer(buffer) else {
             return;
         };
@@ -781,7 +826,110 @@ impl Client {
         } else {
             buf.name.as_str()
         };
-        logger.log(&network.name, name, line);
+        if let Some(logger) = &self.logger {
+            logger.log(&network.name, name, line);
+        }
+        let talk = matches!(
+            line.kind,
+            LineKind::Message | LineKind::Action | LineKind::Notice
+        );
+        if let Some(index) = self.index.as_ref().filter(|_| talk) {
+            let entry = search::Entry {
+                network: network.name.clone(),
+                buffer: name.to_owned(),
+                time: line.time,
+                kind: line.kind,
+                sender: line.sender.clone(),
+                text: line.text.to_plain(),
+                msgid: line.msgid.clone(),
+            };
+            if !index.add(entry) {
+                tracing::debug!("search index queue full; line not indexed");
+            }
+        }
+    }
+
+    /// Whether the search index is on.
+    pub fn has_index(&self) -> bool {
+        self.index.is_some()
+    }
+
+    /// Searches the index. The results are shown in `buffer` when they
+    /// arrive (from [`Client::next`]), oldest first, matching words in bold.
+    pub fn search(&mut self, buffer: BufferId, query: Query) -> Result<(), String> {
+        let index = self.index.as_ref().ok_or(
+            "The search index is off; it needs logging.enabled and search.enabled (then a restart)",
+        )?;
+        if search::match_expression(&query.words).is_none() {
+            return Err("Nothing to search for".into());
+        }
+        self.next_search += 1;
+        let id = self.next_search;
+        if !index.search(id, query.clone()) {
+            return Err("The search index is busy; try again in a moment".into());
+        }
+        self.searches.insert(id, (buffer, query));
+        Ok(())
+    }
+
+    /// Shows the answer to a search where it was asked. Returns the buffer.
+    fn on_answer(&mut self, (id, result): search::Answer) -> Vec<BufferId> {
+        let Some((buffer, query)) = self.searches.remove(&id) else {
+            return Vec::new();
+        };
+        let mut effects = Vec::new();
+        let mut note = |state: &mut State, kind: LineKind, text: &str| {
+            effects.extend(state.note_formatted(buffer, kind, text));
+        };
+        match result {
+            Err(error) => note(
+                &mut self.state,
+                LineKind::Error,
+                &format!("Search failed: {}", sanitise(&error)),
+            ),
+            Ok(hits) => {
+                let place = match (&query.network, &query.buffer) {
+                    (Some(network), Some(name)) => format!(" in {network}/{name}"),
+                    (Some(network), None) => format!(" on {network}"),
+                    _ => String::new(),
+                };
+                let from = query
+                    .from
+                    .as_deref()
+                    .map(|f| format!(" from {f}"))
+                    .unwrap_or_default();
+                let count = match hits.len() {
+                    0 => "no matches".to_owned(),
+                    1 => "1 match".to_owned(),
+                    n if n == query.limit => format!("the newest {n} matches"),
+                    n => format!("{n} matches"),
+                };
+                let header = format!("Search for \"{}\"{place}{from}: {count}", query.words);
+                note(&mut self.state, LineKind::Info, &sanitise(&header));
+                let tz = jiff::tz::TimeZone::system();
+                for hit in hits {
+                    let when = hit.time.to_zoned(tz.clone()).strftime("%Y-%m-%d %H:%M");
+                    let place = if query.buffer.is_some() {
+                        String::new()
+                    } else {
+                        format!("{}/{} ", hit.network, hit.buffer)
+                    };
+                    let sender = hit.sender.as_deref().unwrap_or("*");
+                    note(
+                        &mut self.state,
+                        LineKind::Info,
+                        &format!("  {when} {place}<{sender}> {}", hit.text),
+                    );
+                }
+            }
+        }
+        // Results are already in the logs; don't write them again.
+        for effect in &mut effects {
+            if let Effect::Line(b, _) = effect {
+                *effect = Effect::Updated(*b);
+            }
+        }
+        self.run_effects(effects)
     }
 
     /// Sends several messages on a network, all or none: a multi-line batch

@@ -16,6 +16,7 @@ use ratatui::layout::Rect;
 use crate::complete::fuzzy_score;
 use crate::input::InputLine;
 use crate::keymap::Keymap;
+use crate::panes::{Direction, Pane, Panes, Place};
 
 /// Most buffers remembered for going back.
 const HISTORY: usize = 50;
@@ -97,6 +98,17 @@ pub struct Ui {
     pub nick_colours: crate::theme::NickColours,
     /// The terminal has focus (from focus events; assumed until told).
     pub focused: bool,
+    /// Split windows. The focused pane's buffer is [`Ui::active`].
+    pub panes: Panes,
+    /// Where each pane was drawn, for the mouse.
+    pub pane_areas: Vec<(usize, Rect)>,
+    /// The focused buffer's unread marker: the number (see
+    /// [`irsty_core::state::Effect::Line`]) of the last line read before it
+    /// was shown, or `u64::MAX` if nothing was unread then. Set by the view
+    /// when the buffer comes on screen.
+    pub marker: Option<(BufferId, u64)>,
+    /// Scroll to the first unread line at the next draw.
+    pub jump_unread: bool,
     back: Vec<BufferId>,
     forward: Vec<BufferId>,
 }
@@ -131,6 +143,10 @@ impl Ui {
                 config.nick_colours,
                 &std::collections::BTreeMap::new(),
             ),
+            panes: Panes::default(),
+            pane_areas: Vec::new(),
+            marker: None,
+            jump_unread: false,
             back: Vec::new(),
             forward: Vec::new(),
         };
@@ -282,17 +298,32 @@ impl Ui {
 
     /// Lines scrolled back in the active buffer.
     pub fn offset(&self) -> usize {
-        self.active
-            .and_then(|id| self.scroll.get(&id))
-            .copied()
-            .unwrap_or(0)
+        self.active.map_or(0, |id| self.offset_of(id))
+    }
+
+    /// Lines scrolled back in a buffer.
+    pub fn offset_of(&self, id: BufferId) -> usize {
+        self.scroll.get(&id).copied().unwrap_or(0)
+    }
+
+    /// Scrolls a buffer to `offset` lines back from the newest.
+    pub fn scroll_to(&mut self, id: BufferId, offset: usize) {
+        if offset == 0 {
+            self.scroll.remove(&id);
+        } else {
+            self.scroll.insert(id, offset);
+        }
     }
 
     /// Scrolls the active buffer back (positive) or forward (negative) by lines.
     pub fn scroll_by(&mut self, state: &State, delta: isize) {
-        let Some(id) = self.active else {
-            return;
-        };
+        if let Some(id) = self.active {
+            self.scroll_buffer(state, id, delta);
+        }
+    }
+
+    /// Scrolls a buffer back (positive) or forward (negative) by lines.
+    pub fn scroll_buffer(&mut self, state: &State, id: BufferId, delta: isize) {
         let max = state
             .buffer(id)
             .map_or(0, |b| b.lines().len().saturating_sub(1));
@@ -346,8 +377,142 @@ impl Ui {
         if self.active.and_then(|id| state.buffer(id)).is_none() {
             self.active = self.order(state).first().copied();
         }
+        self.resolve_panes(state);
         self.totals.retain(|id, _| state.buffer(*id).is_some());
         self.scroll.retain(|id, _| state.buffer(*id).is_some());
+    }
+
+    /// The buffer a pane shows.
+    pub fn pane_buffer(&self, pane: usize) -> Option<BufferId> {
+        if pane == self.panes.focus() {
+            self.active
+        } else {
+            self.panes.get(pane)?.buffer
+        }
+    }
+
+    /// The buffers on screen, the focused pane's first, each once.
+    pub fn visible(&self) -> Vec<BufferId> {
+        let mut out: Vec<BufferId> = self.active.into_iter().collect();
+        for id in self.panes.ids() {
+            if let Some(b) = self.pane_buffer(id)
+                && !out.contains(&b)
+            {
+                out.push(b);
+            }
+        }
+        out
+    }
+
+    /// Keeps the focused pane's record of its buffer up to date before focus
+    /// moves.
+    fn store_focus(&mut self) {
+        let active = self.active;
+        let focus = self.panes.focus();
+        if let Some(pane) = self.panes.get_mut(focus) {
+            pane.buffer = active;
+        }
+    }
+
+    fn take_focus(&mut self) {
+        let focus = self.panes.focus();
+        if let Some(pane) = self.panes.get(focus) {
+            self.active = pane.buffer.or(self.active);
+        }
+    }
+
+    /// Splits the focused pane; the new pane shows the same buffer and takes
+    /// focus. Returns false at the most panes.
+    pub fn split(&mut self, direction: Direction) -> bool {
+        self.store_focus();
+        self.panes.split(direction, self.active).is_some()
+    }
+
+    /// Closes the focused pane. Returns false if it is the only one.
+    pub fn close_pane(&mut self) -> bool {
+        self.store_focus();
+        let closed = self.panes.close();
+        self.take_focus();
+        closed
+    }
+
+    /// Keeps only the focused pane.
+    pub fn only_pane(&mut self) {
+        self.panes.only();
+    }
+
+    /// Moves focus to the next or previous pane.
+    pub fn cycle_pane(&mut self, forward: bool) {
+        self.store_focus();
+        self.panes.cycle(forward);
+        self.take_focus();
+    }
+
+    /// Focuses a pane.
+    pub fn focus_pane(&mut self, pane: usize) {
+        if pane != self.panes.focus() {
+            self.store_focus();
+            if self.panes.set_focus(pane) {
+                self.take_focus();
+            }
+        }
+    }
+
+    /// The pane at a screen position, if any.
+    pub fn pane_at(&self, x: u16, y: u16) -> Option<usize> {
+        self.pane_areas
+            .iter()
+            .find(|(_, r)| r.contains(ratatui::layout::Position::new(x, y)))
+            .map(|&(id, _)| id)
+    }
+
+    /// The layout as `ui.layout` text.
+    pub fn layout_spec(&self, state: &State) -> String {
+        let mut panes = self.panes.clone();
+        if let Some(pane) = panes.get_mut(panes.focus()) {
+            pane.buffer = self.active;
+        }
+        panes.to_spec(|pane: &Pane| {
+            let buffer = state.buffer(pane.buffer?)?;
+            let network = state.network(buffer.network)?;
+            Some(Place {
+                network: network.name.clone(),
+                buffer: (buffer.kind != BufferKind::Server).then(|| buffer.name.clone()),
+            })
+        })
+    }
+
+    /// Replaces the panes with a saved layout. Panes show their buffers as
+    /// soon as they exist; until then, the focused one keeps what it shows.
+    pub fn apply_layout(&mut self, spec: &str, state: &State) -> Result<(), String> {
+        let panes = Panes::from_spec(spec)?;
+        self.panes = panes;
+        self.resolve_panes(state);
+        Ok(())
+    }
+
+    /// Fills panes waiting for buffers that now exist, and gives panes whose
+    /// buffer closed the first buffer instead.
+    fn resolve_panes(&mut self, state: &State) {
+        let focus = self.panes.focus();
+        let first = self.order(state).first().copied();
+        for id in self.panes.ids() {
+            let Some(pane) = self.panes.get_mut(id) else {
+                continue;
+            };
+            if let Some(found) = pane.want.as_ref().and_then(|p| find_place(state, p)) {
+                pane.want = None;
+                pane.buffer = Some(found);
+                if id == focus {
+                    self.active = Some(found);
+                }
+            } else if id != focus
+                && pane.want.is_none()
+                && pane.buffer.and_then(|b| state.buffer(b)).is_none()
+            {
+                pane.buffer = first;
+            }
+        }
     }
 
     /// The channel or query name messages typed now go to, if any.
@@ -355,6 +520,17 @@ impl Ui {
         let buffer = state.buffer(self.active?)?;
         (buffer.kind != BufferKind::Server).then_some((buffer.network, buffer.name.as_str()))
     }
+}
+
+/// The buffer a saved pane names, if it exists.
+fn find_place(state: &State, place: &Place) -> Option<BufferId> {
+    place.readings().into_iter().find_map(|(network, buffer)| {
+        let net = state.networks().find(|n| n.name == network)?;
+        match buffer {
+            None => Some(net.server_buffer),
+            Some(name) => state.find_buffer(net.id, &name),
+        }
+    })
 }
 
 #[cfg(test)]
@@ -482,5 +658,57 @@ mod tests {
         assert!(s.remove_buffer(active));
         ui.on_update(&s);
         assert_eq!(ui.active, Some(ui.order(&s)[0]));
+    }
+
+    #[test]
+    fn panes_keep_their_own_buffers() {
+        let s = state();
+        let a = s.find_buffer(NetworkId(0), "#a").unwrap();
+        let b = s.find_buffer(NetworkId(1), "#b").unwrap();
+        let mut ui = Ui::new(&UiConfig::default(), &s);
+        ui.switch(a);
+        assert!(ui.split(Direction::Stacked));
+        // The new pane shows the same buffer and has focus.
+        assert_eq!(ui.panes.focus(), 1);
+        assert_eq!(ui.active, Some(a));
+        ui.switch(b);
+        assert_eq!(ui.visible(), [b, a]);
+        ui.cycle_pane(true);
+        assert_eq!(ui.active, Some(a), "the first pane kept #a");
+        ui.cycle_pane(false);
+        assert_eq!(ui.active, Some(b));
+        assert!(ui.close_pane());
+        assert_eq!(ui.active, Some(a));
+        assert!(!ui.close_pane(), "the last pane stays");
+    }
+
+    #[test]
+    fn closed_buffers_leave_panes_and_layouts_fill_in() {
+        let mut s = state();
+        let a = s.find_buffer(NetworkId(0), "#a").unwrap();
+        let b = s.find_buffer(NetworkId(1), "#b").unwrap();
+        let mut ui = Ui::new(&UiConfig::default(), &s);
+        ui.switch(a);
+        ui.split(Direction::SideBySide);
+        ui.switch(b);
+        ui.focus_pane(0);
+        // #b closes while shown in the unfocused pane.
+        s.remove_buffer(b);
+        ui.on_update(&s);
+        assert!(ui.visible().iter().all(|&id| s.buffer(id).is_some()));
+
+        // A saved layout names buffers that don't exist yet.
+        ui.apply_layout("v(one/#a,two/#later)", &s).unwrap();
+        assert_eq!(ui.active, Some(a));
+        assert_eq!(ui.pane_buffer(1), None);
+        s.apply(
+            NetworkId(1),
+            NetEvent::Message(Message::parse(":me!u@h JOIN #later").unwrap()),
+        );
+        ui.on_update(&s);
+        let later = s.find_buffer(NetworkId(1), "#later").unwrap();
+        assert_eq!(ui.pane_buffer(1), Some(later));
+        assert_eq!(ui.layout_spec(&s), "v(one/#a,two/#later)");
+        assert!(ui.apply_layout("v(oops", &s).is_err());
     }
 }

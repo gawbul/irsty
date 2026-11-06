@@ -55,6 +55,7 @@ fn bench(c: &mut Criterion) {
             b.iter(|| {
                 cells.reset();
                 Scrollback {
+                    marker: None,
                     buffer,
                     offset,
                     time_format: "%H:%M",
