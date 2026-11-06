@@ -1674,6 +1674,7 @@ dependencies = [
  "irsty-proto",
  "irsty-tui",
  "jiff",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-appender",

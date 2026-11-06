@@ -22,3 +22,16 @@ pub mod view;
 
 pub use irsty_core as core;
 pub use run::run;
+
+/// What is wrong with the parts of a config the UI reads, which parsing
+/// alone doesn't check: key bindings, the theme and the saved layout.
+pub fn check_config(config: &irsty_core::Config) -> Vec<String> {
+    let mut problems = keymap::Keymap::new(&config.ui.keymap, &config.keys).1;
+    problems.extend(theme::Theme::from_config(&config.theme).1);
+    if let Some(layout) = &config.ui.layout
+        && let Err(error) = panes::Panes::from_spec(layout)
+    {
+        problems.push(format!("ui.layout: {error}"));
+    }
+    problems
+}
