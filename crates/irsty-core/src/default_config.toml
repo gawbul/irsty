@@ -74,6 +74,13 @@ regex = []
 [nick_colours]
 # alice = "light_blue"
 
+# Luau scripts to load at startup (docs/SCRIPTING.md). Scripts can watch,
+# print, add commands and set timers; "send" lets one act for you.
+#
+# [[script]]
+# path = "scripts/hello.luau"
+# allow = ["send"]
+
 # Networks: add them here or with /server add.
 #
 # [[network]]
