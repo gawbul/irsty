@@ -29,11 +29,12 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **Commands** ([docs/COMMANDS.md](docs/COMMANDS.md)): talking (`/msg /query /me /reply /react /notice /ctcp /away`), finding out (`/whois /whowas /who /names /topic /list`, with replies gathered where you typed them), running channels (`/mode /op /voice /kick /ban /invite`), buffers (`/window /close /clear`), and setting things up from inside Irsty: `/server add|del|update|list`, `/set`, `/alias`, `/ignore` and `/highlight`, all saved to your config with its comments intact. Passwords sent with `/raw` or to NickServ are hidden on screen and in logs.
 - **First run:** no config file needed; add a network with `/server add` and Irsty writes one.
 - **Ignores and highlights:** hide people by mask, per network or channel; highlight words and regexes besides your nick. Highlighted lines stand out, and highlights and private messages raise desktop notifications through the terminal (OSC 777, OSC 9 or the bell, tmux-aware).
-- **Looks:** nick colours (with overrides), underlined links with `/url` to open them, and mIRC formatting typed with irssi's or WeeChat's keys.
+- **Looks:** themes (`dark` and `light` presets, and every element restylable in `[theme]`), colours fitted to what the terminal shows (truecolor, 256, 16, or none, honouring `NO_COLOR`), nick colours (with overrides), underlined links with `/url` to open them, and mIRC formatting typed with irssi's or WeeChat's keys.
+- **Config tools:** `/reload` reads the file again after you edit it (networks included), `irsty --check-config` checks a file without starting, and `irsty --print-default-config` prints one with every setting at its default.
 - **CTCP:** answers `VERSION`, `PING`, `TIME`, `CLIENTINFO` and `SOURCE`, rate-limited.
 - **Headless mode:** `--headless` prints every buffer's new lines to stdout.
 
-Not yet: themes (M12), scripting (M13) and DCC (M16). See [`PLAN.md`](PLAN.md).
+Not yet: scripting (M13) and DCC (M16). See [`PLAN.md`](PLAN.md).
 
 ## Quick start
 
@@ -49,7 +50,7 @@ Then run `./target/release/irsty` and add a network from inside it:
 /server add libera irc.libera.chat -nick yournick,yournick_ -autojoin #irsty
 ```
 
-That connects, joins `#irsty`, and saves `~/.config/irsty/config.toml` (or under `$XDG_CONFIG_HOME`) on Linux and macOS. `/help server` lists every option. You can also write the file yourself:
+That connects, joins `#irsty`, and saves `~/.config/irsty/config.toml` (or under `$XDG_CONFIG_HOME`) on Linux and macOS. `/help server` lists every option. You can also write the file yourself (`irsty --print-default-config` prints every setting to start from, and `irsty --check-config` checks your file):
 
 ```toml
 [[network]]

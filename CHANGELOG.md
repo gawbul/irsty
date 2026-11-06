@@ -28,6 +28,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- M12, looks and config tools:
+  - Themes: `[theme] preset` (`dark`, the existing look, or `light`) and a style for any element (`bar = "white on blue"`), including the nick palette. Style strings take modifiers, names, `#rrggbb`, `colour0` to `colour255` and `on` a background.
+  - Colour fallback: `[theme] colours` (`auto`, `truecolor`, `256`, `16` or `none`); every colour on screen is fitted to what the terminal shows. `auto` honours `NO_COLOR`, `COLORTERM` and `TERM`; with no colour, bars and highlights show in reverse video.
+  - `/reload` reads the config file again and applies it, networks included (added, changed ones reconnect, removed ones close).
+  - `irsty --check-config` checks a config file (status 1 on errors, including key bindings, theme and layout), and `irsty --print-default-config` prints one with every setting at its default.
+  - `[nick_colours]` takes `#rrggbb` and `colour0` to `colour255` as well as names.
 - M11, finding your way around:
   - `/search` (`/grep`): a full-text index of the messages Irsty logs (SQLite with FTS5, `search.sqlite` in the data directory, `[search] enabled`), searched in the current buffer, the network or everywhere (`-all`), optionally from one nick, with matches in bold.
   - Split windows: `/window split`, `vsplit`, `merge [all]` and `pane`, with F7 and F8 to move focus and a click to focus a pane; `/layout save|apply|reset` keeps them in `ui.layout`, restored at startup.
