@@ -106,6 +106,7 @@ These change `config.toml` and take effect at once.
 | `/alias` | `/alias [name [/command ...[; /command ...]]]` | Define an alias, show one, or list them. See below. |
 | `/unalias` | `/unalias <name>` | Remove an alias. |
 | `/set` | `/set [setting [value]] \| /set -reset <setting>` | List settings, show one, change one, or reset it to the default. |
+| `/reload` | `/reload` | Read the config file again after you edit it, and apply it: settings, keys, theme and highlights at once, and networks by name (new ones added, changed ones reconnect, missing ones closed). A file that doesn't parse changes nothing, and problems in it are listed. Logging, mouse and search changes wait for a restart. |
 | `/bind` | `/bind [key [action]] \| /bind -reset <key>` | List key bindings, show one, change one, or go back to the preset's. Keys and actions are in [KEYBINDINGS.md](KEYBINDINGS.md#customising). |
 | `/unbind` | `/unbind <key>` | Make a key do nothing (the same as `/bind <key> none`). |
 
@@ -120,7 +121,7 @@ In an alias, `$*` is everything typed after it, `$1` to `$9` single words, and `
 
 ### Settings
 
-`/set` changes `scrollback`, `logging.enabled`, `logging.dir`, `logging.rotate`, `ui.mouse`, `ui.nicklist`, `ui.timestamp_format`, `ui.keymap`, `ui.nick_colours`, `notifications.method`, `notifications.when_focused`, `notifications.show_text`, `ctcp.replies`, `ctcp.version`, `ctcp.time`, `history.lines`, `typing.send`, `typing.show`, `search.enabled` and `ui.layout` (see [CONFIG.md](CONFIG.md)). `/set` with no arguments lists them with their values. Booleans accept `on`/`off`, `true`/`false` and `yes`/`no`. Logging and mouse changes take effect when Irsty restarts; the rest apply at once.
+`/set` changes `scrollback`, `logging.enabled`, `logging.dir`, `logging.rotate`, `ui.mouse`, `ui.nicklist`, `ui.timestamp_format`, `ui.keymap`, `ui.nick_colours`, `notifications.method`, `notifications.when_focused`, `notifications.show_text`, `ctcp.replies`, `ctcp.version`, `ctcp.time`, `history.lines`, `typing.send`, `typing.show`, `search.enabled`, `ui.layout`, `theme.preset` and `theme.colours` (see [CONFIG.md](CONFIG.md)). `/set` with no arguments lists them with their values. Booleans accept `on`/`off`, `true`/`false` and `yes`/`no`. Logging, mouse and search changes take effect when Irsty restarts; the rest apply at once.
 
 ## Leaving
 

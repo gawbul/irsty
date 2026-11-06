@@ -9,11 +9,12 @@ use irsty_core::state::{Buffer, Delivery, Line, LineKind};
 use jiff::tz::TimeZone;
 use ratatui::buffer::Buffer as Cells;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::widgets::Widget;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+use crate::theme::Theme;
 use crate::{theme, urls};
 
 /// Separator between the nick column and the text.
@@ -34,6 +35,8 @@ pub struct Scrollback<'a> {
     pub nick_width: usize,
     /// How to colour nicks.
     pub colours: &'a theme::NickColours,
+    /// Styles.
+    pub theme: &'a Theme,
     /// The number of the last line read before the buffer came on screen:
     /// a separator goes above the first line after it.
     pub marker: Option<u64>,
@@ -85,7 +88,7 @@ impl Scrollback<'_> {
             .skip(skip)
             .map(|line| {
                 let counts = reaction_counts(line);
-                wrap(&pieces(line, self.colours, &counts), width).len()
+                wrap(&pieces(line, self.colours, self.theme, &counts), width).len()
             })
             .collect();
         let height = usize::from(area.height);
@@ -103,7 +106,7 @@ impl Scrollback<'_> {
 type Piece<'a> = (&'a str, Style);
 
 /// The nick column for a line: text and style.
-fn gutter(line: &Line, colours: &theme::NickColours) -> (String, Style) {
+fn gutter(line: &Line, colours: &theme::NickColours, theme: &Theme) -> (String, Style) {
     let nick = line.sender.as_deref().unwrap_or("");
     if line.highlight && matches!(line.kind, LineKind::Message | LineKind::Notice) {
         let shown = if line.kind == LineKind::Notice {
@@ -111,30 +114,17 @@ fn gutter(line: &Line, colours: &theme::NickColours) -> (String, Style) {
         } else {
             nick.to_owned()
         };
-        return (shown, theme::highlight());
+        return (shown, theme.highlight);
     }
     match line.kind {
         LineKind::Message => (nick.to_owned(), Style::default().fg(colours.colour(nick))),
-        LineKind::Action => (
-            "*".to_owned(),
-            Style::default().add_modifier(Modifier::BOLD),
-        ),
-        LineKind::Notice => (
-            format!("-{nick}-"),
-            Style::default().fg(Color::LightMagenta),
-        ),
-        LineKind::Join => ("-->".to_owned(), Style::default().fg(Color::LightGreen)),
-        LineKind::Part | LineKind::Quit | LineKind::Kick => {
-            ("<--".to_owned(), Style::default().fg(Color::LightRed))
-        }
-        LineKind::Error => (
-            "!!".to_owned(),
-            Style::default()
-                .fg(Color::LightRed)
-                .add_modifier(Modifier::BOLD),
-        ),
+        LineKind::Action => ("*".to_owned(), theme.action),
+        LineKind::Notice => (format!("-{nick}-"), theme.notice),
+        LineKind::Join => ("-->".to_owned(), theme.join),
+        LineKind::Part | LineKind::Quit | LineKind::Kick => ("<--".to_owned(), theme.part),
+        LineKind::Error => ("!!".to_owned(), theme.error.add_modifier(Modifier::BOLD)),
         LineKind::Nick | LineKind::Mode | LineKind::Topic | LineKind::Info => {
-            ("--".to_owned(), theme::dim())
+            ("--".to_owned(), theme.dim)
         }
     }
 }
@@ -173,15 +163,16 @@ fn reaction_counts(line: &Line) -> Vec<String> {
 fn pieces<'a>(
     line: &'a Line,
     colours: &theme::NickColours,
+    theme: &Theme,
     counts: &'a [String],
 ) -> Vec<Piece<'a>> {
-    let mut base = theme::line_style(line.kind);
+    let mut base = theme.line_style(line.kind);
     if matches!(line.delivery, Delivery::Pending { .. }) {
-        base = base.patch(theme::dim());
+        base = base.patch(theme.dim);
     }
     let mut out = Vec::new();
     if let Some(reply) = &line.reply {
-        let dim = theme::dim();
+        let dim = theme.dim;
         out.push(("↪ ", dim));
         match &reply.parent {
             Some((nick, excerpt)) => {
@@ -197,7 +188,7 @@ fn pieces<'a>(
         && let Some(nick) = &line.sender
     {
         let style = if line.highlight {
-            theme::highlight()
+            theme.highlight
         } else {
             Style::default().fg(colours.colour(nick))
         };
@@ -211,7 +202,7 @@ fn pieces<'a>(
             .map(|s| (s.text(), base.patch(theme::span_style(s.style())))),
     );
     if let Delivery::Failed { reason } = &line.delivery {
-        let red = Style::default().fg(Color::LightRed);
+        let red = theme.error;
         out.extend([(" [not sent: ", red), (reason.as_str(), red), ("]", red)]);
     }
     let mut out = underline_urls(out);
@@ -338,7 +329,7 @@ impl Widget for Scrollback<'_> {
             }
             let seq = self.buffer.total - u64::try_from(back).unwrap_or(0);
             let counts = reaction_counts(line);
-            let pieces = pieces(line, self.colours, &counts);
+            let pieces = pieces(line, self.colours, self.theme, &counts);
             let rows = wrap(&pieces, text_width);
             for (index, row) in rows.iter().enumerate().rev() {
                 if y <= area.top() {
@@ -351,14 +342,14 @@ impl Widget for Scrollback<'_> {
                     // reads as one block.
                     let sep_x =
                         text_x.saturating_sub(u16::try_from(SEPARATOR.width()).unwrap_or(0));
-                    draw_pieces(cells, sep_x, y, max_x, &[(SEPARATOR, theme::dim())]);
+                    draw_pieces(cells, sep_x, y, max_x, &[(SEPARATOR, self.theme.dim)]);
                 } else if line.continued {
                     // The rest of a multi-line message: one block, under
                     // the first line's time and nick.
                     let blank = " ".repeat(time_width + 1 + nick_width);
                     let gutter_pieces = [
                         (blank.as_str(), Style::default()),
-                        (SEPARATOR, theme::dim()),
+                        (SEPARATOR, self.theme.dim),
                     ];
                     draw_pieces(cells, area.x, y, max_x, &gutter_pieces);
                 } else {
@@ -367,13 +358,13 @@ impl Widget for Scrollback<'_> {
                         .to_zoned(self.tz.clone())
                         .strftime(self.time_format)
                         .to_string();
-                    let (nick, nick_style) = gutter(line, self.colours);
+                    let (nick, nick_style) = gutter(line, self.colours, self.theme);
                     let nick = fit_right(&nick, nick_width);
                     let gutter_pieces = [
-                        (time.as_str(), theme::dim()),
+                        (time.as_str(), self.theme.dim),
                         (" ", Style::default()),
                         (nick.as_str(), nick_style),
-                        (SEPARATOR, theme::dim()),
+                        (SEPARATOR, self.theme.dim),
                     ];
                     draw_pieces(cells, area.x, y, max_x, &gutter_pieces);
                 }
@@ -387,7 +378,13 @@ impl Widget for Scrollback<'_> {
                     "─".repeat(side),
                     "─".repeat(full.saturating_sub(side + label.width()))
                 );
-                draw_pieces(cells, area.x, y, max_x, &[(rule.as_str(), theme::unread())]);
+                draw_pieces(
+                    cells,
+                    area.x,
+                    y,
+                    max_x,
+                    &[(rule.as_str(), self.theme.unread)],
+                );
             }
         }
     }

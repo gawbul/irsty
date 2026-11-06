@@ -342,3 +342,32 @@ fn no_unread_marker_for_lines_seen_arriving() {
     render(&s, &mut ui, 80, 12);
     assert_eq!(ui.offset(), 0, "nothing to jump to");
 }
+
+/// With no colour (`NO_COLOR`), nothing on screen has a colour, and the bars
+/// and the selected buffer stand out in reverse video instead. With 16
+/// colours, nothing is left in RGB or the 256 palette.
+#[test]
+fn no_colour_and_sixteen_colours() {
+    use irsty_tui::theme::Depth;
+    use ratatui::style::{Color, Modifier};
+    let s = state();
+    let mut ui = ui(&s, "#irsty");
+    ui.depth = Depth::None;
+    let terminal = render(&s, &mut ui, 100, 20);
+    let cells = terminal.backend().buffer();
+    assert!(
+        cells
+            .content()
+            .iter()
+            .all(|c| c.fg == Color::Reset && c.bg == Color::Reset)
+    );
+    // The status bar (second row from the bottom) is reversed.
+    assert!(cells[(0, 18)].modifier.contains(Modifier::REVERSED));
+
+    ui.depth = Depth::Basic16;
+    let terminal = render(&s, &mut ui, 100, 20);
+    assert!(terminal.backend().buffer().content().iter().all(|c| {
+        !matches!(c.fg, Color::Rgb(..) | Color::Indexed(16..))
+            && !matches!(c.bg, Color::Rgb(..) | Color::Indexed(16..))
+    }));
+}

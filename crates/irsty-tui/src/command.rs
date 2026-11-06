@@ -226,6 +226,12 @@ pub const COMMANDS: &[Spec] = &[
         "Switch buffers by number, close or list them, split the screen into panes, or jump to the first unread line."
     ),
     spec!(
+        "reload",
+        [],
+        "/reload",
+        "Read the config file again and apply it, networks included."
+    ),
+    spec!(
         "layout",
         [],
         "/layout [save|apply|reset]",
@@ -437,6 +443,8 @@ pub enum Command {
     Me(String),
     /// `/layout`.
     Layout(LayoutCommand),
+    /// `/reload`.
+    Reload,
     /// `/search`.
     Search {
         /// What to look for.
@@ -832,6 +840,7 @@ pub fn parse(input: &str) -> Result<Command, ParseError> {
             "unread" => Window::Unread,
             n => Window::Number(n.parse().map_err(|_| usage(name))?),
         }),
+        "reload" => Command::Reload,
         "layout" => Command::Layout(match first.to_lowercase().as_str() {
             "" => LayoutCommand::Show,
             "save" => LayoutCommand::Save,
