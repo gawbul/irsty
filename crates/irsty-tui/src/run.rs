@@ -112,8 +112,19 @@ pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -
     let (keymap, problems) = crate::keymap::Keymap::new(&config.ui.keymap, &config.keys);
     ui.keymap = keymap;
     ui.nick_colours = crate::theme::NickColours::new(config.ui.nick_colours, &config.nick_colours);
+    let layout = config.ui.layout.clone();
     ui.config = config;
     ui.config_file = file;
+    if let Some(spec) = layout
+        && let Err(error) = ui.apply_layout(&spec, client.state())
+    {
+        app::feedback(
+            &mut client,
+            &mut ui,
+            irsty_core::state::LineKind::Error,
+            &format!("ui.layout: {error}; starting with one pane"),
+        );
+    }
     for problem in problems {
         app::feedback(
             &mut client,
@@ -137,9 +148,7 @@ pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -
         if dirty && Instant::now() >= next_frame {
             ui.now = Timestamp::now();
             terminal.draw(|frame| view::render(frame, client.state(), &mut ui))?;
-            if let Some(active) = ui.active {
-                client.mark_read(active);
-            }
+            client.mark_shown(&ui.visible());
             dirty = false;
             next_frame = Instant::now() + FRAME;
         }

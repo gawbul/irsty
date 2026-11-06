@@ -1,0 +1,24 @@
+---
+source: crates/irsty-tui/tests/snapshots.rs
+expression: "render(&s, &mut ui, 100, 20).backend()"
+---
+"Irsty: a terminal IRC client in Rust | https://github.com/gawbul/irsty                              "
+" 1.libera        │ 2:libera/#irsty                 │ 3:libera/frank                  @gawbul        "
+" 2.  #irsty      │               │ ト and emoji 👍🏽 │                                 +alice         " Hidden by multi-width symbols: [(36, " "), (49, " ")]
+" 3.  frank       │               │ ❤️ 🇬🇧 mixed in  │                                  carol         " Hidden by multi-width symbols: [(36, " "), (39, " ")]
+"                 │09:05  mallory │ ␛]0;pwned␇      │                                  dave_         "
+"                 │               │ ␛[2Jtrying      │                                  eve           "
+"                 │               │ escapes         │                                                "
+"                 │09:06 averyve+ │ long nicks are  │                                                "
+"                 │               │ truncated       │09:10    frank │ psst, private                  "
+"                 │09:07 -ChanSe+ │ Welcome to      │               │ message                        "
+"                 │               │ #irsty          │ 1:libera                                       "
+"                 │09:08      <-- │ bob has left    │                                                "
+"                 │               │ #irsty (lunch)  │                                                "
+"                 │09:09    alice │ gawbul: are you │                                                "
+"                 │               │ there?          │                                                "
+"                 │──────────── unread ─────────────│08:59       -- │ Connected to                   "
+"                 │09:11    alice │ new one         │               │ irc.libera.chat                "
+"                 │09:12    carol │ new two         │               │ :6697 (TLS)                    "
+"[09:15] [gawbul] [2:libera/#irsty] [Act: 3] [Lag: 1.2s]                                             "
+"[#irsty]                                                                                            "
