@@ -844,9 +844,18 @@ impl State {
 
     /// Adds a client-generated line to any buffer.
     pub fn note_buffer(&mut self, buffer: BufferId, kind: LineKind, text: &str) -> Vec<Effect> {
+        self.note_text(buffer, kind, StyledText::plain(text))
+    }
+
+    /// Like [`State::note_buffer`], but mIRC formatting codes in `text` style
+    /// it (it is sanitised all the same).
+    pub fn note_formatted(&mut self, buffer: BufferId, kind: LineKind, text: &str) -> Vec<Effect> {
+        self.note_text(buffer, kind, StyledText::parse(text))
+    }
+
+    fn note_text(&mut self, buffer: BufferId, kind: LineKind, text: StyledText) -> Vec<Effect> {
         let mut effects = Vec::new();
         if self.buffers.contains_key(&buffer) {
-            let text = StyledText::plain(text);
             let line = Line {
                 time: (self.clock)(),
                 kind,
