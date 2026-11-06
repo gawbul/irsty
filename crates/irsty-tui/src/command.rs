@@ -226,6 +226,12 @@ pub const COMMANDS: &[Spec] = &[
         "Switch buffers by number, close or list them, split the screen into panes, or jump to the first unread line."
     ),
     spec!(
+        "script",
+        [],
+        "/script [list] | /script load <path> [-allow send] | /script unload <name> | /script reload [name]",
+        "List, load, unload or reload Luau scripts."
+    ),
+    spec!(
         "reload",
         [],
         "/reload",
@@ -345,6 +351,24 @@ pub enum Window {
     Unread,
 }
 
+/// `/script` subcommands.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScriptCommand {
+    /// List loaded scripts.
+    List,
+    /// Load a script file.
+    Load {
+        /// The file.
+        path: String,
+        /// Grant the `send` capability.
+        send: bool,
+    },
+    /// Unload a script by name.
+    Unload(String),
+    /// Load a script (or every script) again from its file.
+    Reload(Option<String>),
+}
+
 /// `/layout` subcommands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayoutCommand {
@@ -445,6 +469,8 @@ pub enum Command {
     Layout(LayoutCommand),
     /// `/reload`.
     Reload,
+    /// `/script`.
+    Script(ScriptCommand),
     /// `/search`.
     Search {
         /// What to look for.
@@ -841,6 +867,24 @@ pub fn parse(input: &str) -> Result<Command, ParseError> {
             n => Window::Number(n.parse().map_err(|_| usage(name))?),
         }),
         "reload" => Command::Reload,
+        "script" => Command::Script(match first.to_lowercase().as_str() {
+            "" | "list" => ScriptCommand::List,
+            "load" => {
+                let (path, options) = word(tail);
+                let send = match options.trim() {
+                    "" => false,
+                    "-allow send" => true,
+                    _ => return Err(usage(name)),
+                };
+                ScriptCommand::Load {
+                    path: need(path)?,
+                    send,
+                }
+            }
+            "unload" => ScriptCommand::Unload(need(tail)?),
+            "reload" => ScriptCommand::Reload(opt(tail)),
+            _ => return Err(usage(name)),
+        }),
         "layout" => Command::Layout(match first.to_lowercase().as_str() {
             "" => LayoutCommand::Show,
             "save" => LayoutCommand::Save,
@@ -1234,6 +1278,20 @@ mod tests {
             Ok(Command::Layout(LayoutCommand::Save))
         );
         assert!(parse("/layout dance").is_err());
+        assert_eq!(
+            parse("/script load ~/s/hi.luau -allow send"),
+            Ok(Command::Script(ScriptCommand::Load {
+                path: "~/s/hi.luau".into(),
+                send: true
+            }))
+        );
+        assert_eq!(parse("/script"), Ok(Command::Script(ScriptCommand::List)));
+        assert_eq!(
+            parse("/script reload"),
+            Ok(Command::Script(ScriptCommand::Reload(None)))
+        );
+        assert!(parse("/script load x -allow everything").is_err());
+        assert!(parse("/script unload").is_err());
     }
 
     #[test]

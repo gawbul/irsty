@@ -141,7 +141,11 @@ pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -
     let mut next_frame = Instant::now();
     let mut client_running = true;
 
+    let mut startup = app::load_scripts(&mut client, &mut ui);
     let reason = loop {
+        if let Flow::Quit(reason) = std::mem::replace(&mut startup, Flow::Continue) {
+            break reason;
+        }
         if dirty && Instant::now() >= next_frame {
             ui.now = Timestamp::now();
             terminal.draw(|frame| view::render(frame, client.state(), &mut ui))?;
@@ -150,6 +154,7 @@ pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -
             next_frame = Instant::now() + FRAME;
         }
 
+        let script_due = ui.scripts.next_due();
         let flow = tokio::select! {
             batch = client.next(), if client_running => {
                 if batch.is_none() {
@@ -158,7 +163,7 @@ pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -
                 }
                 ui.on_update(client.state());
                 notify(&mut client, &ui, &mut limiter, tmux);
-                Flow::Continue
+                app::script_lines(&mut client, &mut ui)
             }
             event = events.next() => match event {
                 Some(Ok(event)) => {
@@ -173,6 +178,9 @@ pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -
             },
             flow = signals.next() => flow,
             _ = clock.tick() => Flow::Continue,
+            () = sleep_until(script_due.map_or(next_frame, Instant::from_std)), if script_due.is_some() => {
+                app::script_timers(&mut client, &mut ui)
+            }
             () = sleep_until(next_frame), if dirty => continue,
         };
 
