@@ -462,6 +462,71 @@ impl Default for HistoryConfig {
     }
 }
 
+/// A config file with every setting at its default and a commented
+/// example network, for `irsty --print-default-config`.
+pub const DEFAULT_CONFIG: &str = include_str!("default_config.toml");
+
+/// How many colours the terminal shows (`[theme] colours`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ColourMode {
+    /// Work it out from `NO_COLOR`, `COLORTERM` and `TERM`.
+    #[default]
+    Auto,
+    /// 24-bit colour.
+    Truecolor,
+    /// The 256-colour palette.
+    #[serde(rename = "256")]
+    Palette256,
+    /// The 16 basic colours, as the terminal's own theme defines them.
+    #[serde(rename = "16")]
+    Basic16,
+    /// No colour at all; bold, reverse and the like still show.
+    None,
+}
+
+impl std::fmt::Display for ColourMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Auto => "auto",
+            Self::Truecolor => "truecolor",
+            Self::Palette256 => "256",
+            Self::Basic16 => "16",
+            Self::None => "none",
+        })
+    }
+}
+
+/// Colours and styles (`[theme]`). The UI checks the preset and the
+/// element names and styles.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct ThemeConfig {
+    /// The starting point: `dark` (the default) or `light`.
+    #[serde(default = "default_preset")]
+    pub preset: String,
+    /// How many colours to use. Defaults to `auto`.
+    #[serde(default)]
+    pub colours: ColourMode,
+    /// Styles for particular elements, such as `bar = "white on blue"`, and
+    /// `nicks`, the colours nicks are given.
+    #[serde(flatten)]
+    pub styles: std::collections::BTreeMap<String, String>,
+}
+
+fn default_preset() -> String {
+    "dark".into()
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        Self {
+            preset: default_preset(),
+            colours: ColourMode::Auto,
+            styles: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
 /// The search index.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -679,6 +744,25 @@ pub struct HighlightConfig {
     pub regex: Vec<String>,
 }
 
+/// Whether `text` is a colour as `[nick_colours]` and `[theme]` write them:
+/// one of [`COLOUR_NAMES`] (`-` and `_` alike, `grey` for `gray`),
+/// `#rrggbb`, or `colour0` to `colour255`.
+pub fn is_colour(text: &str) -> bool {
+    let lower = text
+        .to_lowercase()
+        .replace('-', "_")
+        .replace("grey", "gray");
+    COLOUR_NAMES.contains(&lower.as_str())
+        || matches!(lower.as_str(), "default" | "reset")
+        || lower
+            .strip_prefix('#')
+            .is_some_and(|hex| hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit()))
+        || lower
+            .strip_prefix("colour")
+            .or_else(|| lower.strip_prefix("color"))
+            .is_some_and(|n| n.parse::<u8>().is_ok())
+}
+
 /// Colour names `nick_colours` accepts: the 16 terminal colours.
 pub const COLOUR_NAMES: &[&str] = &[
     "black",
@@ -750,6 +834,9 @@ pub struct Config {
     /// The search index.
     #[serde(default)]
     pub search: SearchConfig,
+    /// Colours and styles.
+    #[serde(default)]
+    pub theme: ThemeConfig,
 }
 
 impl Default for Config {
@@ -770,6 +857,7 @@ impl Default for Config {
             history: HistoryConfig::default(),
             typing: TypingConfig::default(),
             search: SearchConfig::default(),
+            theme: ThemeConfig::default(),
         }
     }
 }
@@ -854,13 +942,9 @@ impl Config {
         if self.scrollback == 0 {
             return invalid("scrollback must be at least 1".into());
         }
-        if let Some((nick, colour)) = self
-            .nick_colours
-            .iter()
-            .find(|(_, c)| !COLOUR_NAMES.contains(&c.to_lowercase().as_str()))
-        {
+        if let Some((nick, colour)) = self.nick_colours.iter().find(|(_, c)| !is_colour(c)) {
             return invalid(format!(
-                "nick_colours: {colour:?} for {nick:?} is not a colour; use one of {}",
+                "nick_colours: {colour:?} for {nick:?} is not a colour; use #rrggbb, colour0 to colour255, or one of {}",
                 COLOUR_NAMES.join(", ")
             ));
         }
@@ -1048,6 +1132,38 @@ fn xdg_config_dir(xdg_config_home: Option<std::ffi::OsString>, home: &Path) -> P
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn colours() {
+        for good in [
+            "light_blue",
+            "Dark-Grey",
+            "#FF8000",
+            "colour208",
+            "color0",
+            "default",
+        ] {
+            assert!(is_colour(good), "{good}");
+        }
+        for bad in ["puce", "#ff80", "#gg0000", "colour256", ""] {
+            assert!(!is_colour(bad), "{bad}");
+        }
+    }
+
+    /// The printed default config is exactly the defaults, and mentions
+    /// every setting `/set` knows.
+    #[test]
+    fn the_default_config_is_the_defaults() {
+        let parsed = Config::parse(DEFAULT_CONFIG, Path::new("default.toml")).unwrap();
+        assert_eq!(parsed, Config::default());
+        for (key, _) in crate::config_file::SETTINGS {
+            let name = key.rsplit('.').next().unwrap();
+            assert!(
+                DEFAULT_CONFIG.contains(&format!("{name} =")),
+                "default_config.toml doesn't mention {key}"
+            );
+        }
+    }
 
     const EXAMPLE: &str = r##"
         scrollback = 500

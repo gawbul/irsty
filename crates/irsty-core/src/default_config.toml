@@ -1,0 +1,90 @@
+# Irsty's configuration, with every setting at its default.
+# docs/CONFIG.md describes each one; `irsty --check-config` checks a file.
+# Most settings can also be changed from inside Irsty with /set, and
+# /reload reads this file again after you edit it.
+
+# Lines kept per buffer.
+scrollback = 10000
+
+[logging]
+# One plain-text file per buffer.
+enabled = true
+# "never", "daily" or "monthly".
+rotate = "never"
+# Where logs go; by default the platform data directory's "logs".
+# dir = "~/irclogs"
+
+[search]
+# Keep logged messages in a search index for /search (needs logging).
+enabled = true
+
+[ui]
+# Capture the mouse for the wheel and clicks (the terminal's own selection
+# then needs Shift).
+mouse = false
+nicklist = true
+timestamp_format = "%H:%M"
+# "irssi" or "weechat".
+keymap = "irssi"
+nick_colours = true
+# Split windows restored at startup; /layout save writes this.
+# layout = "v(libera/#rust,libera)"
+
+[theme]
+# "dark" or "light".
+preset = "dark"
+# "auto" (from NO_COLOR, COLORTERM and TERM), "truecolor", "256", "16" or
+# "none".
+colours = "auto"
+# Any element can be restyled, for example:
+# bar = "white on blue"
+# highlight = "black on yellow bold"
+# nicks = "cyan magenta green yellow light_blue light_red"
+
+[notifications]
+# "osc777", "osc9", "bell" or "none".
+method = "osc777"
+when_focused = false
+show_text = true
+
+[typing]
+# Tell others when you are typing (off: it shows you are at the keyboard).
+send = false
+show = true
+
+[history]
+# Messages fetched at a time from servers that keep history; 0 turns it off.
+lines = 100
+
+[ctcp]
+replies = true
+time = true
+# version = "Irsty <version> (https://github.com/gawbul/irsty)"
+
+[highlight]
+words = []
+regex = []
+
+[aliases]
+# j = "/join $*"
+
+[keys]
+# "alt-x" = "switcher"
+
+[nick_colours]
+# alice = "light_blue"
+
+# Networks: add them here or with /server add.
+#
+# [[network]]
+# name = "libera"
+# nicks = ["yournick", "yournick_"]
+# autojoin = ["#irsty"]
+#
+# [[network.servers]]
+# host = "irc.libera.chat"
+#
+# [network.sasl]
+# mechanism = "scram-sha-256"
+# account = "yournick"
+# password = { keyring = "libera" }
