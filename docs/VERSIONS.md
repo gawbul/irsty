@@ -54,7 +54,7 @@ The dependencies chosen before any code was written. Most are in use; the "Not u
 | notify-rust | 4.18.2 | 2026-10-07 | Not yet: notifications use OSC 777, OSC 9 or the bell, which work over SSH ([ADR 0007](adr/0007-terminal-protocols-first.md)). A native fallback may follow. |
 | arboard | 3.7.0 | 2026-10-15 | Not yet: a clipboard fallback behind a feature flag, after OSC 52. |
 | rusqlite | 0.41.1 | 2026-10-28 | Used from M11 (see below). |
-| mlua | 0.12.2 | 2026-10-03 | Not yet: Luau scripting arrives in M13 ([ADR 0008](adr/0008-luau-scripting.md)). |
+| mlua | 0.12.2 | 2026-10-03 | Used from M13 (see below). |
 
 ### Added in M2 (checked 2026-10-30)
 
@@ -96,6 +96,12 @@ Ergo v2.19.1 (2026-08-05) for integration tests: the container `ghcr.io/ergochat
 | Crate | Version | Why |
 |---|---|---|
 | rusqlite | 0.41.1 | The search index, with the `bundled` feature: libsqlite3-sys 0.39.1 builds SQLite 3.54.1 with FTS5, so no system SQLite is needed and every platform gets the same one. Synchronous calls on a thread of our own; `sqlx` is unnecessary weight. MSRV 1.89. |
+
+### Added in M13 (checked 2026-11-06)
+
+| Crate | Version | Why |
+|---|---|---|
+| mlua | 0.12.2 | Luau scripting ([ADR 0008](adr/0008-luau-scripting.md)), `luau` feature only, in `irsty-tui`. It builds Luau 0.740 from source (luau0-src 0.22.0), so no system Lua is needed; that takes about 25 seconds and a C++ compiler. Sandbox mode, interrupts and memory limits are what the scripting engine relies on. MSRV 1.88. |
 
 ### Dev dependencies
 

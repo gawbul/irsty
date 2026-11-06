@@ -112,6 +112,15 @@ Remote text becomes `StyledText` once, at ingest, through `StyledText::parse` (o
 
 `irsty_core::log::LogWriter` writes one plain-text file per buffer on its own thread, behind a bounded queue, so the app loop never waits on disk. Each `Effect::Line` names the line it added (by its sequence number in the buffer), so several lines added by one event are all logged. With `[logging] rotate`, the file name carries the line's UTC date. Files are created with mode `0600`.
 
+## Scripting
+
+`irsty_tui::script::Scripts` holds the loaded scripts ([SCRIPTING.md](SCRIPTING.md)), each in its own sandboxed Luau state (`mlua`): `require` removed, `print` redirected, a 32 MiB memory limit, and an interrupt that stops any call after 250 ms. The engine lives in the TUI because scripts reach both client state and slash commands; core stays free of it.
+
+- Scripts don't touch the client. Their API functions queue `script::Action`s (print, say, exec, an error), which `app::run_script_actions` carries out after the script returns. State is read through functions created with `Lua::scope` for the length of each call, so scripts see live state without copies and can't keep references.
+- Events come from new lines: `Scripts::dispatch_lines` compares each buffer's line count with what it last saw, skips lines from history (`Line::history`), and hands the rest to handlers. It runs after network events (in the run loop) and after every key or paste (in `app::handle_event`). Lines that a script's actions add are marked seen (`Scripts::skip_added`), so a script never hears itself.
+- Script commands are tried in `app::run_line` after aliases and before the built-in parser reports an unknown command; built-ins win. Timers are kept per script and wake the run loop with `sleep_until`.
+- Five errors in a row unload a script, and `say` and `exec` need the `send` capability and are rate-limited per script.
+
 ## Search
 
 `irsty_core::search::Index` keeps messages in SQLite (rusqlite with the bundled SQLite and FTS5), on a thread of its own, at `search.sqlite` in the data directory. `Client::log` hands it every message, action and notice it logs, through a bounded queue (`try_send`; a full queue drops the line from the index, never from the logs), and the thread writes whatever is waiting in one transaction. A unique index on network, buffer and msgid keeps history seen twice from being indexed twice. A search is another job on the same queue, so it sees every line queued before it; the answer comes back on a Tokio channel that `Client::next` reads alongside network events, and is noted in the buffer that asked, not logged. Typed words are quoted before they reach FTS5, so nothing a user types is query syntax.

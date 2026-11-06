@@ -4,7 +4,7 @@
 
 A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](https://ratatui.rs). It is a spiritual successor to irssi and WeeChat: fast, readable out of the box, scriptable, with first-class IRCv3 support and good support for bouncers (soju, ZNC).
 
-> **Status:** early development, but usable day to day. The foundation and daily-driver phases are done (milestones M0 to M8), and chat history and bouncer support (M9) have landed: several networks at once, the core IRCv3 extensions, the full command set, tab completion, configurable keys, nick colours, notifications and history. See [`PLAN.md`](PLAN.md) for the roadmap.
+> **Status:** early development, but usable day to day. Milestones M0 to M13 are done: several networks at once, the core and modern IRCv3 extensions (history, typing, replies, reactions, multi-line messages), bouncer support, the full command set, search, split windows, themes and Luau scripting. Still to come: an accessibility mode and high-contrast theme (M14), packaged releases with a man page and shell completions (M15), and DCC (M16). See [`PLAN.md`](PLAN.md) for the roadmap.
 
 ## Goals
 
@@ -26,19 +26,20 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **Logs and search:** one plain-text file per buffer, safe to `cat`, optionally rotated daily or monthly, and a full-text index of the same messages (SQLite with FTS5, on its own thread) for `/search`: this buffer, the network or everywhere, by word or the start of one, ignoring case and accents.
 - **Split windows:** `/window split` and `vsplit` divide the screen into panes, each showing its own buffer; F7 and F8 (or a click) move focus, and `/layout save` keeps the arrangement for the next start. Coming back to a buffer marks where the unread lines start, and Alt+U (Shift+Alt+U with irssi's keys) jumps there.
 - **Terminal UI:** a buffer list grouped by network, scrollback with aligned nicks and word wrapping that handles CJK and emoji, a nick list, topic and status bars (activity, lag, and a loud warning for unverified TLS), and an input line with emacs-style editing, history and tab completion (nicks, recent speakers first; channels; commands and their arguments). Ctrl+G opens a fuzzy buffer switcher, and pasting several lines asks before sending. Keys follow irssi, or WeeChat with `keymap = "weechat"`, and any key can be rebound with `/bind` ([docs/KEYBINDINGS.md](docs/KEYBINDINGS.md)).
-- **Commands** ([docs/COMMANDS.md](docs/COMMANDS.md)): talking (`/msg /query /me /reply /react /notice /ctcp /away`), finding out (`/whois /whowas /who /names /topic /list`, with replies gathered where you typed them), running channels (`/mode /op /voice /kick /ban /invite`), buffers (`/window /close /clear`), and setting things up from inside Irsty: `/server add|del|update|list`, `/set`, `/alias`, `/ignore` and `/highlight`, all saved to your config with its comments intact. Passwords sent with `/raw` or to NickServ are hidden on screen and in logs.
+- **Commands** ([docs/COMMANDS.md](docs/COMMANDS.md)): talking (`/msg /query /me /reply /react /notice /ctcp /away`), finding out (`/whois /whowas /who /names /topic /list`, with replies gathered where you typed them), running channels (`/mode /op /voice /kick /ban /invite`), buffers and panes (`/window /close /clear /layout /search /url`), and setting things up from inside Irsty: `/server add|del|update|list`, `/set`, `/alias`, `/ignore`, `/highlight` and `/bind`, all saved to your config with its comments intact, `/reload` after you edit it by hand, and `/script` to load and manage scripts. Passwords sent with `/raw` or to NickServ are hidden on screen and in logs.
 - **First run:** no config file needed; add a network with `/server add` and Irsty writes one.
 - **Ignores and highlights:** hide people by mask, per network or channel; highlight words and regexes besides your nick. Highlighted lines stand out, and highlights and private messages raise desktop notifications through the terminal (OSC 777, OSC 9 or the bell, tmux-aware).
 - **Looks:** themes (`dark` and `light` presets, and every element restylable in `[theme]`), colours fitted to what the terminal shows (truecolor, 256, 16, or none, honouring `NO_COLOR`), nick colours (with overrides), underlined links with `/url` to open them, and mIRC formatting typed with irssi's or WeeChat's keys.
+- **Scripting:** Luau scripts react to events, add commands, print and set timers, each in a sandbox of its own (no files, network or programs, and time and memory limits); acting for you on the network needs `allow = ["send"]`. See [docs/SCRIPTING.md](docs/SCRIPTING.md) and [examples/scripts](examples/scripts).
 - **Config tools:** `/reload` reads the file again after you edit it (networks included), `irsty --check-config` checks a file without starting, and `irsty --print-default-config` prints one with every setting at its default.
 - **CTCP:** answers `VERSION`, `PING`, `TIME`, `CLIENTINFO` and `SOURCE`, rate-limited.
 - **Headless mode:** `--headless` prints every buffer's new lines to stdout.
 
-Not yet: scripting (M13) and DCC (M16). See [`PLAN.md`](PLAN.md).
+Not yet: an accessibility mode and high-contrast theme (M14), releases, a man page and shell completions (M15), and DCC (M16). See [`PLAN.md`](PLAN.md).
 
 ## Quick start
 
-Build it (rustup installs the toolchain pinned in `rust-toolchain.toml` automatically):
+Build it (rustup installs the toolchain pinned in `rust-toolchain.toml` automatically; you also need a C and C++ compiler, for the bundled SQLite and Luau: Xcode's command line tools on macOS, `build-essential` or similar on Linux):
 
 ```sh
 cargo build --release
@@ -105,6 +106,7 @@ The tasks wrap plain `cargo` commands and `scripts/`, so everything works withou
 - [Configuration](docs/CONFIG.md)
 - [Keybindings](docs/KEYBINDINGS.md)
 - [Commands](docs/COMMANDS.md)
+- [Scripting](docs/SCRIPTING.md)
 - [Decision records](docs/adr/)
 - [Dependency versions](docs/VERSIONS.md)
 - [Contributing](CONTRIBUTING.md)

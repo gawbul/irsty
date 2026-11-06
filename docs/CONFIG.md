@@ -250,6 +250,19 @@ Irsty answers CTCP `VERSION`, `PING`, `TIME`, `CLIENTINFO` and `SOURCE` requests
 | `version` | string | `"Irsty <version> (https://github.com/gawbul/irsty)"` | The `VERSION` reply. |
 | `time` | boolean | `true` | Answer `TIME`, which reveals your local time and time zone. |
 
+## `[[script]]`
+
+Luau scripts to load at startup, each with what it may do. [SCRIPTING.md](SCRIPTING.md) describes the keys (`path`, `allow`, `enabled`) and the API.
+
+```toml
+[[script]]
+path = "scripts/mentions.luau"
+
+[[script]]
+path = "scripts/slap.luau"
+allow = ["send"]
+```
+
 ## `[keys]`
 
 Key bindings on top of the preset, as `"key" = "action"`. `"none"` frees a preset key. Keys and actions are listed in [KEYBINDINGS.md](KEYBINDINGS.md#customising); `/bind` and `/unbind` change them from inside Irsty. A binding Irsty doesn't understand is reported at startup and skipped.
