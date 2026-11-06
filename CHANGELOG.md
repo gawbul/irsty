@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- `/set` showed `typing.send` and `typing.show` without their values; a test now checks every setting has one.
 - `422` (no MOTD) no longer shows as an error.
 - A batch inside another (such as a multi-line message in chat history) is now handled with its parent, in order, instead of as soon as it ends.
 - Two iCloud sync duplicates (`dial 2.rs`, `socks 2.rs`) had been committed; they are gone, `.gitignore` ignores such names, and the gate and CI fail if one is tracked.
@@ -27,6 +28,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- M11, finding your way around:
+  - `/search` (`/grep`): a full-text index of the messages Irsty logs (SQLite with FTS5, `search.sqlite` in the data directory, `[search] enabled`), searched in the current buffer, the network or everywhere (`-all`), optionally from one nick, with matches in bold.
+  - Split windows: `/window split`, `vsplit`, `merge [all]` and `pane`, with F7 and F8 to move focus and a click to focus a pane; `/layout save|apply|reset` keeps them in `ui.layout`, restored at startup.
+  - An `unread` rule above the first line you hadn't seen when you came back to a buffer, and Alt+U (WeeChat's keys) or Shift+Alt+U (irssi's) or `/window unread` to jump to it.
 - M10, modern messaging:
   - Typing indicators (`+typing`): who is typing shows in the status bar (`typing.show`, on by default). Telling others when you type is opt-in (`typing.send`, off by default), at most once every three seconds per channel, and never for commands.
   - Replies (`+reply`): `/reply <nick> <text>` answers their newest message; replies show what they answer (`↪ alice: …`). The older `+draft/reply` is understood too.
