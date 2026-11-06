@@ -18,6 +18,7 @@ irsty-proto.workspace = true
 jiff = "0.2.38"
 keyring = "4.2.0"
 regex = "1.13.1"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
 rustls-pki-types = "1.15.1"
 rustls-platform-verifier = "0.7.1"
 rustls-webpki = { version = "0.103.16", default-features = false, features = ["alloc"] }

@@ -243,3 +243,102 @@ fn replies_reactions_multiline_and_typing() {
     ui.now = fixed_clock() + jiff::SignedDuration::from_secs(2);
     insta::assert_snapshot!(render(&s, &mut ui, 100, 14).backend());
 }
+
+/// Split panes: the focused pane's title is highlighted, panes side by side
+/// are divided by a rule, and the focused buffer marks where unread lines
+/// start.
+#[test]
+fn split_panes_and_the_unread_marker() {
+    let mut s = state();
+    let mut ui = ui(&s, "#irsty");
+    // Read up to here, then three more lines arrive.
+    render(&s, &mut ui, 100, 20);
+    let channel = s.find_buffer(NET, "#irsty").unwrap();
+    s.mark_read(channel);
+    ui.marker = None;
+    for line in [
+        "@time=2026-10-30T09:11:00Z :alice!a@host PRIVMSG #irsty :new one",
+        "@time=2026-10-30T09:12:00Z :carol!c@host PRIVMSG #irsty :new two",
+    ] {
+        s.apply(NET, NetEvent::Message(Message::parse(line).unwrap()));
+    }
+    assert!(ui.split(irsty_tui::panes::Direction::SideBySide));
+    ui.switch(s.find_buffer(NET, "frank").unwrap());
+    assert!(ui.split(irsty_tui::panes::Direction::Stacked));
+    let server = s.network(NET).unwrap().server_buffer;
+    ui.switch(server);
+    // Focus back on the channel pane, which shows the marker.
+    ui.focus_pane(0);
+    insta::assert_snapshot!(render(&s, &mut ui, 100, 20).backend());
+    assert_eq!(ui.visible().len(), 3);
+    assert_eq!(
+        ui.layout_spec(&s),
+        "h(libera/#irsty,v(libera/frank,libera))"
+    );
+}
+
+/// Jumping to the first unread line puts the separator at the top.
+#[test]
+fn jump_to_the_first_unread_line() {
+    let mut s = state();
+    let channel = s.find_buffer(NET, "#irsty").unwrap();
+    s.mark_read(channel);
+    let mut ui = ui(&s, "#irsty");
+    render(&s, &mut ui, 80, 12);
+    for i in 0..40 {
+        let line = format!(":alice!a@host PRIVMSG #irsty :unread line {i}");
+        s.apply(NET, NetEvent::Message(Message::parse(&line).unwrap()));
+    }
+    ui.on_update(&s);
+    // Seen again with the marker where reading stopped.
+    ui.marker = None;
+    let screen = |terminal: &Terminal<TestBackend>, row: u16| -> String {
+        let buffer = terminal.backend().buffer();
+        (0..buffer.area.width)
+            .map(|x| buffer[(x, row)].symbol())
+            .collect()
+    };
+    let terminal = render(&s, &mut ui, 80, 12);
+    assert!(screen(&terminal, 9).contains("unread line 39"));
+    ui.jump_unread = true;
+    let terminal = render(&s, &mut ui, 80, 12);
+    assert!(ui.offset() > 0);
+    assert!(
+        screen(&terminal, 1).contains("unread"),
+        "{}",
+        screen(&terminal, 1)
+    );
+    assert!(
+        screen(&terminal, 2).contains("unread line 0"),
+        "{}",
+        screen(&terminal, 2)
+    );
+    assert!(!ui.jump_unread, "done once");
+}
+
+/// Lines arriving while a buffer is on screen are not unread: no separator.
+#[test]
+fn no_unread_marker_for_lines_seen_arriving() {
+    let mut s = state();
+    let channel = s.find_buffer(NET, "#irsty").unwrap();
+    s.mark_read(channel);
+    let mut ui = ui(&s, "#irsty");
+    render(&s, &mut ui, 80, 12);
+    s.apply(
+        NET,
+        NetEvent::Message(Message::parse(":alice!a@host PRIVMSG #irsty :just now").unwrap()),
+    );
+    let terminal = render(&s, &mut ui, 80, 12);
+    let text: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect();
+    assert!(text.contains("just now"));
+    assert!(!text.contains("unread"), "{text}");
+    ui.jump_unread = true;
+    render(&s, &mut ui, 80, 12);
+    assert_eq!(ui.offset(), 0, "nothing to jump to");
+}

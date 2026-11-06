@@ -137,6 +137,14 @@ Plain-text logs, one file per buffer, at `<dir>/<network>/<buffer>.log` (the ser
 
 Irsty's own diagnostic log is `irsty.log` in the platform data directory. Set `IRSTY_LOG` to change its filter, for example `IRSTY_LOG=irsty_core=debug`. It never contains passwords.
 
+## `[search]`
+
+Irsty keeps the messages it logs (messages, actions and notices, not joins and the like) in a full-text index too, `search.sqlite` in the platform data directory, for `/search` ([COMMANDS.md](COMMANDS.md#buffers)). It holds what the logs hold, so it is only kept while `[logging] enabled` is on as well. Only messages seen since the index was turned on are in it; old log files are not read back. History seen twice is indexed once.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `enabled` | boolean | `true` | Keep the index. Takes effect when Irsty restarts. Deleting `search.sqlite` (and its `-wal` and `-shm` files) while Irsty is not running empties it. |
+
 ## `[ui]`
 
 | Key | Type | Default | Meaning |
@@ -146,6 +154,7 @@ Irsty's own diagnostic log is `irsty.log` in the platform data directory. Set `I
 | `timestamp_format` | string | `"%H:%M"` | [`strftime`](https://docs.rs/jiff/latest/jiff/fmt/strftime/index.html) format for timestamps, in your local time zone. |
 | `keymap` | `"irssi"` or `"weechat"` | `"irssi"` | Key binding preset. They differ in buffer switching and formatting keys; see [KEYBINDINGS.md](KEYBINDINGS.md). |
 | `nick_colours` | boolean | `true` | Give each nick a colour from a hash of its name, so the same person always has the same colour. `[nick_colours]` overrides particular nicks either way. |
+| `layout` | string | none | Split windows to restore at startup, as `/layout save` writes them, such as `"v(libera/#rust,h(libera/#irsty,libera))"`; see [KEYBINDINGS.md](KEYBINDINGS.md#split-windows). Unset, Irsty starts with one pane. |
 
 Lines that mention your nick or a highlight word show the sender's nick dark on yellow, and links in messages are underlined; `/url` lists and opens them.
 

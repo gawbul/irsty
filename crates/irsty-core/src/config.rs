@@ -419,6 +419,10 @@ pub struct UiConfig {
     /// Colour nicks by a hash of their name. Defaults to true.
     #[serde(default = "default_true")]
     pub nick_colours: bool,
+    /// Split windows to restore at startup, as `/layout save` writes them
+    /// (see `docs/KEYBINDINGS.md`). The UI checks it.
+    #[serde(default)]
+    pub layout: Option<String>,
 }
 
 /// How to tell you about highlights and private messages.
@@ -455,6 +459,23 @@ impl Default for HistoryConfig {
         Self {
             lines: default_history_lines(),
         }
+    }
+}
+
+/// The search index.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SearchConfig {
+    /// Keep messages in a search index (`search.sqlite` in the data
+    /// directory) for `/search`. It holds what the logs hold, so it is only
+    /// kept while logging is on too. Defaults to true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
 
@@ -551,6 +572,7 @@ impl Default for UiConfig {
             timestamp_format: default_timestamp(),
             keymap: default_keymap(),
             nick_colours: true,
+            layout: None,
         }
     }
 }
@@ -725,6 +747,9 @@ pub struct Config {
     /// Typing notifications.
     #[serde(default)]
     pub typing: TypingConfig,
+    /// The search index.
+    #[serde(default)]
+    pub search: SearchConfig,
 }
 
 impl Default for Config {
@@ -744,6 +769,7 @@ impl Default for Config {
             ctcp: CtcpConfig::default(),
             history: HistoryConfig::default(),
             typing: TypingConfig::default(),
+            search: SearchConfig::default(),
         }
     }
 }
@@ -1001,6 +1027,11 @@ impl Paths {
     /// The default log directory.
     pub fn log_dir(&self) -> PathBuf {
         self.data_dir.join("logs")
+    }
+
+    /// The search index.
+    pub fn search_index(&self) -> PathBuf {
+        self.data_dir.join("search.sqlite")
     }
 }
 

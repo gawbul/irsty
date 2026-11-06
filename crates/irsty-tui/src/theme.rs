@@ -179,6 +179,11 @@ pub fn dim() -> Style {
     Style::default().fg(Color::DarkGray)
 }
 
+/// The separator above the first unread line.
+pub fn unread() -> Style {
+    Style::default().fg(Color::LightRed)
+}
+
 /// Style for the text of a line of a given kind.
 pub fn line_style(kind: LineKind) -> Style {
     match kind {

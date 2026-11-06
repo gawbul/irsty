@@ -222,8 +222,20 @@ pub const COMMANDS: &[Spec] = &[
     spec!(
         "window",
         ["buffer", "w"],
-        "/window <number>|next|prev|close|list",
-        "Switch buffers by number, or close or list them."
+        "/window <number>|next|prev|close|list|split|vsplit|merge [all]|pane [next|prev]|unread",
+        "Switch buffers by number, close or list them, split the screen into panes, or jump to the first unread line."
+    ),
+    spec!(
+        "layout",
+        [],
+        "/layout [save|apply|reset]",
+        "Show, save, restore or forget the split panes (restored at startup)."
+    ),
+    spec!(
+        "search",
+        ["grep"],
+        "/search [-all] [-from <nick>] [-limit <n>] <words>",
+        "Search the messages kept in the logs: this buffer (or network), or everywhere with -all."
     ),
     spec!(
         "ignore",
@@ -308,6 +320,36 @@ pub enum Window {
     Close,
     /// List buffers.
     List,
+    /// Split the focused pane: one above the other, or side by side.
+    Split {
+        /// Side by side.
+        side_by_side: bool,
+    },
+    /// Close the focused pane, or with `all` every other one.
+    Merge {
+        /// Keep only the focused pane.
+        all: bool,
+    },
+    /// Focus the next or previous pane.
+    Pane {
+        /// The next rather than the previous.
+        forward: bool,
+    },
+    /// Scroll to the first unread line.
+    Unread,
+}
+
+/// `/layout` subcommands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayoutCommand {
+    /// Show the current and the saved layout.
+    Show,
+    /// Save the current layout (`ui.layout`).
+    Save,
+    /// Restore the saved layout.
+    Apply,
+    /// Forget the saved layout and go back to one pane.
+    Reset,
 }
 
 /// `/server` subcommands.
@@ -393,6 +435,19 @@ pub enum Command {
     },
     /// `/me`.
     Me(String),
+    /// `/layout`.
+    Layout(LayoutCommand),
+    /// `/search`.
+    Search {
+        /// What to look for.
+        words: String,
+        /// Everywhere, not just here.
+        all: bool,
+        /// Only from this nick.
+        from: Option<String>,
+        /// Most results.
+        limit: Option<usize>,
+    },
     /// `/reply`.
     Reply {
         /// Whose newest message.
@@ -588,6 +643,39 @@ pub fn canonical(name: &str) -> Option<&'static str> {
         .map(|s| s.name)
 }
 
+/// `/search [-all] [-from <nick>] [-limit <n>] <words>`; `None` if malformed.
+fn parse_search(rest: &str) -> Option<Command> {
+    let (mut all, mut from, mut limit) = (false, None, None);
+    let mut rest = rest.trim();
+    loop {
+        let (option, after) = word(rest);
+        match option {
+            "-all" => all = true,
+            "-from" => {
+                let (nick, after) = word(after);
+                from = Some(nick.to_owned()).filter(|n| !n.is_empty());
+                from.as_ref()?;
+                rest = after.trim();
+                continue;
+            }
+            "-limit" => {
+                let (n, after) = word(after);
+                limit = Some(n.parse().ok().filter(|&n| n > 0)?);
+                rest = after.trim();
+                continue;
+            }
+            _ => break,
+        }
+        rest = after.trim();
+    }
+    (!rest.is_empty()).then(|| Command::Search {
+        words: rest.to_owned(),
+        all,
+        from,
+        limit,
+    })
+}
+
 /// Parses a line typed into the input. Text not starting with `/` (or starting
 /// with `//`, to send a literal slash) is plain text.
 #[allow(
@@ -723,8 +811,35 @@ pub fn parse(input: &str) -> Result<Command, ParseError> {
             "prev" | "p" => Window::Prev,
             "close" | "c" => Window::Close,
             "list" | "l" | "" => Window::List,
+            "split" => Window::Split {
+                side_by_side: false,
+            },
+            "vsplit" => Window::Split { side_by_side: true },
+            "merge" => Window::Merge {
+                all: match tail.trim() {
+                    "" => false,
+                    "all" => true,
+                    _ => return Err(usage(name)),
+                },
+            },
+            "pane" => Window::Pane {
+                forward: match tail.trim() {
+                    "" | "next" => true,
+                    "prev" => false,
+                    _ => return Err(usage(name)),
+                },
+            },
+            "unread" => Window::Unread,
             n => Window::Number(n.parse().map_err(|_| usage(name))?),
         }),
+        "layout" => Command::Layout(match first.to_lowercase().as_str() {
+            "" => LayoutCommand::Show,
+            "save" => LayoutCommand::Save,
+            "apply" | "load" => LayoutCommand::Apply,
+            "reset" => LayoutCommand::Reset,
+            _ => return Err(usage(name)),
+        }),
+        "search" => parse_search(rest).ok_or_else(|| usage(name))?,
         "ignore" if first.is_empty() => Command::Ignore(None),
         "ignore" => Command::Ignore(Some(parse_ignore(first, tail)?)),
         "unignore" => Command::Unignore(need(first)?),
@@ -1070,6 +1185,46 @@ mod tests {
             Ok(Command::Quit(Some("see you".into())))
         );
         assert_eq!(parse("/help /JOIN"), Ok(Command::Help(Some("join".into()))));
+    }
+
+    #[test]
+    fn parses_search_panes_and_layouts() {
+        assert_eq!(
+            parse("/search -all -from alice -limit 5 borrow checker"),
+            Ok(Command::Search {
+                words: "borrow checker".into(),
+                all: true,
+                from: Some("alice".into()),
+                limit: Some(5)
+            })
+        );
+        assert_eq!(
+            parse("/grep -allx"),
+            Ok(Command::Search {
+                words: "-allx".into(),
+                all: false,
+                from: None,
+                limit: None
+            }),
+            "unknown options are words"
+        );
+        assert!(parse("/search -limit 0 x").is_err());
+        assert!(parse("/search -from").is_err());
+        assert!(parse("/search -all").is_err());
+        assert_eq!(
+            parse("/window merge all"),
+            Ok(Command::Window(Window::Merge { all: true }))
+        );
+        assert_eq!(
+            parse("/window pane prev"),
+            Ok(Command::Window(Window::Pane { forward: false }))
+        );
+        assert!(parse("/window merge some").is_err());
+        assert_eq!(
+            parse("/layout save"),
+            Ok(Command::Layout(LayoutCommand::Save))
+        );
+        assert!(parse("/layout dance").is_err());
     }
 
     #[test]

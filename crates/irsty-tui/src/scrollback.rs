@@ -34,6 +34,69 @@ pub struct Scrollback<'a> {
     pub nick_width: usize,
     /// How to colour nicks.
     pub colours: &'a theme::NickColours,
+    /// The number of the last line read before the buffer came on screen:
+    /// a separator goes above the first line after it.
+    pub marker: Option<u64>,
+}
+
+/// Columns for the time, the nick and the text in an area.
+struct Geometry {
+    time: usize,
+    nick: usize,
+    text: usize,
+}
+
+impl Scrollback<'_> {
+    fn geometry(&self, area: Rect) -> Geometry {
+        let sample_time = self
+            .buffer
+            .lines()
+            .back()
+            .map(|l| {
+                l.time
+                    .to_zoned(self.tz.clone())
+                    .strftime(self.time_format)
+                    .to_string()
+            })
+            .unwrap_or_default();
+        let time_width = sample_time.width();
+        let full = usize::from(area.width);
+        // On narrow screens, shrink the nick column before giving up on it.
+        let nick_width = self.nick_width.min(full / 4).max(3);
+        let gutter_width = time_width + 1 + nick_width + SEPARATOR.width();
+        Geometry {
+            time: time_width,
+            nick: nick_width,
+            text: full.saturating_sub(gutter_width).max(1),
+        }
+    }
+
+    /// How far to scroll back so the line numbered `first` (with the unread
+    /// separator above it) is as near the top of `area` as the lines after
+    /// it allow.
+    pub fn offset_showing(&self, area: Rect, first: u64) -> usize {
+        let lines = self.buffer.lines();
+        let held = u64::try_from(lines.len()).unwrap_or(u64::MAX);
+        let oldest = (self.buffer.total + 1).saturating_sub(held);
+        let skip = usize::try_from(first.saturating_sub(oldest)).unwrap_or(usize::MAX);
+        let width = self.geometry(area).text;
+        let rows: Vec<usize> = lines
+            .iter()
+            .skip(skip)
+            .map(|line| {
+                let counts = reaction_counts(line);
+                wrap(&pieces(line, self.colours, &counts), width).len()
+            })
+            .collect();
+        let height = usize::from(area.height);
+        let mut used = 1 + rows.iter().sum::<usize>();
+        let mut offset = 0;
+        while used > height && offset + 1 < rows.len() {
+            used -= rows.get(rows.len() - 1 - offset).copied().unwrap_or(0);
+            offset += 1;
+        }
+        offset
+    }
 }
 
 /// One piece of text with a style.
@@ -250,29 +313,30 @@ impl Widget for Scrollback<'_> {
             return;
         }
         let lines = self.buffer.lines();
-        let sample_time = lines
-            .back()
-            .map(|l| {
-                l.time
-                    .to_zoned(self.tz.clone())
-                    .strftime(self.time_format)
-                    .to_string()
-            })
-            .unwrap_or_default();
-        let time_width = sample_time.width();
+        let Geometry {
+            time: time_width,
+            nick: nick_width,
+            text: text_width,
+        } = self.geometry(area);
         let full = usize::from(area.width);
-        // On narrow screens, shrink the nick column before giving up on it.
-        let nick_width = self.nick_width.min(full / 4).max(3);
         let gutter_width = time_width + 1 + nick_width + SEPARATOR.width();
-        let text_width = full.saturating_sub(gutter_width).max(1);
         let text_x = area.x + u16::try_from(gutter_width.min(full)).unwrap_or(area.width);
         let max_x = area.right();
+        // A separator only between read and unread lines: with nothing
+        // unread, or nothing read above, it would say nothing.
+        let held = u64::try_from(lines.len()).unwrap_or(u64::MAX);
+        let oldest = (self.buffer.total + 1).saturating_sub(held);
+        let first_unread = self
+            .marker
+            .filter(|&m| m < self.buffer.total && m >= oldest)
+            .map(|m| m + 1);
 
         let mut y = area.bottom();
-        for line in lines.iter().rev().skip(self.offset) {
+        for (back, line) in lines.iter().rev().enumerate().skip(self.offset) {
             if y <= area.top() {
                 break;
             }
+            let seq = self.buffer.total - u64::try_from(back).unwrap_or(0);
             let counts = reaction_counts(line);
             let pieces = pieces(line, self.colours, &counts);
             let rows = wrap(&pieces, text_width);
@@ -313,6 +377,17 @@ impl Widget for Scrollback<'_> {
                     ];
                     draw_pieces(cells, area.x, y, max_x, &gutter_pieces);
                 }
+            }
+            if Some(seq) == first_unread && y > area.top() {
+                y -= 1;
+                let label = " unread ";
+                let side = full.saturating_sub(label.width()) / 2;
+                let rule = format!(
+                    "{}{label}{}",
+                    "─".repeat(side),
+                    "─".repeat(full.saturating_sub(side + label.width()))
+                );
+                draw_pieces(cells, area.x, y, max_x, &[(rule.as_str(), theme::unread())]);
             }
         }
     }

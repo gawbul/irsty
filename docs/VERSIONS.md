@@ -53,7 +53,7 @@ The dependencies chosen before any code was written. Most are in use; the "Not u
 | open | 5.4.5 | 2026-10-22 | Not used: `/url` starts `open`, `xdg-open` or `rundll32` directly, which is all we need, and only for web links. |
 | notify-rust | 4.18.2 | 2026-10-07 | Not yet: notifications use OSC 777, OSC 9 or the bell, which work over SSH ([ADR 0007](adr/0007-terminal-protocols-first.md)). A native fallback may follow. |
 | arboard | 3.7.0 | 2026-10-15 | Not yet: a clipboard fallback behind a feature flag, after OSC 52. |
-| rusqlite | 0.41.1 | 2026-10-28 | Not yet: the SQLite search index arrives in M11, `bundled`, with synchronous calls on a dedicated thread; `sqlx` is unnecessary weight. |
+| rusqlite | 0.41.1 | 2026-10-28 | Used from M11 (see below). |
 | mlua | 0.12.2 | 2026-10-03 | Not yet: Luau scripting arrives in M13 ([ADR 0008](adr/0008-luau-scripting.md)). |
 
 ### Added in M2 (checked 2026-10-30)
@@ -90,6 +90,12 @@ Ergo v2.19.1 (2026-08-05) for integration tests: the container `ghcr.io/ergochat
 |---|---|---|
 | toml_edit | 0.25.17 | Writes `config.toml` back while keeping comments and layout. Already in the tree through `toml`. |
 | regex | 1.13.1 | Highlight patterns. Linear-time matching, so a user's pattern can't hang the client. Already in the tree. |
+
+### Added in M11 (checked 2026-11-06)
+
+| Crate | Version | Why |
+|---|---|---|
+| rusqlite | 0.41.1 | The search index, with the `bundled` feature: libsqlite3-sys 0.39.1 builds SQLite 3.54.1 with FTS5, so no system SQLite is needed and every platform gets the same one. Synchronous calls on a thread of our own; `sqlx` is unnecessary weight. MSRV 1.89. |
 
 ### Dev dependencies
 

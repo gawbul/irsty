@@ -83,6 +83,12 @@ pub enum Action {
     Format(Format),
     /// Wait for a letter naming a formatting code (WeeChat's Ctrl+C).
     FormatPrefix,
+    /// Focus the next split pane.
+    NextPane,
+    /// Focus the previous split pane.
+    PrevPane,
+    /// Scroll to the first unread line.
+    JumpUnread,
     /// Do nothing (to unbind a preset key).
     None,
 }
@@ -188,6 +194,9 @@ const NAMED: &[(&str, Action)] = &[
     ("reverse", Action::Format(Format::Reverse)),
     ("reset", Action::Format(Format::Reset)),
     ("format_prefix", Action::FormatPrefix),
+    ("next_pane", Action::NextPane),
+    ("prev_pane", Action::PrevPane),
+    ("jump_unread", Action::JumpUnread),
     ("none", Action::None),
 ];
 
@@ -415,6 +424,9 @@ const COMMON: &[(&str, &str)] = &[
     ("alt-8", "buffer_8"),
     ("alt-9", "buffer_9"),
     ("alt-0", "buffer_10"),
+    ("f7", "prev_pane"),
+    ("f8", "next_pane"),
+    ("alt-U", "jump_unread"),
 ];
 
 /// irssi: Alt+Q to Alt+P are buffers 11 to 20, and Ctrl keys type the
@@ -455,6 +467,7 @@ const WEECHAT: &[(&str, &str)] = &[
     ("f5", "prev_buffer"),
     ("f6", "next_buffer"),
     ("alt-/", "back"),
+    ("alt-u", "jump_unread"),
 ];
 
 /// The preset names.
@@ -578,7 +591,15 @@ mod tests {
         // irssi has no Alt+J; buffers 11 to 20 are on Alt+Q to Alt+P.
         assert_eq!(irssi.action(&alt('j')), None);
         assert_eq!(irssi.action(&alt('u')), Some(Action::Buffer(17)));
-        assert_eq!(weechat.action(&alt('u')), None);
+        // WeeChat's Alt+U scrolls to the first unread line; irssi has it on
+        // Shift+Alt+U, as Alt+U is a buffer there.
+        assert_eq!(weechat.action(&alt('u')), Some(Action::JumpUnread));
+        let shift_alt_u = key(KeyCode::Char('U'), KeyModifiers::ALT | KeyModifiers::SHIFT);
+        assert_eq!(irssi.action(&shift_alt_u), Some(Action::JumpUnread));
+        assert_eq!(
+            irssi.action(&key(KeyCode::F(8), KeyModifiers::NONE)),
+            Some(Action::NextPane)
+        );
         assert_eq!(weechat.action(&alt('j')), Some(Action::Jump));
         assert_eq!(irssi.action(&key(KeyCode::F(6), KeyModifiers::NONE)), None);
         assert_eq!(

@@ -48,6 +48,7 @@ pub const SETTINGS: &[(&str, SettingKind)] = &[
     ("ui.timestamp_format", SettingKind::Text),
     ("ui.keymap", SettingKind::Text),
     ("ui.nick_colours", SettingKind::Bool),
+    ("ui.layout", SettingKind::Text),
     ("notifications.method", SettingKind::Text),
     ("notifications.when_focused", SettingKind::Bool),
     ("notifications.show_text", SettingKind::Bool),
@@ -57,6 +58,7 @@ pub const SETTINGS: &[(&str, SettingKind)] = &[
     ("history.lines", SettingKind::Integer),
     ("typing.send", SettingKind::Bool),
     ("typing.show", SettingKind::Bool),
+    ("search.enabled", SettingKind::Bool),
 ];
 
 /// The type of a setting.

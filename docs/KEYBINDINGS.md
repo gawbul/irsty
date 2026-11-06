@@ -39,6 +39,21 @@ Ctrl+G opens a box listing every buffer. Type part of a name, in order but not n
 
 While you are scrolled back, `-- more --` appears in the status bar and new lines don't move the view. Sending a message jumps back to the bottom.
 
+### Unread lines
+
+When you come back to a buffer with lines you haven't seen, a red `unread` rule separates them from what you had read. Lines that arrive while the buffer is on screen don't count. **Alt+U** (in WeeChat's keys, as in WeeChat) or **Shift+Alt+U** (in irssi's, where Alt+U is buffer 17) scrolls so the rule is near the top; so does `/window unread`.
+
+## Split windows
+
+`/window split` divides the focused pane into two, one above the other, and `/window vsplit` side by side, up to eight panes. The new pane shows the same buffer and takes focus; switching buffers (by any key or command) changes only the focused pane. Each pane has a title row with its buffer's number and name, highlighted for the focused pane, and the topic, nick list and input belong to the focused pane.
+
+| Keys | Action |
+|---|---|
+| F8, F7 | Focus the next or previous pane (`/window pane [next\|prev]`) |
+| Mouse click | Focus the pane clicked (with `[ui] mouse = true`); the wheel scrolls the pane under the pointer |
+
+`/window merge` closes the focused pane, and `/window merge all` keeps only it. `/layout save` saves the panes and their buffers as `ui.layout` in the config, and Irsty restores them at startup; panes whose buffers don't exist yet (a channel not joined yet) say what they are waiting for and fill in when it appears. `/layout apply` puts the saved layout back and `/layout reset` forgets it. A layout is plain text: `v(a,b)` puts `a` above `b`, `h(a,b)` puts them side by side, and each pane is a network name followed by `/` and a channel or nick, or the network alone for its server buffer.
+
 ## Editing
 
 | Keys | Action |
@@ -142,6 +157,8 @@ A binding Irsty doesn't understand is reported when it starts, and skipped.
 | `transpose` | Swap the characters around the cursor |
 | `bold`, `colour`, `hex_colour`, `italic`, `underline`, `strikethrough`, `monospace`, `reverse`, `reset` | Type a formatting code |
 | `format_prefix` | Wait for a letter naming a formatting code (WeeChat's Ctrl+C) |
+| `next_pane`, `prev_pane` | Focus the next or previous split pane |
+| `jump_unread` | Scroll to the first unread line |
 | `redraw` | Redraw the screen |
 | `suspend` | Suspend Irsty |
 | `none` | Nothing |

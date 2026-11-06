@@ -106,7 +106,13 @@ fn argument_pool(
             .chain(networks())
             .collect(),
         (Some("server"), 2) if matches!(words.get(1), Some(&("del" | "update"))) => networks(),
-        (Some("window"), 1) => owned(&["next", "prev", "close", "list"]),
+        (Some("window"), 1) => owned(&[
+            "next", "prev", "close", "list", "split", "vsplit", "merge", "pane", "unread",
+        ]),
+        (Some("window"), 2) if words.get(1) == Some(&"merge") => owned(&["all"]),
+        (Some("window"), 2) if words.get(1) == Some(&"pane") => owned(&["next", "prev"]),
+        (Some("layout"), 1) => owned(&["save", "apply", "reset"]),
+        (Some("search"), _) if word.starts_with('-') => owned(&["-all", "-from", "-limit"]),
         (Some("bind"), 2) => Action::names()
             .filter(|n| *n != "buffer_N")
             .map(str::to_owned)
