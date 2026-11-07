@@ -48,7 +48,7 @@ dist itself is pinned in `mise.toml`. After changing `dist-workspace.toml` (or u
 Trusted publishing can only be set up for a crate that already exists, so the first release needs a token, once:
 
 1. On crates.io, create an API token with the `publish-new` and `publish-update` scopes, limited to the `irsty*` crates and expiring in a few days.
-2. In the repository settings, create the `crates-io` environment (Settings, Environments), add yourself as a required reviewer, and add the token as its `CARGO_REGISTRY_TOKEN` secret. Also add a tag ruleset (Settings, Rules) that lets only you create, move or delete `v*` tags. While the secret is set, the workflow uses it instead of trusted publishing.
+2. In the repository settings, create the `crates-io` environment (Settings, Environments), add yourself as a required reviewer, and add the token as its `CARGO_REGISTRY_TOKEN` secret. Also add a tag ruleset (Settings, Rules) for all tags, not just `v*`, that lets only you create, move or delete them: the `Release` trigger matches any tag with a version in it (such as `x1.2.3`), and its Homebrew job runs before any of the checks in `Publish crates`. While the secret is set, the workflow uses it instead of trusted publishing.
 3. Push the tag. Once the crates are published, add a trusted publisher to each of the four crates on crates.io (the crate's Settings, Trusted Publishing): owner `gawbul`, repository `irsty`, workflow `publish-crates.yml`, environment `crates-io`.
 4. Delete the `CARGO_REGISTRY_TOKEN` secret and revoke the token. Optionally, turn on "trusted publishing only" for each crate.
 
@@ -62,7 +62,7 @@ If a run fails part-way, the crates already published stay published, and rerunn
 
 dist builds a Homebrew formula with each release and pushes it to the tap [`gawbul/homebrew-tap`](https://github.com/gawbul/homebrew-tap) as `Formula/irsty.rb` (the `publish-homebrew-formula` job in `release.yml`), so `brew install gawbul/tap/irsty` installs the prebuilt binary for macOS or Linux, on Apple silicon, Intel or ARM. The job pushes with the `HOMEBREW_TAP_TOKEN` secret: a fine-grained token with read and write access to the tap's contents and nothing else. It runs after the archives are uploaded and before the GitHub release is created, so a failed push stops the release (and so the crates) too; prereleases are skipped.
 
-The formula installs only the binary in `bin`; the man page and completions from the archive go in `$(brew --prefix)/share/irsty` (Homebrew's `pkgshare`), where `man` and the shells don't look. `man "$(brew --prefix)/share/irsty/irsty.1"` reads the man page, and `irsty --completions <shell>` prints completions to load from a shell's startup file. dist's tap commits are authored by "axo bot", which dist doesn't let us change.
+The formula installs only the binary in `bin`; the man page and completions from the archive go in `$(brew --prefix)/share/irsty` (Homebrew's `pkgshare`), where `man` and the shells don't look. `man "$(brew --prefix)/share/irsty/irsty.1"` reads the man page, and `irsty --completions <shell>` prints completions to load from a shell's startup file. dist's tap commits are authored by "axo bot", which dist doesn't let us change. dist can't run the job in an environment, so `HOMEBREW_TAP_TOKEN` is a repository secret; the tag ruleset (see [The crates](#the-crates)) is what stops anyone else starting a release, and the token can write only to the tap.
 
 ## Distribution packages
 
