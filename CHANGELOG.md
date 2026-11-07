@@ -12,7 +12,7 @@ The first release.
 
 ### Release
 
-- Published to crates.io (`cargo install irsty`), with release archives, installers and checksums on GitHub, and a project site at https://gawbul.github.io/irsty/ built from the docs.
+- Published to crates.io (`cargo install irsty`), with release archives, installers and checksums on GitHub, and a project site at https://gawbul.github.io/irsty/ built from the docs. The `Publish crates` workflow publishes the crates to crates.io after each tagged release, with trusted publishing.
 - `irsty-core` and `irsty-tui` say they are Irsty's internals with no API stability promise; every crate carries the licence.
 
 ### Fixed

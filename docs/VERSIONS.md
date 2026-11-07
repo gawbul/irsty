@@ -128,6 +128,16 @@ Ergo v2.19.1 (2026-08-05) for integration tests: the container `ghcr.io/ergochat
 | mdBook | 0.5.4 | The project site, from `docs/` (`book.toml`); `mise run book`. In CI through `taiki-e/install-action`. MPL-2.0, fine for a tool we run but never link. |
 | cargo-fuzz | 0.13.2 | Needs nightly (1.101.0-nightly 2026-10-29 when checked). On networks where nightly cargo stalls fetching the index, set `CARGO_HTTP_MULTIPLEXING=false`. |
 
+### Release actions
+
+Workflow actions are pinned to commit SHAs, with the version in a comment.
+
+| Action | Version | Notes |
+|---|---|---|
+| rust-lang/crates-io-auth-action | 1.0.6 | Trusted publishing in `.github/workflows/publish-crates.yml`: exchanges GitHub's OIDC token for a crates.io token that lasts 30 minutes. Maintained by the Rust project. |
+| actions/upload-pages-artifact | 5.0.0 | The site, in `.github/workflows/pages.yml`. |
+| actions/deploy-pages | 5.0.1 | The site, in `.github/workflows/pages.yml`. |
+
 ### Test data
 
 - `ircdocs/parser-tests`: CC0-1.0. Last commit was 2023-05-29, which is fine because it is a stable corpus. Files: `msg-split`, `msg-join`, `userhost-split`, `mask-match` and `validate-hostname` (`.yaml`).
