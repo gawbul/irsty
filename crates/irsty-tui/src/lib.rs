@@ -3,6 +3,10 @@
 //! Renders from `irsty-core` state and turns key, mouse, paste and focus events
 //! into calls on the client, through a configurable keymap. It never touches
 //! sockets.
+//!
+//! **This crate is Irsty's own internals**, published so that `cargo install
+//! irsty` works. It makes no API stability promise: anything may change in
+//! any release, and its version moves with the app's.
 #![forbid(unsafe_code)]
 
 pub mod app;

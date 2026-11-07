@@ -243,3 +243,21 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod licence {
+    /// Each crate carries a copy of the licence for crates.io; they must all
+    /// be the repository's.
+    #[test]
+    fn every_crate_has_the_licence() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let licence = std::fs::read(root.join("LICENSE")).unwrap();
+        for krate in ["irsty-proto", "irsty-core", "irsty-tui", "irsty"] {
+            let copy = std::fs::read(root.join("crates").join(krate).join("LICENSE")).unwrap();
+            assert!(
+                copy == licence,
+                "crates/{krate}/LICENSE differs from LICENSE"
+            );
+        }
+    }
+}

@@ -127,7 +127,7 @@ fn extra_sections() -> Roff {
         italic("weechat"),
         roman(
             "(1). The full documentation, configuration, commands, key bindings, \
-               scripting and accessibility, is at https://github.com/gawbul/irsty/tree/main/docs.",
+               scripting and accessibility, is at https://gawbul.github.io/irsty/.",
         ),
     ]);
     roff

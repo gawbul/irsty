@@ -1,8 +1,9 @@
 [package]
 name = "irsty"
 description = "A modern, keyboard-driven terminal IRC client"
+readme = "../../README.md"
 version.workspace = true
-publish.workspace = true
+homepage.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -24,10 +25,6 @@ tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "signal"]
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
-
-# Released by dist even though it isn't published to crates.io.
-[package.metadata.dist]
-dist = true
 
 [lints]
 workspace = true

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-07
+
+The first release.
+
+### Release
+
+- Published to crates.io (`cargo install irsty`), with release archives, installers and checksums on GitHub, and a project site at https://gawbul.github.io/irsty/ built from the docs.
+- `irsty-core` and `irsty-tui` say they are Irsty's internals with no API stability promise; every crate carries the licence.
+
 ### Fixed
 
 - `/set` showed `typing.send` and `typing.show` without their values; a test now checks every setting has one.
@@ -106,3 +115,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Integration tests against a scripted mock server and against Ergo (in CI as a service container).
 - `Message::as_ref` borrows an owned message as a `MessageRef` without serialising.
 - Conformance tests against the ircdocs parser-tests corpus, proptest properties, three fuzz targets, criterion benchmarks, snapshot tests of the UI, and a coverage gate in CI.
+
+[Unreleased]: https://github.com/gawbul/irsty/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/gawbul/irsty/releases/tag/v0.1.0

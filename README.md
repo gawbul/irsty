@@ -4,7 +4,7 @@
 
 A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](https://ratatui.rs). It is a spiritual successor to irssi and WeeChat: fast, readable out of the box, scriptable, with first-class IRCv3 support and good support for bouncers (soju, ZNC).
 
-> **Status:** early development, but usable day to day. All the planned milestones, M0 to M16, are done: several networks at once, the core and modern IRCv3 extensions (history, typing, replies, reactions, multi-line messages), bouncer support, the full command set, search, split windows, themes, Luau scripting, accessibility (a plain mode for screen readers, an accessible mode and a high-contrast theme), the release tooling (a man page, shell completions, release archives built by dist, and Homebrew, AUR and Nix templates), and DCC file transfers and chats. Next is the first release; until then Irsty is built from source. See [`PLAN.md`](PLAN.md) for the roadmap.
+> **Status:** early development, but usable day to day. All the planned milestones, M0 to M16, are done: several networks at once, the core and modern IRCv3 extensions (history, typing, replies, reactions, multi-line messages), bouncer support, the full command set, search, split windows, themes, Luau scripting, accessibility (a plain mode for screen readers, an accessible mode and a high-contrast theme), the release tooling (a man page, shell completions, release archives built by dist, and Homebrew, AUR and Nix templates), and DCC file transfers and chats. The first release is v0.1.0. See [`PLAN.md`](PLAN.md) for the roadmap.
 
 ## Goals
 
@@ -38,17 +38,37 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **DCC:** send and receive files and chat directly with someone, as in irssi (and with irssi): `/dcc get`, `send`, `chat`, `resume` and `close`, passive DCC for users behind NAT, and resuming a file that stopped part-way. Nothing is accepted without you; received files get a safe name and never replace an existing file. See [docs/COMMANDS.md](docs/COMMANDS.md#files-and-direct-chats-dcc).
 - **Man page and completions:** `irsty --man` and `irsty --completions <bash|zsh|fish|powershell|elvish>`, with copies in `assets/` for packagers ([docs/PACKAGING.md](docs/PACKAGING.md)).
 
-Not yet: a first release, with packages and a project site. See [`PLAN.md`](PLAN.md).
+Not yet: Homebrew and AUR packages (templates are in `packaging/`). See [`PLAN.md`](PLAN.md).
 
-## Quick start
+## Install
 
-Build it (rustup installs the toolchain pinned in `rust-toolchain.toml` automatically; you also need a C and C++ compiler, for the bundled SQLite and Luau: Xcode's command line tools on macOS, `build-essential` or similar on Linux):
+On macOS and Linux:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/gawbul/irsty/releases/latest/download/irsty-installer.sh | sh
+```
+
+On Windows, in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/gawbul/irsty/releases/latest/download/irsty-installer.ps1 | iex"
+```
+
+With Rust, `cargo install irsty` builds it. The [releases](https://github.com/gawbul/irsty/releases) have archives for each platform, with the man page and shell completions inside. The [project site](https://gawbul.github.io/irsty/) has all the documentation.
+
+### Building from source
+
+rustup installs the toolchain pinned in `rust-toolchain.toml` automatically; you also need a C and C++ compiler, for the bundled SQLite and Luau (Xcode's command line tools on macOS, `build-essential` or similar on Linux):
 
 ```sh
 cargo build --release
 ```
 
-The man page and shell completions are in `assets/` ([docs/PACKAGING.md](docs/PACKAGING.md#man-page-and-completions) says where each goes). Then run `./target/release/irsty` and add a network from inside it:
+The binary is `./target/release/irsty`, and the man page and shell completions are in `assets/` ([docs/PACKAGING.md](docs/PACKAGING.md#man-page-and-completions) says where each goes).
+
+## Quick start
+
+Run `irsty` and add a network from inside it:
 
 ```
 /server add libera irc.libera.chat -nick yournick,yournick_ -autojoin #irsty
@@ -105,6 +125,8 @@ mise run assets     # regenerate the man page and completions after changing a f
 The tasks wrap plain `cargo` commands and `scripts/`, so everything works without mise too. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Documentation
+
+Everything below is also on the [project site](https://gawbul.github.io/irsty/).
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Configuration](docs/CONFIG.md)

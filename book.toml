@@ -1,0 +1,22 @@
+# The project site, built with mdBook from docs/ (so the site and the docs
+# can't drift), and deployed to GitHub Pages by .github/workflows/pages.yml.
+# mise run book serves it locally.
+
+[book]
+title = "Irsty"
+authors = ["Steve Moss"]
+description = "A modern, keyboard-driven terminal IRC client"
+language = "en"
+src = "docs"
+
+[build]
+build-dir = "target/book"
+# A page in SUMMARY.md that doesn't exist is an error, not a blank page.
+create-missing = false
+
+[output.html]
+site-url = "/irsty/"
+git-repository-url = "https://github.com/gawbul/irsty"
+edit-url-template = "https://github.com/gawbul/irsty/edit/main/{path}"
+# Off, so "--" and "---" in prose stay as typed (no dashes are added).
+smart-punctuation = false

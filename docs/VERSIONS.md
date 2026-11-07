@@ -125,6 +125,7 @@ Ergo v2.19.1 (2026-08-05) for integration tests: the container `ghcr.io/ergochat
 | cargo-insta | 1.49.0 | Matches the `insta` crate version. Used by `mise run snap`. |
 | bacon | 3.26.0 | `mise run watch`. AGPL-3.0, which is fine for a tool we run but never link. Chosen over cargo-watch, which is on life support and recommends bacon. |
 | cargo-dist (`dist`) | 0.34.0 (2026-11-01) | Release archives, installers and the release workflow (`dist-workspace.toml`, `.github/workflows/release.yml`). Pinned so `dist generate` in CI and locally agree. MIT OR Apache-2.0. |
+| mdBook | 0.5.4 | The project site, from `docs/` (`book.toml`); `mise run book`. In CI through `taiki-e/install-action`. MPL-2.0, fine for a tool we run but never link. |
 | cargo-fuzz | 0.13.2 | Needs nightly (1.101.0-nightly 2026-10-29 when checked). On networks where nightly cargo stalls fetching the index, set `CARGO_HTTP_MULTIPLEXING=false`. |
 
 ### Test data
