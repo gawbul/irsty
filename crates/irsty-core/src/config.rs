@@ -449,6 +449,52 @@ pub enum NotifyMethod {
     None,
 }
 
+/// DCC file transfers and chats (`[dcc]`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DccConfig {
+    /// Where received files go. Defaults to the platform's downloads
+    /// directory, or `downloads` in the data directory.
+    #[serde(default)]
+    pub dir: Option<PathBuf>,
+    /// Ports to listen on for offers, such as `"50000-50010"`, so a router
+    /// can forward them. Defaults to any free port.
+    #[serde(default)]
+    pub ports: Option<String>,
+    /// The address offers advertise, for when the one Irsty sees isn't the
+    /// one others can reach (behind NAT). Defaults to the address of the
+    /// connection to the IRC server.
+    #[serde(default)]
+    pub ip: Option<std::net::IpAddr>,
+}
+
+impl DccConfig {
+    /// The port range, if one is set: `(first, last)`.
+    pub fn port_range(&self) -> Result<Option<(u16, u16)>, String> {
+        let Some(text) = self
+            .ports
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        else {
+            return Ok(None);
+        };
+        let (first, last) = text.split_once('-').unwrap_or((text, text));
+        let parse = |p: &str| {
+            p.trim()
+                .parse::<u16>()
+                .ok()
+                .filter(|&p| p >= 1024)
+                .ok_or_else(|| format!("dcc.ports: {p:?} is not a port from 1024 to 65535"))
+        };
+        let (first, last) = (parse(first)?, parse(last)?);
+        if first > last {
+            return Err(format!("dcc.ports: {text:?} runs backwards"));
+        }
+        Ok(Some((first, last)))
+    }
+}
+
 /// Chat history from servers and bouncers.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -871,6 +917,9 @@ pub struct Config {
     /// Scripts to load at startup.
     #[serde(default, rename = "script")]
     pub scripts: Vec<ScriptConfig>,
+    /// DCC transfers and chats.
+    #[serde(default)]
+    pub dcc: DccConfig,
 }
 
 impl Default for Config {
@@ -893,6 +942,7 @@ impl Default for Config {
             search: SearchConfig::default(),
             theme: ThemeConfig::default(),
             scripts: Vec::new(),
+            dcc: DccConfig::default(),
         }
     }
 }
@@ -938,6 +988,9 @@ impl Config {
     /// Checks aliases, ignore rules and highlights.
     fn validate_extras(&self) -> Result<(), ConfigError> {
         let invalid = |msg: String| Err(ConfigError::Invalid(msg));
+        if let Err(error) = self.dcc.port_range() {
+            return invalid(error);
+        }
         for (name, alias) in &self.aliases {
             if name.is_empty()
                 || !name
@@ -1148,6 +1201,14 @@ impl Paths {
         self.data_dir.join("logs")
     }
 
+    /// Where received DCC files go by default: the platform's downloads
+    /// directory, or `downloads` here.
+    pub fn downloads(&self) -> PathBuf {
+        directories::UserDirs::new()
+            .and_then(|u| u.download_dir().map(Path::to_owned))
+            .unwrap_or_else(|| self.data_dir.join("downloads"))
+    }
+
     /// The search index.
     pub fn search_index(&self) -> PathBuf {
         self.data_dir.join("search.sqlite")
@@ -1183,6 +1244,25 @@ mod tests {
         for bad in ["puce", "#ff80", "#gg0000", "colour256", ""] {
             assert!(!is_colour(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn dcc_port_ranges() {
+        let range = |ports: &str| {
+            DccConfig {
+                ports: Some(ports.into()),
+                ..DccConfig::default()
+            }
+            .port_range()
+        };
+        assert_eq!(range("50000-50010"), Ok(Some((50_000, 50_010))));
+        assert_eq!(range(" 6000 "), Ok(Some((6000, 6000))));
+        assert_eq!(range(""), Ok(None));
+        for bad in ["80-90", "6000-5000", "x", "6000-70000"] {
+            assert!(range(bad).is_err(), "{bad}");
+        }
+        let text = "[dcc]\nports = \"10-20\"\n";
+        assert!(Config::parse(text, Path::new("c.toml")).is_err());
     }
 
     /// The printed default config is exactly the defaults, and mentions

@@ -11,6 +11,7 @@ pub mod batch;
 pub mod client;
 pub mod config;
 pub mod config_file;
+pub mod dcc;
 pub mod event;
 pub mod log;
 pub mod net;

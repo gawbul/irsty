@@ -78,6 +78,16 @@ regex = []
 [nick_colours]
 # alice = "light_blue"
 
+[dcc]
+# DCC file transfers and chats. Nothing is accepted until you say so.
+# Where received files go; by default your downloads directory.
+# dir = "~/Downloads/irc"
+# Ports to listen on, so a router can forward them; by default any.
+# ports = "50000-50010"
+# The address offers advertise, if others can't reach the one Irsty sees
+# (behind NAT); by default the connection's own.
+# ip = "203.0.113.7"
+
 # Luau scripts to load at startup (docs/SCRIPTING.md). Scripts can watch,
 # print, add commands and set timers; "send" lets one act for you.
 #

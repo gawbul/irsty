@@ -938,3 +938,111 @@ async fn reaction_through_ergo(client: &mut Client, channel: &str, msgid: &str, 
     })
     .await;
 }
+
+/// M16's acceptance: a file and a chat between two Irsty clients, each with
+/// its own connection to Ergo.
+#[tokio::test]
+async fn dcc_between_two_clients_against_ergo() {
+    use irsty_core::dcc::Status as Dcc;
+    let Some(ergo) = ergo() else { return };
+    let dir = tempfile::tempdir().unwrap();
+    let (alice, bob) = (unique("a"), unique("b"));
+    let client_for = |name: &str, nick: &str| {
+        let text = format!(
+            r#"
+            [dcc]
+            dir = "{}"
+            [[network]]
+            name = "{name}"
+            nicks = ["{nick}"]
+            [[network.servers]]
+            host = "{{host}}"
+            port = {{port}}
+            tls = false
+            "#,
+            dir.path().join(name).join("downloads").display()
+        );
+        Client::start(&config(&ergo, &text, &dir.path().join(name)), None, None)
+    };
+    let mut a = client_for("alice", &alice);
+    let mut b = client_for("bob", &bob);
+    let registered = |c: &Client| c.state().networks().next().unwrap().status == Status::Registered;
+    until(&mut a, "alice registered", registered).await;
+    until(&mut b, "bob registered", registered).await;
+    let (a_id, b_id) = (
+        a.state().networks().next().unwrap().id,
+        b.state().networks().next().unwrap().id,
+    );
+
+    // A file, with spaces in its name.
+    let data: Vec<u8> = (0..300_000u32)
+        .map(|i| (i * 7 % 256).to_le_bytes()[0])
+        .collect();
+    let file = dir.path().join("holiday photos.zip");
+    std::fs::write(&file, &data).unwrap();
+    a.dcc_send(a_id, &bob, &file, false).unwrap();
+    until(&mut b, "bob sees the offer", |c| !c.dcc().is_empty()).await;
+    b.dcc_get(b_id, Some(&alice), None).unwrap();
+    let both_done = async {
+        loop {
+            let done = |c: &Client| c.dcc().last().is_some_and(|t| t.status == Dcc::Done);
+            if done(&a) && done(&b) {
+                break;
+            }
+            tokio::select! {
+                _ = a.next() => {}
+                _ = b.next() => {}
+                () = tokio::time::sleep(Duration::from_millis(20)) => {}
+            }
+        }
+    };
+    timeout(Duration::from_secs(20), both_done)
+        .await
+        .expect("transfer finished");
+    let received = dir.path().join("bob/downloads/holiday photos.zip");
+    assert_eq!(std::fs::read(&received).unwrap(), data);
+
+    // A chat: bob offers, alice accepts, and they talk.
+    b.dcc_chat(b_id, &alice, false).unwrap();
+    until(&mut a, "alice sees the chat offer", |c| {
+        c.dcc()
+            .iter()
+            .any(|t| t.kind == irsty_core::dcc::Kind::Chat)
+    })
+    .await;
+    a.dcc_chat(a_id, &bob, false).unwrap();
+    let open = |c: &Client| {
+        c.dcc()
+            .iter()
+            .any(|t| t.kind == irsty_core::dcc::Kind::Chat && t.status == Dcc::Active)
+    };
+    let both_open = async {
+        while !(open(&a) && open(&b)) {
+            tokio::select! {
+                _ = a.next() => {}
+                _ = b.next() => {}
+                () = tokio::time::sleep(Duration::from_millis(20)) => {}
+            }
+        }
+    };
+    timeout(Duration::from_secs(20), both_open)
+        .await
+        .expect("chat open");
+    a.say(a_id, &format!("={bob}"), "hello over DCC", false)
+        .unwrap();
+    let heard = |c: &Client, peer: &str| -> Vec<String> {
+        c.state()
+            .networks()
+            .next()
+            .and_then(|n| c.state().find_buffer(n.id, &format!("={peer}")))
+            .and_then(|buf| c.state().buffer(buf))
+            .map(|buf| buf.lines().iter().map(|l| l.text.to_plain()).collect())
+            .unwrap_or_default()
+    };
+    until(&mut b, "bob hears alice", |c| {
+        heard(c, &alice).iter().any(|l| l == "hello over DCC")
+    })
+    .await;
+    a.quit(None).await;
+    b.quit(None).await;
+}

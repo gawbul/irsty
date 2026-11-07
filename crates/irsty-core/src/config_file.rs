@@ -60,6 +60,9 @@ pub const SETTINGS: &[(&str, SettingKind)] = &[
     ("typing.send", SettingKind::Bool),
     ("typing.show", SettingKind::Bool),
     ("search.enabled", SettingKind::Bool),
+    ("dcc.dir", SettingKind::Text),
+    ("dcc.ports", SettingKind::Text),
+    ("dcc.ip", SettingKind::Text),
     ("theme.preset", SettingKind::Text),
     ("theme.colours", SettingKind::Text),
 ];
