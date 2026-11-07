@@ -1,6 +1,8 @@
-# The project site, built with mdBook from docs/ (so the site and the docs
-# can't drift), and deployed to GitHub Pages by .github/workflows/pages.yml.
-# mise run book serves it locally.
+# The docs half of the project site: mdBook from docs/ (so the site and the
+# docs can't drift), served under /irsty/docs/ beneath the hand-written front
+# page in site/. scripts/site.sh puts the two together, and
+# .github/workflows/pages.yml deploys the result. mise run book serves the
+# docs alone; mise run site:serve serves the whole site.
 
 [book]
 title = "Irsty"
@@ -10,12 +12,17 @@ language = "en"
 src = "docs"
 
 [build]
-build-dir = "target/book"
+build-dir = "target/site/docs"
 # A page in SUMMARY.md that doesn't exist is an error, not a blank page.
 create-missing = false
 
 [output.html]
-site-url = "/irsty/"
+site-url = "/irsty/docs/"
+# The site's fonts and palette (site/docs.css), and a title that links home.
+additional-css = ["site/docs.css"]
+additional-js = ["site/docs.js"]
+default-theme = "light"
+preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/gawbul/irsty"
 edit-url-template = "https://github.com/gawbul/irsty/edit/main/{path}"
 # Off, so "--" and "---" in prose stay as typed (no dashes are added).

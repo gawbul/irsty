@@ -145,7 +145,7 @@ The tasks wrap plain `cargo` commands and `scripts/`, so everything works withou
 
 ## Documentation
 
-Everything below is also on the [project site](https://gawbul.github.io/irsty/).
+Everything below is also in the [docs on the project site](https://gawbul.github.io/irsty/docs/).
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Configuration](docs/CONFIG.md)

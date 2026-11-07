@@ -130,12 +130,20 @@ description = "Regenerate the man page and shell completions in assets/"
 run = "./scripts/assets.sh"
 
 [tasks.book]
-description = "Serve the project site (mdBook from docs/) on localhost, rebuilding on change"
+description = "Serve the docs alone (mdBook from docs/) on localhost, rebuilding on change"
 run = "mdbook serve --open"
 
-[tasks."book:build"]
-description = "Build the project site into target/book"
-run = "mdbook build"
+[tasks.site]
+description = "Regenerate the site's terminal screens, then build the whole site into target/site"
+run = [
+  "IRSTY_UPDATE_SITE=1 cargo nextest run -p irsty-tui --test site",
+  "./scripts/site.sh",
+]
+
+[tasks."site:serve"]
+description = "Build the site and serve it on http://127.0.0.1:8000/"
+depends = ["site"]
+run = "python3 -m http.server --directory target/site --bind 127.0.0.1 8000"
 
 [tasks."packaging:aur"]
 description = "Build and check the AUR package in an Arch Linux container (needs Docker)"

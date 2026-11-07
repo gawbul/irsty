@@ -1,0 +1,544 @@
+/* Irsty's site. The palette is Irsty's own: irssi's blue status bar and the
+   yellow of a mention, on a night-blue page. Terminal frames are real
+   renders (crates/irsty-tui/tests/site.rs); their colours are the sixteen
+   terminal colours below, so a theme looks as it would in a terminal. */
+
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("fonts/AtkinsonHyperlegibleNext-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("fonts/AtkinsonHyperlegibleNext-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("fonts/AtkinsonHyperlegibleNext-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("fonts/AtkinsonHyperlegibleNext-ExtraBold.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Monaspace Neon";
+  src: url("fonts/MonaspaceNeon-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Monaspace Neon";
+  src: url("fonts/MonaspaceNeon-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Monaspace Neon";
+  src: url("fonts/MonaspaceNeon-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --night: #131a2a;
+  --deck: #1b2438;
+  --chalk: #e4e8f0;
+  --haze: #8d97ab;
+  --rule: #2a3550;
+  --bar: #2f5bb7;
+  --bar-ink: #ffffff;
+  --mention: #f2c14e;
+  --mention-ink: #f2c14e;
+  --link: #9cbcff;
+
+  --sans: "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --mono: "Monaspace Neon", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* A 1.25 scale on an 18px body. */
+  --step-0: 1.125rem;
+  --step-1: 1.40625rem;
+  --step-2: 1.7578rem;
+  --step-3: clamp(2.2rem, 1.4rem + 3.4vw, 3.6rem);
+  --measure: 68ch;
+  --wide: 76rem;
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --night: #f4f6fa;
+    --deck: #1b2438;
+    --chalk: #172033;
+    --haze: #5a6478;
+    --rule: #d5dbe6;
+    --bar: #2a55ad;
+    --mention-ink: #7a5600;
+    --link: #2a55ad;
+    color-scheme: light;
+  }
+}
+
+/* The terminal's palette, dark. */
+.term {
+  --t-fg: #e4e8f0;
+  --t-bg: #1b2438;
+  --t0: #0f1522;
+  --t1: #e8707a;
+  --t2: #7fcf8b;
+  --t3: #f2c14e;
+  --t4: #2f5bb7;
+  --t5: #c48ae6;
+  --t6: #5fc4d6;
+  --t7: #b8c0cf;
+  --t8: #7a849c;
+  --t9: #ff8f98;
+  --t10: #9de0a8;
+  --t11: #ffd97a;
+  --t12: #8fb3ff;
+  --t13: #dda8ff;
+  --t14: #8fe0ec;
+  --t15: #f3f5f9;
+}
+
+/* And light, for the light theme's window. */
+.term-light {
+  --t-fg: #172033;
+  --t-bg: #fbfcfe;
+  --t0: #172033;
+  --t1: #b3261e;
+  --t2: #1e7a3a;
+  --t3: #f2c14e;
+  --t4: #2a55ad;
+  --t5: #8a3fb5;
+  --t6: #0f7d8c;
+  --t7: #4d576b;
+  --t8: #5f6980;
+  --t9: #c9372c;
+  --t10: #2c8c4a;
+  --t11: #9a6b00;
+  --t12: #2a55ad;
+  --t13: #9b4cc4;
+  --t14: #12808f;
+  --t15: #ffffff;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-padding-top: 4rem;
+}
+
+body {
+  margin: 0;
+  background: var(--night);
+  color: var(--chalk);
+  font-family: var(--sans);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
+
+a {
+  color: var(--link);
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 0.06em;
+}
+a:hover {
+  text-decoration-thickness: 0.12em;
+}
+
+:focus-visible {
+  outline: 3px solid var(--mention);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+code,
+kbd,
+pre {
+  font-family: var(--mono);
+  font-size: 0.86em;
+}
+
+p code,
+li code,
+td code,
+dt code {
+  padding: 0.05em 0.3em;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--chalk) 9%, transparent);
+}
+
+.skip {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  z-index: 10;
+  padding: 0.5rem 0.75rem;
+  background: var(--mention);
+  color: #131a2a;
+}
+.skip:focus {
+  top: 0.5rem;
+}
+
+/* The status bar: Irsty's own, as navigation. */
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bar);
+  color: var(--bar-ink);
+  font-family: var(--mono);
+  font-size: 0.95rem;
+}
+.bar nav {
+  display: flex;
+  gap: 0.15rem 0.9rem;
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: 0.55rem 1.25rem;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+.bar a {
+  color: inherit;
+  text-decoration: none;
+}
+.bar a:hover {
+  text-decoration: underline;
+}
+.bar .home {
+  font-weight: 700;
+}
+.bar .bar-gap {
+  flex: 1;
+}
+.bar :focus-visible {
+  outline-color: var(--mention);
+  outline-offset: 0;
+}
+
+main {
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+
+h1,
+h2 {
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+h2 {
+  font-size: var(--step-2);
+  margin: 0 0 0.75rem;
+}
+
+.prose {
+  max-width: var(--measure);
+}
+.prose p,
+.split .prose p {
+  margin: 0 0 1rem;
+}
+
+section + section {
+  margin-top: clamp(4rem, 3rem + 4vw, 7rem);
+}
+
+/* The opening: a plain statement, then the command to install. */
+.hero {
+  padding-top: clamp(3rem, 2rem + 5vw, 6.5rem);
+  max-width: 52rem;
+}
+.hero h1 {
+  font-size: var(--step-3);
+  margin: 0 0 1.25rem;
+  max-width: 15ch;
+}
+.lede {
+  font-size: var(--step-1);
+  line-height: 1.5;
+  color: var(--chalk);
+  max-width: 40ch;
+  margin: 0 0 2rem;
+}
+.get {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+}
+.more {
+  color: var(--haze);
+}
+
+/* A command with its copy button. */
+.cmd {
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 100%;
+  background: var(--deck);
+  color: #e4e8f0;
+  border-radius: 6px;
+  border: 1px solid var(--rule);
+}
+.cmd code {
+  padding: 0.7rem 0.9rem;
+  overflow-x: auto;
+  white-space: pre;
+  font-size: 0.95rem;
+}
+.cmd code::before {
+  content: "$ ";
+  color: #7a849c;
+}
+.copy {
+  flex: none;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  padding: 0 0.9rem;
+  border: 0;
+  border-left: 1px solid #2a3550;
+  border-radius: 0 6px 6px 0;
+  background: transparent;
+  color: #b8c0cf;
+  cursor: pointer;
+}
+.copy:hover {
+  color: #ffffff;
+}
+.copy[data-done] {
+  color: #f2c14e;
+}
+
+/* The tour: one terminal, six windows. */
+.tour {
+  margin-top: clamp(3rem, 2rem + 3vw, 4.5rem);
+  max-width: 68rem;
+}
+
+.screen {
+  margin: 0;
+}
+.screen figcaption {
+  margin-top: 1rem;
+  max-width: var(--measure);
+  color: var(--haze);
+}
+
+/* A terminal frame: the grid is sized from its container, so 110 columns
+   always fit and never scroll. Monaspace Neon is 0.62em wide per column. */
+.term {
+  container-type: inline-size;
+  background: var(--t-bg);
+  color: var(--t-fg);
+  border-radius: 10px;
+  padding: clamp(0.6rem, 1.5vw, 1.1rem);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 30px 60px -30px rgb(0 0 0 / 0.55);
+}
+.term-light {
+  box-shadow: 0 0 0 1px #d5dbe6, 0 30px 60px -30px rgb(23 32 51 / 0.35);
+}
+.term pre {
+  margin: 0;
+  font-size: calc(100cqi / 68.6);
+  line-height: 1.32;
+  white-space: pre;
+  font-variant-ligatures: none;
+  font-feature-settings: "calt" 0;
+}
+.small .term pre {
+  font-size: calc(100cqi / 50);
+}
+
+.term .w {
+  display: inline-block;
+  width: 2ch;
+  text-align: center;
+  font-family: system-ui, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  line-height: 1;
+}
+
+/* Terminal colours and styles, as the generator names them. */
+.f0 { color: var(--t0); } .f1 { color: var(--t1); } .f2 { color: var(--t2); } .f3 { color: var(--t3); }
+.f4 { color: var(--t4); } .f5 { color: var(--t5); } .f6 { color: var(--t6); } .f7 { color: var(--t7); }
+.f8 { color: var(--t8); } .f9 { color: var(--t9); } .f10 { color: var(--t10); } .f11 { color: var(--t11); }
+.f12 { color: var(--t12); } .f13 { color: var(--t13); } .f14 { color: var(--t14); } .f15 { color: var(--t15); }
+.b0 { background: var(--t0); } .b1 { background: var(--t1); } .b2 { background: var(--t2); } .b3 { background: var(--t3); }
+.b4 { background: var(--t4); } .b5 { background: var(--t5); } .b6 { background: var(--t6); } .b7 { background: var(--t7); }
+.b8 { background: var(--t8); } .b9 { background: var(--t9); } .b10 { background: var(--t10); } .b11 { background: var(--t11); }
+.b12 { background: var(--t12); } .b13 { background: var(--t13); } .b14 { background: var(--t14); } .b15 { background: var(--t15); }
+.fbg { color: var(--t-bg); }
+.bfg { background: var(--t-fg); }
+.B { font-weight: 700; }
+.D { opacity: 0.6; }
+.I { font-style: italic; }
+.U { text-decoration: underline; }
+.S { text-decoration: line-through; }
+
+/* The window list under the terminal. */
+.windows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+}
+.windows [role="tab"] {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--chalk);
+  cursor: pointer;
+}
+.windows [role="tab"]:hover {
+  border-color: var(--haze);
+}
+.windows [aria-selected="true"] {
+  background: var(--mention);
+  border-color: var(--mention);
+  color: #131a2a;
+}
+.windows kbd {
+  font-size: inherit;
+  font-weight: 700;
+  margin-right: 0.35rem;
+}
+.note {
+  margin: 1.5rem 0 0;
+  color: var(--haze);
+  font-size: 0.95rem;
+}
+
+/* The arrival on load: earlier renders of the same channel, shown in turn. */
+.arrive .step[data-shown] {
+  display: block;
+}
+
+/* Two columns from here: prose beside code or a screen. */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2rem 3.5rem;
+  align-items: start;
+}
+@media (min-width: 62rem) {
+  .split {
+    grid-template-columns: minmax(0, 30rem) minmax(0, 1fr);
+  }
+}
+
+.code .c {
+  color: #8d97ab;
+}
+
+.code pre {
+  margin: 0;
+  padding: 1.25rem 1.4rem;
+  overflow-x: auto;
+  background: var(--deck);
+  color: #e4e8f0;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0 1.75rem;
+  font-size: 1rem;
+}
+th,
+td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.6rem 1rem 0.6rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+th {
+  font-weight: 700;
+  color: var(--haze);
+}
+
+.ways {
+  margin: 1.5rem 0 1.5rem;
+}
+.ways dt {
+  font-weight: 700;
+  margin-top: 1.25rem;
+}
+.ways dd {
+  margin: 0.4rem 0 0;
+}
+.ways .cmd {
+  width: 100%;
+}
+.ways .cmd code {
+  flex: 1;
+}
+
+.guides {
+  padding: 0;
+  list-style: none;
+}
+.guides li {
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+.guides a {
+  font-weight: 700;
+}
+
+.foot {
+  max-width: var(--wide);
+  margin: clamp(4rem, 3rem + 4vw, 7rem) auto 0;
+  padding: 2rem 1.25rem 3rem;
+  border-top: 1px solid var(--rule);
+  color: var(--haze);
+  font-size: 0.95rem;
+}
+.foot p {
+  margin: 0 0 0.5rem;
+}
+.foot a + a {
+  margin-left: 1rem;
+}
+.foot .fonts {
+  font-size: 0.85rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

@@ -125,7 +125,7 @@ Ergo v2.19.1 (2026-08-05) for integration tests: the container `ghcr.io/ergochat
 | cargo-insta | 1.49.0 | Matches the `insta` crate version. Used by `mise run snap`. |
 | bacon | 3.26.0 | `mise run watch`. AGPL-3.0, which is fine for a tool we run but never link. Chosen over cargo-watch, which is on life support and recommends bacon. |
 | cargo-dist (`dist`) | 0.34.0 (2026-11-01) | Release archives, installers and the release workflow (`dist-workspace.toml`, `.github/workflows/release.yml`). Pinned so `dist generate` in CI and locally agree. MIT OR Apache-2.0. |
-| mdBook | 0.5.4 | The project site, from `docs/` (`book.toml`); `mise run book`. In CI through `taiki-e/install-action`. MPL-2.0, fine for a tool we run but never link. |
+| mdBook | 0.5.4 | The docs half of the project site, from `docs/` (`book.toml`); `mise run book`. In CI through `taiki-e/install-action`. MPL-2.0, fine for a tool we run but never link. |
 | cargo-fuzz | 0.13.2 | Needs nightly (1.101.0-nightly 2026-10-29 when checked). On networks where nightly cargo stalls fetching the index, set `CARGO_HTTP_MULTIPLEXING=false`. |
 
 ### GitHub Actions (checked 2026-11-07)
@@ -145,6 +145,15 @@ Every action is pinned to the commit of its latest release, with the version in 
 | cachix/install-nix-action | 31.11.3 | Installs Nix for the flake jobs in `.github/workflows/packaging.yml`. |
 
 Runners: `ubuntu-latest` (24.04) everywhere except dist's Linux builds, which use `ubuntu-22.04` and `ubuntu-22.04-arm` so the binaries need only glibc 2.35. The macOS builds use `macos-15` and `macos-15-intel`, and Windows `windows-2022` (dist's defaults). `packaging.yml` uses `ubuntu-latest`, `ubuntu-24.04-arm`, `macos-latest` and `windows-latest`, and the `archlinux:latest` container (Arch is a rolling release, so the tag isn't pinned).
+
+### Site fonts (checked 2026-11-07)
+
+Self-hosted in `site/fonts/` (no font service sees the site's visitors), with their licences beside them. Both are under the SIL Open Font License 1.1, which allows bundling them with the site.
+
+| Font | Version | Notes |
+|---|---|---|
+| Atkinson Hyperlegible Next | 2.66, `googlefonts/atkinson-hyperlegible-next` at `7925f50` | Prose, on the front page and in the docs. By the Braille Institute, designed for legibility. Its Mono sibling has no box-drawing characters, so it can't draw a terminal. |
+| Monaspace Neon | 1.400, `githubnext/monaspace` at `f31794b` | Terminal screens and code. Covers every box-drawing and symbol character Irsty draws; its advance is 0.62em, which `site/style.css` sizes the screens by. |
 
 ### Packaging (checked 2026-11-07)
 
