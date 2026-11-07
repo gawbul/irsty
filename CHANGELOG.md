@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- M16, DCC: `/dcc list|get|resume|send|chat|close`, as in irssi. File transfers with resume (`RESUME`/`ACCEPT`), chats in `=nick` buffers, and passive (reverse) DCC for users behind NAT, both ways. Nothing is accepted automatically; offers are listed and notified, and lapse after five minutes. Received files get a sanitised name in `dcc.dir`, are written as `.part` and never replace an existing file, and the offered size is enforced. `[dcc]` has `dir`, `ports` and `ip`; the first offer warns that it reveals your IP address, and DCC is off through a proxy unless `dcc.ip` is set. Works with irssi.
 - M15, releases and packaging:
   - `irsty --man` prints a man page (with files, environment and exit status as well as the options), and `irsty --completions <shell>` prints completions for bash, zsh, fish, PowerShell and Elvish. Copies live in `assets/`; `mise run assets` regenerates them.
   - Release archives for macOS (arm64 and x86_64), Linux (x86_64 and arm64) and Windows, with the man page and completions inside, checksums, and shell and PowerShell installers, built by dist from a version tag.

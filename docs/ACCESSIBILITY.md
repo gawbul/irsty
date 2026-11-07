@@ -16,7 +16,7 @@ irsty --plain
 Plain mode writes plain lines of text as things happen, and reads what you type a line at a time, like a shell. Your terminal's own line editing works, and so does your screen reader's review of the terminal, because nothing is ever redrawn or moved.
 
 - New lines in the current buffer are printed as they arrive: `<alice> hello`, `* bob waves`, `carol has joined #rust`.
-- From other buffers, only what is for you: mentions and private messages, with where they came from: `libera/#irsty: <dave> steve: look at this`.
+- From other buffers, only what is for you: mentions and private messages, with where they came from: `libera/#irsty: <dave> steve: look at this`. DCC offers are announced the same way.
 - Switching buffers (`/window 2`, `/window next`, `/query alice`) says where you are (`Now in libera/#rust.`) and reads out up to 20 lines you hadn't seen, with their times.
 - Lines have no timestamps, which are noise when read aloud, except lines from history and the catch-up after switching, where when matters.
 - Replies say who they answer (`(replying to alice) <bob> yes`), and messages that couldn't be sent say why.

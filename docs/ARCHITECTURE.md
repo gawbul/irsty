@@ -105,6 +105,18 @@ CTCP requests are answered in `State` (VERSION, PING, TIME, CLIENTINFO, SOURCE) 
 | App to log writer | `try_send` into a queue of 4096 | Dropped lines are counted, and a marker line is written once there is space. |
 | App to search index | `try_send` into a queue of 4096 | The line is left out of the index (it is still logged); a search says the index is busy. |
 
+## DCC
+
+`irsty_proto::dcc` parses and encodes the CTCP `DCC` requests (`SEND`, `CHAT`, `RESUME`, `ACCEPT`) as irssi, mIRC and others send them, quoted or unquoted file names included (unquoted ones are read from the end), and makes file names safe (`safe_file_name`). `State` hands a request to the client as `Effect::Dcc`, only live (never from history) and never for our own echoes or ignored users.
+
+`irsty_core::dcc::Dcc` is the bookkeeping: offers, transfers and chats, each with a status. It takes requests from the network and from commands and returns `dcc::Out`s (CTCP replies, notes, notifications, chat lines) that `Client::apply_dcc` carries out, so it is tested without a network. Each connection is a Tokio task (receiving, sending or chatting) that reports `dcc::Event`s, which `Client::next` reads alongside network events.
+
+- Receiving writes `name.part`, created with create-new semantics in the download directory under the sanitised name, and links it to the first free final name when complete (a hard link, so nothing is replaced even if a file appears meanwhile). It stops at the offered size, acknowledges each read with the 4-byte count older senders wait for, and reports a short transfer as one `/dcc resume` can finish.
+- Sending reads acknowledgements while it writes, so a receiver blocked writing them can never stall it, and waits briefly for the last one.
+- Passive offers (port 0 and a token) are answered by listening and sending the same request back with our address, port and the token; the other side's answer to ours is matched by token.
+- The advertised address is `dcc.ip`, or the local address of the IRC connection (`NetEvent::Connected::local`), which is `None` through a proxy, turning DCC off there.
+- A DCC chat is the query buffer `=nick` (no nick can start with `=`); `Client::say` sends anything for `=nick` over the chat. irssi's `CTCP_MESSAGE` prefix for actions is understood.
+
 ## Untrusted text
 
 Remote text becomes `StyledText` once, at ingest, through `StyledText::parse` (or `StyledText::plain`, which also drops formatting) in `irsty_proto::format`, and the TUI renders nothing else ([ADR 0005](adr/0005-untrusted-text.md)). Nicks and channel names shown in the UI go through `sanitise_identifier`, and text placed inside terminal escape sequences (notifications) has every control character removed.

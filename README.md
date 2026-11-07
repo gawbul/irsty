@@ -4,7 +4,7 @@
 
 A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](https://ratatui.rs). It is a spiritual successor to irssi and WeeChat: fast, readable out of the box, scriptable, with first-class IRCv3 support and good support for bouncers (soju, ZNC).
 
-> **Status:** early development, but usable day to day. Milestones M0 to M15 are done: several networks at once, the core and modern IRCv3 extensions (history, typing, replies, reactions, multi-line messages), bouncer support, the full command set, search, split windows, themes, Luau scripting, accessibility (a plain mode for screen readers, an accessible mode and a high-contrast theme), and the release tooling (a man page, shell completions, release archives built by dist, and Homebrew, AUR and Nix templates). Still to come: DCC (M16). There are no releases yet, so for now Irsty is built from source. See [`PLAN.md`](PLAN.md) for the roadmap.
+> **Status:** early development, but usable day to day. All the planned milestones, M0 to M16, are done: several networks at once, the core and modern IRCv3 extensions (history, typing, replies, reactions, multi-line messages), bouncer support, the full command set, search, split windows, themes, Luau scripting, accessibility (a plain mode for screen readers, an accessible mode and a high-contrast theme), the release tooling (a man page, shell completions, release archives built by dist, and Homebrew, AUR and Nix templates), and DCC file transfers and chats. Next is the first release; until then Irsty is built from source. See [`PLAN.md`](PLAN.md) for the roadmap.
 
 ## Goals
 
@@ -15,7 +15,7 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 
 ## What works today
 
-- **Protocol** (`irsty-proto`): a zero-copy message parser and validating serialiser, IRCv3 message tags, `RPL_ISUPPORT`, casemapping, mIRC formatting, CTCP, and message splitting. It is checked against the ircdocs parser-tests corpus, property-tested and fuzzed.
+- **Protocol** (`irsty-proto`): a zero-copy message parser and validating serialiser, IRCv3 message tags, `RPL_ISUPPORT`, casemapping, mIRC formatting, CTCP, DCC requests, and message splitting. It is checked against the ircdocs parser-tests corpus, property-tested and fuzzed.
 - **Untrusted text:** escape sequences, control characters and bidi tricks from the network are neutralised before anything is displayed or logged.
 - **Connections** (`irsty-core`): TLS with OS certificate verification and plain-English certificate errors, client certificates, IPv6 with Happy Eyeballs, SOCKS5 proxies (Tor-friendly: DNS goes through the proxy), `CAP LS 302`, SASL SCRAM-SHA-256, PLAIN and EXTERNAL (CertFP) with no silent downgrade, perform lines, nick fallback, keepalive with lag measurement, rate-limited output, and reconnection with backoff, server rotation and automatic rejoin.
 - **State:** networks, channels, members and their modes, topics, queries and per-buffer scrollback, plus each user's account, host, real name and away status.
@@ -26,7 +26,7 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **Logs and search:** one plain-text file per buffer, safe to `cat`, optionally rotated daily or monthly, and a full-text index of the same messages (SQLite with FTS5, on its own thread) for `/search`: this buffer, the network or everywhere, by word or the start of one, ignoring case and accents.
 - **Split windows:** `/window split` and `vsplit` divide the screen into panes, each showing its own buffer; F7 and F8 (or a click) move focus, and `/layout save` keeps the arrangement for the next start. Coming back to a buffer marks where the unread lines start, and Alt+U (Shift+Alt+U with irssi's keys) jumps there.
 - **Terminal UI:** a buffer list grouped by network, scrollback with aligned nicks and word wrapping that handles CJK and emoji, a nick list, topic and status bars (activity, lag, and a loud warning for unverified TLS), and an input line with emacs-style editing, history and tab completion (nicks, recent speakers first; channels; commands and their arguments). Ctrl+G opens a fuzzy buffer switcher, and pasting several lines asks before sending. Keys follow irssi, or WeeChat with `keymap = "weechat"`, and any key can be rebound with `/bind` ([docs/KEYBINDINGS.md](docs/KEYBINDINGS.md)).
-- **Commands** ([docs/COMMANDS.md](docs/COMMANDS.md)): talking (`/msg /query /me /reply /react /notice /ctcp /away`), finding out (`/whois /whowas /who /names /topic /list`, with replies gathered where you typed them), running channels (`/mode /op /voice /kick /ban /invite`), buffers and panes (`/window /close /clear /layout /search /url`), and setting things up from inside Irsty: `/server add|del|update|list`, `/set`, `/alias`, `/ignore`, `/highlight` and `/bind`, all saved to your config with its comments intact, `/reload` after you edit it by hand, and `/script` to load and manage scripts. Passwords sent with `/raw` or to NickServ are hidden on screen and in logs.
+- **Commands** ([docs/COMMANDS.md](docs/COMMANDS.md)): talking (`/msg /query /me /reply /react /notice /ctcp /away`), finding out (`/whois /whowas /who /names /topic /list`, with replies gathered where you typed them), running channels (`/mode /op /voice /kick /ban /invite`), buffers and panes (`/window /close /clear /layout /search /url`), files and direct chats (`/dcc`), and setting things up from inside Irsty: `/server add|del|update|list`, `/set`, `/alias`, `/ignore`, `/highlight` and `/bind`, all saved to your config with its comments intact, `/reload` after you edit it by hand, and `/script` to load and manage scripts. Passwords sent with `/raw` or to NickServ are hidden on screen and in logs.
 - **First run:** no config file needed; add a network with `/server add` and Irsty writes one.
 - **Ignores and highlights:** hide people by mask, per network or channel; highlight words and regexes besides your nick. Highlighted lines stand out, and highlights and private messages raise desktop notifications through the terminal (OSC 777, OSC 9 or the bell, tmux-aware).
 - **Looks:** themes (`dark`, `light` and `high-contrast` presets, and every element restylable in `[theme]`), colours fitted to what the terminal shows (truecolor, 256, 16, or none, honouring `NO_COLOR`), nick colours (with overrides), underlined links with `/url` to open them, and mIRC formatting typed with irssi's or WeeChat's keys.
@@ -35,9 +35,10 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **Config tools:** `/reload` reads the file again after you edit it (networks included), `irsty --check-config` checks a file without starting, and `irsty --print-default-config` prints one with every setting at its default.
 - **CTCP:** answers `VERSION`, `PING`, `TIME`, `CLIENTINFO` and `SOURCE`, rate-limited.
 - **Headless mode:** `--headless` prints every buffer's new lines to stdout.
+- **DCC:** send and receive files and chat directly with someone, as in irssi (and with irssi): `/dcc get`, `send`, `chat`, `resume` and `close`, passive DCC for users behind NAT, and resuming a file that stopped part-way. Nothing is accepted without you; received files get a safe name and never replace an existing file. See [docs/COMMANDS.md](docs/COMMANDS.md#files-and-direct-chats-dcc).
 - **Man page and completions:** `irsty --man` and `irsty --completions <bash|zsh|fish|powershell|elvish>`, with copies in `assets/` for packagers ([docs/PACKAGING.md](docs/PACKAGING.md)).
 
-Not yet: DCC (M16), and a first release. See [`PLAN.md`](PLAN.md).
+Not yet: a first release, with packages and a project site. See [`PLAN.md`](PLAN.md).
 
 ## Quick start
 

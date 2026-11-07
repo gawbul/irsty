@@ -252,6 +252,23 @@ Irsty answers CTCP `VERSION`, `PING`, `TIME`, `CLIENTINFO` and `SOURCE` requests
 | `version` | string | `"Irsty <version> (https://github.com/gawbul/irsty)"` | The `VERSION` reply. |
 | `time` | boolean | `true` | Answer `TIME`, which reveals your local time and time zone. |
 
+## `[dcc]`
+
+Direct file transfers and chats ([COMMANDS.md](COMMANDS.md#files-and-direct-chats-dcc)). Nothing is accepted without `/dcc get` or `/dcc chat`.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `dir` | path | your downloads directory (or `downloads` in the data directory) | Where received files go. |
+| `ports` | string | any free port | Ports to listen on for offers, as `"50000"` or `"50000-50010"` (from 1024 up), so a router can forward them. |
+| `ip` | IP address | the address of the connection to the server | The address offers advertise, for when others can't reach the one Irsty sees (behind NAT, it is private). Setting it also allows DCC on networks reached through a proxy. |
+
+```toml
+[dcc]
+dir = "~/Downloads/irc"
+ports = "50000-50010"
+ip = "203.0.113.7"
+```
+
 ## `[[script]]`
 
 Luau scripts to load at startup, each with what it may do. [SCRIPTING.md](SCRIPTING.md) describes the keys (`path`, `allow`, `enabled`) and the API.
