@@ -137,6 +137,21 @@ run = "mdbook serve --open"
 description = "Build the project site into target/book"
 run = "mdbook build"
 
+[tasks."packaging:aur"]
+description = "Build and check the AUR package in an Arch Linux container (needs Docker)"
+run = "docker run --rm --platform linux/amd64 -v \"$PWD:/src:ro\" -w /src archlinux:latest ./scripts/aur.sh"
+
+[tasks."packaging:nix"]
+description = "Check and build the Nix flake in a nixos/nix container (needs Docker)"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+docker run --rm -v "$PWD:/src:ro" nixos/nix sh -c '
+  echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
+  cp -a /src /work && cd /work && git config --global --add safe.directory /work
+  nix flake check --print-build-logs && nix run . -- --version'
+'''
+
 [tasks.gate]
 description = "Run the full quality gate (required before a milestone is done)"
 alias = "g"
