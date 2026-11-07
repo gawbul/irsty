@@ -6,20 +6,31 @@ name: Publish Scoop manifest
 # installer, so this is ours. It pushes with SCOOP_BUCKET_TOKEN, a
 # fine-grained token with read and write access to the bucket's contents only,
 # stored in the scoop-bucket environment (docs/PACKAGING.md).
+#
+# It can also be run by hand for an existing release, to publish or repair
+# its manifest: `gh workflow run publish-scoop.yml -f tag=v0.1.0`. The same
+# checks and approval apply.
 
 on:
   workflow_run:
     workflows: [Release]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag to publish, such as v0.1.0
+        required: true
+        type: string
 
 permissions: {}
 
 jobs:
   publish:
-    # Only a successful run of release.yml (not just any workflow named
-    # Release) for a tag pushed to this repository. The tag itself is checked
-    # in the first step.
+    # Run by hand, or after a successful run of release.yml (not just any
+    # workflow named Release) for a tag pushed to this repository. The tag
+    # itself is checked in the first steps.
     if: >-
+      github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.path == '.github/workflows/release.yml' &&
@@ -30,6 +41,8 @@ jobs:
     environment: scoop-bucket
     permissions:
       contents: read
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_branch }}
     steps:
       # main, not the release commit: the scripts run from main's copy, never
       # from the commit being checked.
@@ -38,15 +51,27 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: false
+      - name: Find the release commit
+        id: release
+        env:
+          EVENT: ${{ github.event_name }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" == workflow_dispatch ]]; then
+            [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a release tag: $TAG"; exit 1; }
+            sha=$(git rev-parse --verify "refs/tags/$TAG^{commit}")
+          else
+            sha=$RUN_SHA
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
       - name: Check the tag
         env:
-          TAG: ${{ github.event.workflow_run.head_branch }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_SHA: ${{ steps.release.outputs.sha }}
         run: ./scripts/check-release-tag.sh
       - name: Write the manifest
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
           gh release download "$TAG" --pattern irsty-x86_64-pc-windows-msvc.zip.sha256 --output archive.sha256
@@ -59,8 +84,6 @@ jobs:
           token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
           path: scoop-bucket
       - name: Push to the bucket
-        env:
-          TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
           mkdir -p scoop-bucket/bucket

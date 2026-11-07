@@ -66,7 +66,7 @@ The formula installs only the binary in `bin`; the man page and completions from
 
 ## Scoop (Windows)
 
-`scoop bucket add gawbul https://github.com/gawbul/scoop-bucket`, then `scoop install gawbul/irsty`, installs the Windows archive. dist has no Scoop installer, so the `Publish Scoop manifest` workflow (`.github/workflows/publish-scoop.yml`) does it: after a successful `Release` run it makes the same checks as `Publish crates` (`scripts/check-release-tag.sh`), writes `irsty.json` with `scripts/scoop-manifest.sh` from the archive's published SHA-256, and pushes it to the bucket as `bucket/irsty.json`. It pushes with `SCOOP_BUCKET_TOKEN`, a fine-grained token with read and write access to the bucket's contents and nothing else. The job runs in the `scoop-bucket` environment: keep the token there, not as a repository secret, and require yourself as a reviewer, so only an approved run can read it (unlike `HOMEBREW_TAP_TOKEN`, as dist's Homebrew job can't use an environment). The manifest has no `checkver` or `autoupdate`, because the workflow is what updates it. Its notes say where the man page and completions are, and how to load PowerShell completions. The binary isn't code-signed, so SmartScreen may warn the first time it runs.
+`scoop bucket add gawbul https://github.com/gawbul/scoop-bucket`, then `scoop install gawbul/irsty`, installs the Windows archive. dist has no Scoop installer, so the `Publish Scoop manifest` workflow (`.github/workflows/publish-scoop.yml`) does it: after a successful `Release` run it makes the same checks as `Publish crates` (`scripts/check-release-tag.sh`), writes `irsty.json` with `scripts/scoop-manifest.sh` from the archive's published SHA-256, and pushes it to the bucket as `bucket/irsty.json`. It pushes with `SCOOP_BUCKET_TOKEN`, a fine-grained token with read and write access to the bucket's contents and nothing else. The job runs in the `scoop-bucket` environment: keep the token there, not as a repository secret, and require yourself as a reviewer, so only an approved run can read it (unlike `HOMEBREW_TAP_TOKEN`, as dist's Homebrew job can't use an environment). The manifest has no `checkver` or `autoupdate`, because the workflow is what updates it. To publish or repair the manifest for an existing release, run the workflow by hand: `gh workflow run publish-scoop.yml -f tag=v0.1.0` (or Actions, Publish Scoop manifest, Run workflow). It makes the same checks and needs the same approval. Its notes say where the man page and completions are, and how to load PowerShell completions. The binary isn't code-signed, so SmartScreen may warn the first time it runs.
 
 ## Nix
 
@@ -74,9 +74,10 @@ The formula installs only the binary in `bin`; the man page and completions from
 
 ```sh
 nix run github:gawbul/irsty            # run the latest main
-nix run github:gawbul/irsty/v0.1.0     # or a release
 nix profile install github:gawbul/irsty
 ```
+
+From the next release on, a tag pins a release (`github:gawbul/irsty/v0.2.0`); `v0.1.0` predates the flake. Nothing is published for Nix, so there is no workflow to run: the flake is read from the repository.
 
 It builds `packaging/nix/package.nix` from the checkout and its `Cargo.lock`, so it has no hashes to update; the only thing to maintain is `flake.lock`, which pins nixpkgs (`nix flake update`, then check it builds). There is no binary cache, so Nix compiles Irsty, which takes a few minutes. The build runs the protocol tests and checks `irsty --version`, and installs the man page and the bash, zsh and fish completions.
 
