@@ -1,8 +1,8 @@
 [package]
 name = "irsty-core"
-description = "Connection management and client state for Irsty, free of UI dependencies"
+description = "Irsty's connection management and client state; internal to Irsty, with no API stability promise"
 version.workspace = true
-publish.workspace = true
+homepage.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -125,7 +125,25 @@ Ergo v2.19.1 (2026-08-05) for integration tests: the container `ghcr.io/ergochat
 | cargo-insta | 1.49.0 | Matches the `insta` crate version. Used by `mise run snap`. |
 | bacon | 3.26.0 | `mise run watch`. AGPL-3.0, which is fine for a tool we run but never link. Chosen over cargo-watch, which is on life support and recommends bacon. |
 | cargo-dist (`dist`) | 0.34.0 (2026-11-01) | Release archives, installers and the release workflow (`dist-workspace.toml`, `.github/workflows/release.yml`). Pinned so `dist generate` in CI and locally agree. MIT OR Apache-2.0. |
+| mdBook | 0.5.4 | The project site, from `docs/` (`book.toml`); `mise run book`. In CI through `taiki-e/install-action`. MPL-2.0, fine for a tool we run but never link. |
 | cargo-fuzz | 0.13.2 | Needs nightly (1.101.0-nightly 2026-10-29 when checked). On networks where nightly cargo stalls fetching the index, set `CARGO_HTTP_MULTIPLEXING=false`. |
+
+### GitHub Actions (checked 2026-11-07)
+
+Every action is pinned to the commit of its latest release, with the version in a comment. dist's workflow takes its pins from `[dist.github-action-commits]` in `dist-workspace.toml`, which writes them without a comment, so the versions are noted there.
+
+| Action | Version | Notes |
+|---|---|---|
+| actions/checkout | 7.0.1 | Every workflow. dist's default is v6; v7 has the same inputs. |
+| actions/upload-artifact | 7.0.2 | `release.yml`. |
+| actions/download-artifact | 8.0.2 | `release.yml`. |
+| Swatinem/rust-cache | 2.9.3 | `ci.yml`; pinned for dist too, though its release builds don't cache. |
+| taiki-e/install-action | 2.90.2 | Installs nextest, llvm-cov, cargo-fuzz, deny and audit in `ci.yml`, and mdBook in `pages.yml`. |
+| rust-lang/crates-io-auth-action | 1.0.6 | Trusted publishing in `.github/workflows/publish-crates.yml`: exchanges GitHub's OIDC token for a crates.io token that lasts 30 minutes. Maintained by the Rust project. |
+| actions/upload-pages-artifact | 5.0.0 | The site, in `.github/workflows/pages.yml`. |
+| actions/deploy-pages | 5.0.1 | The site, in `.github/workflows/pages.yml`. |
+
+Runners: `ubuntu-latest` (24.04) everywhere except dist's Linux builds, which use `ubuntu-22.04` and `ubuntu-22.04-arm` so the binaries need only glibc 2.35. The macOS builds use `macos-15` and `macos-15-intel`, and Windows `windows-2022` (dist's defaults).
 
 ### Test data
 

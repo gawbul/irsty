@@ -10,6 +10,7 @@
 "cargo:cargo-insta" = "1.49.0"
 "cargo:bacon" = "3.26.0"
 "cargo:cargo-dist" = "0.34.0"
+"cargo:mdbook" = "0.5.4"
 
 # Setup
 
@@ -127,6 +128,14 @@ run = [{ task = "lint:fix" }, { task = "fmt" }]
 [tasks.assets]
 description = "Regenerate the man page and shell completions in assets/"
 run = "./scripts/assets.sh"
+
+[tasks.book]
+description = "Serve the project site (mdBook from docs/) on localhost, rebuilding on change"
+run = "mdbook serve --open"
+
+[tasks."book:build"]
+description = "Build the project site into target/book"
+run = "mdbook build"
 
 [tasks.gate]
 description = "Run the full quality gate (required before a milestone is done)"

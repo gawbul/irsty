@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-07
+
+The first release.
+
+### Release
+
+- Published to crates.io (`cargo install irsty`), with release archives, installers and checksums on GitHub, and a project site at https://gawbul.github.io/irsty/ built from the docs. The `Publish crates` workflow publishes the crates to crates.io after each tagged release, with trusted publishing.
+- `brew install gawbul/tap/irsty`: dist pushes a formula for the prebuilt binaries to the tap with each release, replacing the source-built template.
+- `irsty-core` and `irsty-tui` say they are Irsty's internals with no API stability promise; every crate carries the licence.
+
 ### Fixed
 
 - `/set` showed `typing.send` and `typing.show` without their values; a test now checks every setting has one.
@@ -32,7 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - M15, releases and packaging:
   - `irsty --man` prints a man page (with files, environment and exit status as well as the options), and `irsty --completions <shell>` prints completions for bash, zsh, fish, PowerShell and Elvish. Copies live in `assets/`; `mise run assets` regenerates them.
   - Release archives for macOS (arm64 and x86_64), Linux (x86_64 and arm64) and Windows, with the man page and completions inside, checksums, and shell and PowerShell installers, built by dist from a version tag.
-  - Templates for a Homebrew formula, an AUR `PKGBUILD` and a Nix derivation in `packaging/`, and `docs/PACKAGING.md`.
+  - Templates for an AUR `PKGBUILD` and a Nix derivation in `packaging/`, and `docs/PACKAGING.md`.
   - Every crate is `publish = false`.
 - M14, accessibility:
   - `irsty --plain`: a line-by-line interface for screen readers and braille displays. Nothing is drawn; new lines in the current buffer are printed as they arrive, mentions and private messages from other buffers are announced with where they came from, switching buffers reads out what you hadn't seen, and commands are typed on an ordinary line.
@@ -106,3 +116,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Integration tests against a scripted mock server and against Ergo (in CI as a service container).
 - `Message::as_ref` borrows an owned message as a `MessageRef` without serialising.
 - Conformance tests against the ircdocs parser-tests corpus, proptest properties, three fuzz targets, criterion benchmarks, snapshot tests of the UI, and a coverage gate in CI.
+
+[Unreleased]: https://github.com/gawbul/irsty/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/gawbul/irsty/releases/tag/v0.1.0

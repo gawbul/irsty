@@ -2,7 +2,7 @@
 
 Irsty runs scripts written in [Luau](https://luau.org), the Lua dialect with a built-in sandbox ([ADR 0008](adr/0008-luau-scripting.md)). Scripts can react to what happens in buffers, add commands, print, and set timers. They can't read or write files, open connections, or run programs, and they act for you on the network only if you allow it.
 
-Working examples are in [`examples/scripts`](../examples/scripts), and a test loads and exercises every one of them.
+Working examples are in [`examples/scripts`](https://github.com/gawbul/irsty/tree/main/examples/scripts), and a test loads and exercises every one of them.
 
 ## Loading scripts
 
