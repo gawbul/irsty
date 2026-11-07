@@ -38,7 +38,7 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **DCC:** send and receive files and chat directly with someone, as in irssi (and with irssi): `/dcc get`, `send`, `chat`, `resume` and `close`, passive DCC for users behind NAT, and resuming a file that stopped part-way. Nothing is accepted without you; received files get a safe name and never replace an existing file. See [docs/COMMANDS.md](docs/COMMANDS.md#files-and-direct-chats-dcc).
 - **Man page and completions:** `irsty --man` and `irsty --completions <bash|zsh|fish|powershell|elvish>`, with copies in `assets/` for packagers ([docs/PACKAGING.md](docs/PACKAGING.md)).
 
-Not yet: Homebrew and AUR packages (templates are in `packaging/`). See [`PLAN.md`](PLAN.md).
+Not yet: AUR and Nix packages (templates are in `packaging/`). See [`PLAN.md`](PLAN.md).
 
 ## Install
 
@@ -46,6 +46,12 @@ On macOS and Linux:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/gawbul/irsty/releases/latest/download/irsty-installer.sh | sh
+```
+
+With Homebrew, on macOS and Linux:
+
+```sh
+brew install gawbul/tap/irsty
 ```
 
 On Windows, in PowerShell:

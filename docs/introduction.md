@@ -27,6 +27,12 @@ On macOS and Linux:
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/gawbul/irsty/releases/latest/download/irsty-installer.sh | sh
 ```
 
+With Homebrew, on macOS and Linux:
+
+```sh
+brew install gawbul/tap/irsty
+```
+
 On Windows, in PowerShell:
 
 ```powershell

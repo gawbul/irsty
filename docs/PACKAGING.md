@@ -11,7 +11,7 @@ For each of `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux
 - `completions/`: `irsty.bash`, `_irsty` (zsh), `irsty.fish`, `_irsty.ps1` (PowerShell) and `irsty.elv` (Elvish)
 - `README.md`, `LICENSE` and `CHANGELOG.md`
 
-There are also installer scripts (`irsty-installer.sh` and `irsty-installer.ps1`, which put `irsty` in `~/.cargo/bin`), `sha256.sum` for every file, and the source tarball.
+There are also installer scripts (`irsty-installer.sh` and `irsty-installer.ps1`, which put `irsty` in `~/.cargo/bin`), a Homebrew formula (`irsty.rb`), `sha256.sum` for every file, and the source tarball.
 
 `dist plan` lists all of this without building anything.
 
@@ -58,13 +58,18 @@ If a run fails part-way, the crates already published stay published, and rerunn
 
 `book.toml` builds the site from `docs/`, with `docs/SUMMARY.md` as its table of contents and `docs/introduction.md` as its front page; a page in the summary that doesn't exist fails the build. `mise run book` serves it locally. The `Pages` workflow (`.github/workflows/pages.yml`) builds it on every pull request, as a check, and deploys it on every push to `main`. Pages must be set to deploy from "GitHub Actions" in the repository settings (once). Links from the docs to files outside `docs/` must be full GitHub URLs, as only `docs/` is in the site.
 
+## Homebrew
+
+dist builds a Homebrew formula with each release and pushes it to the tap [`gawbul/homebrew-tap`](https://github.com/gawbul/homebrew-tap) as `Formula/irsty.rb` (the `publish-homebrew-formula` job in `release.yml`), so `brew install gawbul/tap/irsty` installs the prebuilt binary for macOS or Linux, on Apple silicon, Intel or ARM. The job pushes with the `HOMEBREW_TAP_TOKEN` secret: a fine-grained token with read and write access to the tap's contents and nothing else. It runs after the archives are uploaded and before the GitHub release is created, so a failed push stops the release (and so the crates) too; prereleases are skipped.
+
+The formula installs only the binary in `bin`; the man page and completions from the archive go in `$(brew --prefix)/share/irsty` (Homebrew's `pkgshare`), where `man` and the shells don't look. `man "$(brew --prefix)/share/irsty/irsty.1"` reads the man page, and `irsty --completions <shell>` prints completions to load from a shell's startup file. dist's tap commits are authored by "axo bot", which dist doesn't let us change.
+
 ## Distribution packages
 
-`packaging/` has starting points for three package managers. Each builds from a release's source tarball, installs the binary, the man page and the bash, zsh and fish completions, and needs a release tag to point at. Building needs Rust and a C and C++ compiler (for the bundled SQLite and Luau); there are no other system libraries to link.
+`packaging/` has starting points for two more package managers. Each builds from a release's source tarball, installs the binary, the man page and the bash, zsh and fish completions, and needs a release tag to point at. Building needs Rust and a C and C++ compiler (for the bundled SQLite and Luau); there are no other system libraries to link.
 
 | Package manager | Template | Status |
 |---|---|---|
-| Homebrew | `packaging/homebrew/irsty.rb` | Passes `brew style`; not yet installed from a tap. Put it in a tap (such as `gawbul/homebrew-tap`) as `Formula/irsty.rb`, set `url` and `sha256` for the release, and `brew install gawbul/tap/irsty`. Its test checks `--version` and that `--print-default-config` passes `--check-config`. |
 | AUR (Arch Linux) | `packaging/aur/PKGBUILD` | Untested (no Arch machine here). Set `pkgver`, run `updpkgsums`, check with `namcap`, and publish to the AUR as `irsty`. It runs the `irsty-proto` tests, which need no network. |
 | Nix | `packaging/nix/package.nix` | Untested (no Nix here). Use with `callPackage`; build once with the fake hashes and copy the real ones from the error. |
 
