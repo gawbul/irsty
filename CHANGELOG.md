@@ -28,6 +28,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- M14, accessibility:
+  - `irsty --plain`: a line-by-line interface for screen readers and braille displays. Nothing is drawn; new lines in the current buffer are printed as they arrive, mentions and private messages from other buffers are announced with where they came from, switching buffers reads out what you hadn't seen, and commands are typed on an ordinary line.
+  - `[ui] accessible` (`/set ui.accessible on`): no side panels, ASCII instead of box drawing and symbols, and words beside anything shown only by colour (`!nick` for mentions, `(sending)`, `>` on the focused pane, `!` in the activity list).
+  - The `high-contrast` theme preset: no colours of its own, only bold, italic, underline and reverse video in the terminal's own colours. `accessible` picks it unless another preset is set; `[theme] preset` is now optional.
+  - A `pending` theme element for your messages until the server confirms them.
 - M13, scripting: Luau scripts (`[[script]]`, `/script load|unload|reload|list`) react to events (`irsty.on`), add commands (`irsty.command`), print, set timers and read buffers and nicks, each in a sandboxed state of its own with no file or network access and time, memory and error limits. Sending messages and running commands needs `allow = ["send"]` and is rate-limited. `docs/SCRIPTING.md` documents the API, and `examples/scripts` has working examples.
 - Join, part, quit, kick, nick-change and topic-change lines now record who did it.
 - M12, looks and config tools:

@@ -376,6 +376,20 @@ fn submit(client: &mut Client, ui: &mut Ui) -> Flow {
     run_line(&line, client, ui, 0)
 }
 
+/// Runs a whole line of input, as Enter in the input line does: an alias, a
+/// command or text for the current buffer. For frontends without the input
+/// widget, such as `--plain`. Scripts hear what it added.
+pub fn input_line(text: &str, client: &mut Client, ui: &mut Ui) -> Flow {
+    if text.trim().is_empty() {
+        return Flow::Continue;
+    }
+    let flow = run_line(text, client, ui, 0);
+    if flow == Flow::Continue {
+        return script_lines(client, ui);
+    }
+    flow
+}
+
 /// How deep aliases may call aliases.
 const MAX_ALIAS_DEPTH: usize = 8;
 
@@ -1769,7 +1783,12 @@ fn setting_value(config: &Config, key: &str) -> Option<String> {
         "typing.send" => config.typing.send.to_string(),
         "typing.show" => config.typing.show.to_string(),
         "search.enabled" => config.search.enabled.to_string(),
-        "theme.preset" => config.theme.preset.clone(),
+        "theme.preset" => config
+            .theme
+            .preset
+            .clone()
+            .unwrap_or_else(|| "(default)".into()),
+        "ui.accessible" => config.ui.accessible.to_string(),
         "theme.colours" => config.theme.colours.to_string(),
         _ => return None,
     })

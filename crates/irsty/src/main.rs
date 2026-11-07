@@ -16,6 +16,10 @@ use tracing_subscriber::EnvFilter;
 /// A modern, keyboard-driven terminal IRC client.
 #[derive(Debug, Parser)]
 #[command(version, about, long_about = None)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "command-line flags; clap keeps the modes apart"
+)]
 struct Cli {
     /// Configuration file [default: config.toml in the platform config directory]
     #[arg(short, long, value_name = "PATH")]
@@ -25,13 +29,19 @@ struct Cli {
     #[arg(long)]
     headless: bool,
 
+    /// A line-by-line interface for screen readers and braille displays:
+    /// nothing is drawn, lines are printed as they arrive, and commands are
+    /// read a line at a time
+    #[arg(long, conflicts_with = "headless")]
+    plain: bool,
+
     /// Check the configuration file, report any problems, and exit (status 1
     /// if there are any)
-    #[arg(long, conflicts_with_all = ["headless", "print_default_config"])]
+    #[arg(long, conflicts_with_all = ["headless", "plain", "print_default_config"])]
     check_config: bool,
 
     /// Print a configuration file with every setting at its default, and exit
-    #[arg(long, conflicts_with = "headless")]
+    #[arg(long, conflicts_with_all = ["headless", "plain"])]
     print_default_config: bool,
 }
 
@@ -77,7 +87,11 @@ fn main() -> Result<()> {
     }
     runtime.block_on(async {
         let client = irsty_core::Client::start(&config, paths.as_ref(), None);
-        irsty_tui::run(client, config, Some(file)).await
+        if cli.plain {
+            irsty_tui::plain::run(client, config, Some(file)).await
+        } else {
+            irsty_tui::run(client, config, Some(file)).await
+        }
     })?;
     Ok(())
 }
@@ -192,6 +206,8 @@ mod tests {
     fn parses_flags() {
         let cli = Cli::parse_from(["irsty", "--headless", "-c", "/tmp/x.toml"]);
         assert!(cli.headless);
+        assert!(Cli::parse_from(["irsty", "--plain"]).plain);
+        assert!(Cli::try_parse_from(["irsty", "--plain", "--headless"]).is_err());
         assert_eq!(
             cli.config.as_deref(),
             Some(std::path::Path::new("/tmp/x.toml"))

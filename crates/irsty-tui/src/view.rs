@@ -46,8 +46,15 @@ pub fn render(frame: &mut Frame<'_>, state: &State, ui: &mut Ui) {
         .filter(|b| b.kind == BufferKind::Channel)
         .and_then(|b| network.and_then(|n| n.channel(&b.name)));
 
-    let list_width = if area.width >= 60 { BUFFER_LIST } else { 0 };
-    let nick_width = if channel.is_some() && ui.show_nicklist && area.width >= 100 {
+    // Accessible: one column of text, with no panels beside it (the buffer
+    // list is /window list, and the nick list /names).
+    let panels = !ui.theme.accessible;
+    let list_width = if panels && area.width >= 60 {
+        BUFFER_LIST
+    } else {
+        0
+    };
+    let nick_width = if panels && channel.is_some() && ui.show_nicklist && area.width >= 100 {
         NICK_LIST
     } else {
         0
@@ -107,7 +114,7 @@ fn render_panes(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &mut Ui) {
     for (pane, mut rect) in ui.panes.areas(area) {
         if rect.x > area.x && rect.width > 1 {
             let rule = Rect { width: 1, ..rect };
-            let bar = vec![Line::from("│"); usize::from(rule.height)];
+            let bar = vec![Line::from(rule_char(ui)); usize::from(rule.height)];
             frame.render_widget(Paragraph::new(bar).style(ui.theme.dim), rule);
             rect.x += 1;
             rect.width -= 1;
@@ -117,7 +124,11 @@ fn render_panes(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &mut Ui) {
             let title_area = Rect { height: 1, ..rect };
             rect.y += 1;
             rect.height -= 1;
-            let name = pane_title(state, ui, &order, pane, buffer);
+            let mut name = pane_title(state, ui, &order, pane, buffer);
+            if ui.theme.accessible {
+                // Focus said in text, not only by the title's style.
+                name.replace_range(..1, if pane == focus { ">" } else { " " });
+            }
             let style = if pane == focus {
                 ui.theme.bar.add_modifier(Modifier::BOLD)
             } else {
@@ -213,7 +224,11 @@ fn render_switcher(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
         height,
     );
     frame.render_widget(ratatui::widgets::Clear, popup);
-    let block = ratatui::widgets::Block::bordered()
+    let mut block = ratatui::widgets::Block::bordered();
+    if ui.theme.accessible {
+        block = block.border_set(ASCII_BORDER);
+    }
+    let block = block
         .title(" Go to buffer (Enter, Esc) ")
         .border_style(ui.theme.prompt);
     let inner = block.inner(popup);
@@ -329,7 +344,9 @@ fn render_buffer_list(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &mut
     frame.render_widget(Paragraph::new(lines), area);
     // A divider down the right-hand edge.
     let divider = Rect::new(area.right().saturating_sub(1), area.y, 1, area.height);
-    let bar: Vec<Line<'_>> = (0..area.height).map(|_| Line::from("│")).collect();
+    let bar: Vec<Line<'_>> = (0..area.height)
+        .map(|_| Line::from(rule_char(ui)))
+        .collect();
     frame.render_widget(Paragraph::new(bar).style(ui.theme.dim), divider);
 }
 
@@ -445,6 +462,17 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
             sanitise_identifier(&net.name)
         )));
     }
+    let highlights: Vec<usize> = ui
+        .order(state)
+        .iter()
+        .enumerate()
+        .filter(|&(_, &id)| {
+            state
+                .buffer(id)
+                .is_some_and(|b| b.activity == irsty_core::state::Activity::Highlight)
+        })
+        .map(|(i, _)| i + 1)
+        .collect();
     let active: Vec<(usize, Style)> = ui
         .order(state)
         .iter()
@@ -468,6 +496,10 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
                 spans.push(Span::raw(","));
             }
             spans.push(Span::styled(number.to_string(), *style));
+            // A highlight in words as well as colour.
+            if ui.theme.accessible && highlights.contains(number) {
+                spans.push(Span::styled("!", *style));
+            }
         }
         spans.push(Span::raw("] "));
     }
@@ -493,7 +525,7 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
         spans.push(Span::raw(" -- fetching history --"));
     }
     if ui.config.typing.show
-        && let Some(text) = buffer.and_then(|b| typing_text(b, ui.now))
+        && let Some(text) = buffer.and_then(|b| typing_text(b, ui.now, ui.theme.accessible))
     {
         spans.push(Span::styled(
             format!(" {text}"),
@@ -504,15 +536,37 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
 }
 
 /// Who is typing in a buffer, as the status bar says it.
-fn typing_text(buffer: &irsty_core::state::Buffer, now: jiff::Timestamp) -> Option<String> {
+fn typing_text(
+    buffer: &irsty_core::state::Buffer,
+    now: jiff::Timestamp,
+    ascii: bool,
+) -> Option<String> {
     let nicks: Vec<&str> = buffer.typing(now).map(|t| t.nick.as_str()).collect();
+    let dots = if ascii { "..." } else { "…" };
     Some(match nicks.as_slice() {
         [] => return None,
-        [one] => format!("{one} is typing…"),
-        [one, two] => format!("{one} and {two} are typing…"),
-        many => format!("{} people are typing…", many.len()),
+        [one] => format!("{one} is typing{dots}"),
+        [one, two] => format!("{one} and {two} are typing{dots}"),
+        many => format!("{} people are typing{dots}", many.len()),
     })
 }
+
+/// A vertical rule: box drawing, or `|` in accessible mode.
+fn rule_char(ui: &Ui) -> &'static str {
+    if ui.theme.accessible { "|" } else { "│" }
+}
+
+/// Box borders in ASCII, for accessible mode.
+const ASCII_BORDER: ratatui::symbols::border::Set<'static> = ratatui::symbols::border::Set {
+    top_left: "+",
+    top_right: "+",
+    bottom_left: "+",
+    bottom_right: "+",
+    vertical_left: "|",
+    vertical_right: "|",
+    horizontal_top: "-",
+    horizontal_bottom: "-",
+};
 
 fn render_input(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
     // A multi-line paste waits for an answer instead of the input.

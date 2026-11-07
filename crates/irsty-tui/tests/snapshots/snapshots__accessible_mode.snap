@@ -1,0 +1,20 @@
+---
+source: crates/irsty-tui/tests/snapshots.rs
+expression: terminal.backend()
+---
+"Irsty: a terminal IRC client in Rust | https://github.com/gawbul/irsty          "
+">2:libera/#irsty                                                                "
+"09:06 averyvery+ | long nicks are truncated                                     "
+"09:07 -ChanServ- | Welcome to #irsty                                            "
+"09:08        <-- | bob has left #irsty (lunch)                                  "
+"09:09     !alice | gawbul: are you there?                                       "
+"09:11     !alice | gawbul: lunch?                                               "
+"08:59     gawbul | on my way (sending)                                          "
+" 3:libera/frank                                                                 "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"09:10      frank | psst, private message                                        "
+"[08:59] [gawbul] [2:libera/#irsty] [Act: 3!] [Lag: 1.2s]  eve is typing...      "
+"[#irsty]                                                                        "

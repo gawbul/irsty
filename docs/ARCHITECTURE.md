@@ -89,6 +89,7 @@ CTCP requests are answered in `State` (VERSION, PING, TIME, CLIENTINFO, SOURCE) 
 - `Ui` holds what isn't client state: the active buffer, per-buffer scroll offsets (anchored so new lines don't move a scrolled-back view), the input line and its history.
 - Split windows are `irsty_tui::panes::Panes`, a binary tree of splits whose leaves are panes. The focused pane's buffer is `Ui::active`, so every way of switching buffers works on it unchanged; other panes keep theirs. `Ui::layout_spec` and `Ui::apply_layout` turn the panes into `ui.layout` text and back, and panes from a layout name their buffer (`Place`) until it exists. The run loop marks every visible buffer read with `Client::mark_shown`, which syncs read markers per buffer.
 - Styles come from `theme::Theme` (`Ui::theme`), built from `[theme]`: a preset plus element overrides parsed from style strings. `Ui::apply_config` sets the theme, keys and other UI settings from a config, at startup, after `/set` and on `/reload`.
+- `[ui] accessible` travels with the theme (`Theme::accessible`, set by `Theme::from_config`, which also picks the high-contrast preset), so every drawing function that styles something can also put words beside it or draw ASCII instead; the view leaves out the side panels.
 - Colour depth (`theme::Depth`) is worked out once from `[theme] colours`, `NO_COLOR`, `COLORTERM` and `TERM`. The view draws in full colour, then `Depth::apply` fits every cell of the frame: RGB to the nearest of the 256 palette or the 16 basic colours, or with no colour, no colours at all and reverse video where there was a background. One pass at the end covers IRC colours, the theme and nick colours alike.
 - `/reload` re-opens the config file (`ConfigFile::open`), applies it to the client and the UI, and matches networks by name against the config it replaces: added, updated (which reconnects), or removed. `irsty_tui::check_config` reports what parsing alone doesn't check (keys, theme, layout), for `--check-config` and at startup.
 - The unread marker is set by the view when a buffer comes into the focused pane: the line count before its unread lines (none if nothing was unread). `Scrollback` draws a rule above the first unread line, and `Scrollback::offset_showing` works out the scroll offset that brings it to the top, using the same wrapping as drawing, when `Ui::jump_unread` is set.
@@ -111,6 +112,10 @@ Remote text becomes `StyledText` once, at ingest, through `StyledText::parse` (o
 ## Logging
 
 `irsty_core::log::LogWriter` writes one plain-text file per buffer on its own thread, behind a bounded queue, so the app loop never waits on disk. Each `Effect::Line` names the line it added (by its sequence number in the buffer), so several lines added by one event are all logged. With `[logging] rotate`, the file name carries the line's UTC date. Files are created with mode `0600`.
+
+## Plain mode
+
+`irsty_tui::plain` is a second frontend, for screen readers: no ratatui, no alternate screen, no raw mode. It reuses `Ui` for what is shown (the current buffer, panes left unused) and `app::input_line` for every typed line, so commands, aliases and scripts behave as in the full-screen UI. `plain::Plain::output` is the pure part: from `&State` and `&Ui` it works out the lines to print since the last call, by comparing each buffer's line count with what it has seen (as the scripts do), printing the current buffer's new lines, announcing mentions and private messages elsewhere, and reading out unread lines when the current buffer changes. It runs before the current buffer is marked read, so the catch-up still knows what was unread. Output is plain text with every control character removed.
 
 ## Scripting
 

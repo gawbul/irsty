@@ -27,12 +27,16 @@ timestamp_format = "%H:%M"
 # "irssi" or "weechat".
 keymap = "irssi"
 nick_colours = true
+# No side panels, ASCII only, text for anything shown only by colour, and
+# the high-contrast theme (docs/ACCESSIBILITY.md).
+accessible = false
 # Split windows restored at startup; /layout save writes this.
 # layout = "v(libera/#rust,libera)"
 
 [theme]
-# "dark" or "light".
-preset = "dark"
+# "dark", "light" or "high-contrast"; unset, "dark" (or "high-contrast" with
+# ui.accessible).
+# preset = "dark"
 # "auto" (from NO_COLOR, COLORTERM and TERM), "truecolor", "256", "16" or
 # "none".
 colours = "auto"
