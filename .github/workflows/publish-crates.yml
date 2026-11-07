@@ -50,7 +50,7 @@ jobs:
           set -euo pipefail
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a release tag: $TAG"; exit 1; }
           [[ "$(git rev-parse "refs/tags/$TAG^{commit}")" == "$HEAD_SHA" ]] || { echo "::error::$TAG does not point at $HEAD_SHA"; exit 1; }
-          git merge-base --is-ancestor "$HEAD_SHA" origin/main || { echo "::error::$HEAD_SHA is not on main"; exit 1; }
+          git merge-base --is-ancestor "$HEAD_SHA" refs/remotes/origin/main || { echo "::error::$HEAD_SHA is not on main"; exit 1; }
           [[ "$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "irsty") | .version')" == "${TAG#v}" ]] || { echo "::error::Cargo.toml version does not match $TAG"; exit 1; }
       - name: Check for a first-release token
         id: token
