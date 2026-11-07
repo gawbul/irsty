@@ -137,6 +137,7 @@ Agreed 2026-11-07: after M16, cut the first release (v0.1.0) and publish the cra
 - Release as in [`docs/PACKAGING.md`](docs/PACKAGING.md#releasing): changelog, `MAN_DATE`, gate, `dist plan`, then a `v0.1.0` tag, which the release workflow builds.
 - Publish all four crates, which crates.io needs because `irsty` depends on the others: remove `publish = false`, say plainly in the descriptions and docs of `irsty-core` and `irsty-tui` that they are Irsty's internals with no API stability promise (versions move with the app), check each with `cargo publish --dry-run`, and publish in order `irsty-proto`, `irsty-core`, `irsty-tui`, `irsty` after the tag. The publishing is the user's to run.
 - Then, optionally, the Homebrew tap and the AUR package from `packaging/`.
+- A project site on GitHub Pages, launched with the release: [mdBook](https://rust-lang.github.io/mdBook/) built from `docs/` (so nothing is written twice), with a front page saying what Irsty is, with screenshots and how to install it, above the guides (configuration, commands, keys, scripting, accessibility, packaging). A GitHub Actions workflow builds it on every push to `main` and deploys it with `actions/deploy-pages`; the user turns Pages on in the repository settings. Links from the README, the crates' `homepage`, and the man page's SEE ALSO then point at it. Check the mdBook version live when this starts.
 
 ## 5. Things I'd push back on or do differently from the brief
 
