@@ -1,6 +1,6 @@
 # Packaging and releases
 
-Irsty is released as archives on GitHub, built by [dist](https://opensource.axo.dev/cargo-dist/). Nothing is published to crates.io: every crate has `publish = false`.
+Irsty is released as archives on GitHub, built by [dist](https://opensource.axo.dev/cargo-dist/). Nothing is published to crates.io yet: every crate has `publish = false`, so nothing can go up by accident. The plan is to publish the crates with the first release, after M16 (see [crates.io](#cratesio) below and [`PLAN.md`](../PLAN.md)).
 
 ## What a release contains
 
@@ -38,6 +38,17 @@ Releases are cut by pushing a version tag; the `Release` workflow (`.github/work
 6. Merge, then tag the merge commit and push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
 
 dist itself is pinned in `mise.toml`. After changing `dist-workspace.toml` (or upgrading dist), run `mise exec -- dist generate` to regenerate the workflow; never edit `release.yml` by hand, or the check fails.
+
+## crates.io
+
+Planned for the first release, not done yet. `cargo install irsty` needs all four crates on crates.io, because `irsty` depends on the others (the workspace dependencies already carry versions). Before publishing:
+
+1. Remove `publish = false` from `[workspace.package]` and the crates (and the `[package.metadata.dist] dist = true` opt-in from `crates/irsty`, which is then the default).
+2. Say in the `description` and the crate docs of `irsty-core` and `irsty-tui` that they are Irsty's internals, with no API stability promise, and that their versions move with the app. `irsty-proto` can stand on its own as a sans-IO IRC library.
+3. `cargo publish --dry-run -p <crate>` for each, and look at what each package contains (`cargo package --list`) and its size.
+4. After the release tag, publish in dependency order: `irsty-proto`, `irsty-core`, `irsty-tui`, then `irsty`.
+
+Published versions can be yanked but never deleted. With the crates published, `cargo binstall irsty` can also fetch the release archives instead of compiling.
 
 ## Distribution packages
 
