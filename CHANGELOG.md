@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `ROADMAP.md`: what could come next, starting with the IRCv3 extensions Irsty doesn't support yet.
 - Scoop: `scoop bucket add gawbul https://github.com/gawbul/scoop-bucket`, then `scoop install gawbul/irsty`. The `Publish Scoop manifest` workflow updates the bucket after each release, and can be run by hand for an existing one.
 - A Nix flake: `nix run github:gawbul/irsty` or `nix profile install github:gawbul/irsty`, on Linux and macOS.
 - The AUR package in `packaging/aur` is ready to publish, with its checksum and `.SRCINFO`; `packaging/nix/package.nix` is ready for nixpkgs, with real hashes.

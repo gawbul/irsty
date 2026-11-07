@@ -4,7 +4,7 @@
 
 A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](https://ratatui.rs). It is a spiritual successor to irssi and WeeChat: fast, readable out of the box, scriptable, with first-class IRCv3 support and good support for bouncers (soju, ZNC).
 
-> **Status:** early development, but usable day to day. All the planned milestones, M0 to M16, are done: several networks at once, the core and modern IRCv3 extensions (history, typing, replies, reactions, multi-line messages), bouncer support, the full command set, search, split windows, themes, Luau scripting, accessibility (a plain mode for screen readers, an accessible mode and a high-contrast theme), the release tooling (a man page, shell completions, release archives built by dist, Homebrew, Scoop and a Nix flake, and an AUR package), and DCC file transfers and chats. The first release is v0.1.0. See [`PLAN.md`](PLAN.md) for the roadmap.
+> **Status:** early development, but usable day to day. All the planned milestones, M0 to M16, are done: several networks at once, the core and modern IRCv3 extensions (history, typing, replies, reactions, multi-line messages), bouncer support, the full command set, search, split windows, themes, Luau scripting, accessibility (a plain mode for screen readers, an accessible mode and a high-contrast theme), the release tooling (a man page, shell completions, release archives built by dist, Homebrew, Scoop and a Nix flake, and an AUR package), and DCC file transfers and chats. The first release is v0.1.0. [`ROADMAP.md`](ROADMAP.md) lists what could come next, and [`PLAN.md`](PLAN.md) records what was planned and built.
 
 ## Goals
 
@@ -38,7 +38,7 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **DCC:** send and receive files and chat directly with someone, as in irssi (and with irssi): `/dcc get`, `send`, `chat`, `resume` and `close`, passive DCC for users behind NAT, and resuming a file that stopped part-way. Nothing is accepted without you; received files get a safe name and never replace an existing file. See [docs/COMMANDS.md](docs/COMMANDS.md#files-and-direct-chats-dcc).
 - **Man page and completions:** `irsty --man` and `irsty --completions <bash|zsh|fish|powershell|elvish>`, with copies in `assets/` for packagers ([docs/PACKAGING.md](docs/PACKAGING.md)).
 
-Not yet: the AUR package (ready in `packaging/aur`, waiting for AUR registration to reopen) and nixpkgs (`packaging/nix/package.nix` is ready to submit). See [`PLAN.md`](PLAN.md).
+Not yet: the AUR package (ready in `packaging/aur`, waiting for AUR registration to reopen) and nixpkgs (`packaging/nix/package.nix` is ready to submit). See [`ROADMAP.md`](ROADMAP.md) for what else is planned.
 
 ## Install
 

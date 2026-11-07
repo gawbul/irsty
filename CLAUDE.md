@@ -1,6 +1,6 @@
 # Irsty
 
-A modern terminal IRC client in Rust (ratatui). Spiritual successor to irssi and WeeChat. See `PLAN.md` for milestones, `docs/ARCHITECTURE.md` for the design, and `docs/adr/` for decisions.
+A modern terminal IRC client in Rust (ratatui). Spiritual successor to irssi and WeeChat. See `PLAN.md` for milestones, `ROADMAP.md` for candidates after v0.1.0 (an item picked up becomes a milestone in `PLAN.md` and leaves the roadmap), `docs/ARCHITECTURE.md` for the design, and `docs/adr/` for decisions.
 
 ## Standing rules
 
