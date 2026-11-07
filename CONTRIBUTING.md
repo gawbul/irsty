@@ -24,6 +24,7 @@
 | `ergo` | A local Ergo server (see below). |
 | `soju`, `soju:install`, `run:soju`, `test:soju` | A local soju bouncer in front of Ergo, Irsty connected to it, and its integration tests (see below). |
 | `book`, `book:build` | Serve the project site (mdBook from `docs/`) locally, or build it into `target/book`. |
+| `packaging:aur`, `packaging:nix` | Build and check the AUR package or the Nix flake in Docker (`docs/PACKAGING.md`). |
 | `assets` | Regenerate the man page and shell completions in `assets/` after changing a flag (a test fails until you do). |
 | `doc`, `update`, `duplicates`, `setup` | API docs, `cargo update` followed by deny and audit, list iCloud sync duplicates, and setup. |
 
@@ -100,4 +101,4 @@ Use a local `#[allow(...)]` with a comment explaining why when a lint is wrong i
 
 ## Releases
 
-Releases are built by dist from a version tag; `docs/PACKAGING.md` has the checklist and the packaging templates. Don't push tags without agreeing a release first.
+Releases are built by dist from a version tag; `docs/PACKAGING.md` has the checklist and the packages (Homebrew, Scoop, Nix and the AUR). Don't push tags without agreeing a release first.

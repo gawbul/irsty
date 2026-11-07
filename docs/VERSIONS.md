@@ -142,8 +142,18 @@ Every action is pinned to the commit of its latest release, with the version in 
 | rust-lang/crates-io-auth-action | 1.0.6 | Trusted publishing in `.github/workflows/publish-crates.yml`: exchanges GitHub's OIDC token for a crates.io token that lasts 30 minutes. Maintained by the Rust project. |
 | actions/upload-pages-artifact | 5.0.0 | The site, in `.github/workflows/pages.yml`. |
 | actions/deploy-pages | 5.0.1 | The site, in `.github/workflows/pages.yml`. |
+| cachix/install-nix-action | 31.11.3 | Installs Nix for the flake jobs in `.github/workflows/packaging.yml`. |
 
-Runners: `ubuntu-latest` (24.04) everywhere except dist's Linux builds, which use `ubuntu-22.04` and `ubuntu-22.04-arm` so the binaries need only glibc 2.35. The macOS builds use `macos-15` and `macos-15-intel`, and Windows `windows-2022` (dist's defaults).
+Runners: `ubuntu-latest` (24.04) everywhere except dist's Linux builds, which use `ubuntu-22.04` and `ubuntu-22.04-arm` so the binaries need only glibc 2.35. The macOS builds use `macos-15` and `macos-15-intel`, and Windows `windows-2022` (dist's defaults). `packaging.yml` uses `ubuntu-latest`, `ubuntu-24.04-arm`, `macos-latest` and `windows-latest`, and the `archlinux:latest` container (Arch is a rolling release, so the tag isn't pinned).
+
+### Packaging (checked 2026-11-07)
+
+| What | Version | Notes |
+|---|---|---|
+| nixpkgs | `nixos-unstable`, locked in `flake.lock` (2026-11-05) | Rust 1.99 when locked. nixos-26.05 has 1.98, which also meets the MSRV. |
+| Nix | 2.35.4 | In the `nixos/nix` image used by `mise run packaging:nix`. |
+| Arch Linux | rolling (`rust` 1.99.1, pacman 7.1.0) | `scripts/aur.sh`. In containers it turns off pacman's syscall sandbox, which fails under Docker's emulation. |
+| Scoop | latest from `get.scoop.sh` | Only in the Windows CI job; the manifest follows Scoop's `schema.json`. |
 
 ### Test data
 

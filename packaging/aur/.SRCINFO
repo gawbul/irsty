@@ -1,0 +1,17 @@
+pkgbase = irsty
+	pkgdesc = Modern, keyboard-driven terminal IRC client
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://gawbul.github.io/irsty/
+	arch = x86_64
+	arch = aarch64
+	license = Apache-2.0
+	makedepends = cargo
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	options = !lto
+	source = irsty-0.1.0.tar.gz::https://github.com/gawbul/irsty/archive/refs/tags/v0.1.0.tar.gz
+	sha256sums = 14ad7c00158d22e392c7f6c6c9f27252e697ca9a580642b6cab4d543254a654e
+
+pkgname = irsty

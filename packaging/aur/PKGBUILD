@@ -1,17 +1,19 @@
-# An Arch Linux package that builds Irsty from a release's source tarball.
-# Template: set pkgver and the checksum for the release (updpkgsums does it),
-# then publish as irsty on the AUR (see docs/PACKAGING.md).
+# Maintainer: Steve Moss <gawbul at gmail dot com>
+# An Arch Linux package that builds Irsty from a release's source tarball,
+# ready to publish as irsty on the AUR (docs/PACKAGING.md). For a new
+# release, set pkgver, run updpkgsums, and regenerate .SRCINFO with
+# makepkg --printsrcinfo > .SRCINFO; scripts/aur.sh checks all of it.
 pkgname=irsty
 pkgver=0.1.0
 pkgrel=1
 pkgdesc='Modern, keyboard-driven terminal IRC client'
 arch=('x86_64' 'aarch64')
-url='https://github.com/gawbul/irsty'
+url='https://gawbul.github.io/irsty/'
 license=('Apache-2.0')
-depends=('gcc-libs' 'glibc')
+depends=('glibc' 'libgcc' 'libstdc++')
 makedepends=('cargo')
-source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/gawbul/irsty/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('14ad7c00158d22e392c7f6c6c9f27252e697ca9a580642b6cab4d543254a654e')
 options=('!lto')
 
 prepare() {

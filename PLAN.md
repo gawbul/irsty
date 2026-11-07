@@ -1,6 +1,6 @@
 # Irsty plan
 
-Status (2026-11-07): M0 to M16 are done, so every phase is complete, and the first release, v0.1.0, is prepared (see "Then: the first release" below). This plan was written before the code (2026-10-30) and has been updated where the code went another way; [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes what exists. Versions and the evidence for them are in [`docs/VERSIONS.md`](docs/VERSIONS.md).
+Status (2026-11-07): M0 to M16 are done, so every phase is complete, and the first release, v0.1.0, is out (see "Then: the first release" below). This plan was written before the code (2026-10-30) and has been updated where the code went another way; [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes what exists. Versions and the evidence for them are in [`docs/VERSIONS.md`](docs/VERSIONS.md).
 
 ## 1. Stack, in brief
 
@@ -132,11 +132,20 @@ Every milestone ends with the full gate passing locally and in CI: `fmt --check`
 
 ### Then: the first release
 
-Agreed 2026-11-07: after M16, cut the first release (v0.1.0) and publish the crates to crates.io with it. *(Prepared 2026-11-07: the crates are ready to publish and checked with `cargo package --workspace`, the changelog and man page are versioned, and the site is built from `docs/` by mdBook 0.5.4. Publishing is automated: `.github/workflows/publish-crates.yml` publishes the crates after a successful release, with trusted publishing. Left for the user: the one-time crates.io token and `crates-io` environment for the first publish, the `v0.1.0` tag, and turning Pages on.)*
+Agreed 2026-11-07: after M16, cut the first release (v0.1.0) and publish the crates to crates.io with it. *(Released 2026-11-07: tagged `v0.1.0`, with the GitHub release, the four crates on crates.io (published by the workflow, now with trusted publishing), the Homebrew tap and the site. It was prepared as follows: the crates are ready to publish and checked with `cargo package --workspace`, the changelog and man page are versioned, and the site is built from `docs/` by mdBook 0.5.4. Publishing is automated: `.github/workflows/publish-crates.yml` publishes the crates after a successful release, with trusted publishing. The user set up the token, environment, tag ruleset and Pages, and pushed the tag.)*
 
 - Release as in [`docs/PACKAGING.md`](docs/PACKAGING.md#releasing): changelog, `MAN_DATE`, gate, `dist plan`, then a `v0.1.0` tag, which the release workflow builds.
 - Publish all four crates, which crates.io needs because `irsty` depends on the others: remove `publish = false`, say plainly in the descriptions and docs of `irsty-core` and `irsty-tui` that they are Irsty's internals with no API stability promise (versions move with the app), check each with `cargo publish --dry-run`, and publish in order `irsty-proto`, `irsty-core`, `irsty-tui`, `irsty` after the tag, from a workflow that runs after the release (the user sets up the token and trusted publishing).
 - Homebrew from the first release: dist pushes a formula for the prebuilt binaries to `gawbul/homebrew-tap` (this replaced the source-built template in `packaging/`). Then, optionally, the AUR package from `packaging/`.
+
+### Then: more packages
+
+Agreed 2026-11-07, after the release. *(Done 2026-11-07, apart from publishing to the AUR, whose registration is paused.)*
+
+- **Scoop:** a bucket, `gawbul/scoop-bucket`, updated after each release by `publish-scoop.yml` (dist has no Scoop installer). winget later; Chocolatey isn't worth its moderation queue.
+- **Nix:** a flake in the repository, building `packaging/nix/package.nix` from the checkout and `Cargo.lock`, so no hashes to maintain. Submitting to nixpkgs waits until Irsty has users; `package.nix` is written for it.
+- **AUR:** `irsty`, from source, made real (a checksum, `.SRCINFO`) and checked in Arch Linux. No `irsty-bin`: the source build takes minutes, and the shell installer and Homebrew already serve people who want a binary. Publishing waits for an AUR account.
+- All three are built and installed in CI (`packaging.yml`).
 - A project site on GitHub Pages, launched with the release: [mdBook](https://rust-lang.github.io/mdBook/) built from `docs/` (so nothing is written twice), with a front page saying what Irsty is, with screenshots and how to install it, above the guides (configuration, commands, keys, scripting, accessibility, packaging). A GitHub Actions workflow builds it on every push to `main` and deploys it with `actions/deploy-pages`; the user turns Pages on in the repository settings. Links from the README, the crates' `homepage`, and the man page's SEE ALSO then point at it. Check the mdBook version live when this starts.
 
 ## 5. Things I'd push back on or do differently from the brief

@@ -39,6 +39,19 @@ On Windows, in PowerShell:
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/gawbul/irsty/releases/latest/download/irsty-installer.ps1 | iex"
 ```
 
+With Scoop, on Windows:
+
+```powershell
+scoop bucket add gawbul https://github.com/gawbul/scoop-bucket
+scoop install gawbul/irsty
+```
+
+With Nix, on Linux and macOS (it builds from source, so it takes a few minutes):
+
+```sh
+nix profile install github:gawbul/irsty
+```
+
 With Rust installed, `cargo install irsty` builds it (you also need a C and C++ compiler, for the bundled SQLite and Luau). The [releases](https://github.com/gawbul/irsty/releases) also have archives for each platform, with the man page and shell completions inside; [Packaging](PACKAGING.md) says where they go.
 
 ## Start

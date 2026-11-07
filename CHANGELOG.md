@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Scoop: `scoop bucket add gawbul https://github.com/gawbul/scoop-bucket`, then `scoop install gawbul/irsty`. The `Publish Scoop manifest` workflow updates the bucket after each release, and can be run by hand for an existing one.
+- A Nix flake: `nix run github:gawbul/irsty` or `nix profile install github:gawbul/irsty`, on Linux and macOS.
+- The AUR package in `packaging/aur` is ready to publish, with its checksum and `.SRCINFO`; `packaging/nix/package.nix` is ready for nixpkgs, with real hashes.
+- The `Packaging` workflow builds and installs the AUR package, the flake and the Scoop manifest in CI; `mise run packaging:aur` and `packaging:nix` run the first two in Docker.
+
+### Changed
+
+- `Publish crates` and `Publish Scoop manifest` share their release checks, in `scripts/check-release-tag.sh`.
+
 ## [0.1.0] - 2026-11-07
 
 The first release.
