@@ -226,6 +226,12 @@ pub const COMMANDS: &[Spec] = &[
         "Switch buffers by number, close or list them, split the screen into panes, or jump to the first unread line."
     ),
     spec!(
+        "dcc",
+        [],
+        "/dcc [list] | /dcc get|resume [nick [file]] | /dcc send [-passive] <nick> <file> | /dcc chat [-passive] <nick> | /dcc close <id|nick>",
+        "Send and receive files, and chat, directly with someone."
+    ),
+    spec!(
         "script",
         [],
         "/script [list] | /script load <path> [-allow send] | /script unload <name> | /script reload [name]",
@@ -351,6 +357,45 @@ pub enum Window {
     Unread,
 }
 
+/// `/dcc` subcommands.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DccCommand {
+    /// List transfers, chats and offers.
+    List,
+    /// Accept an offered file.
+    Get {
+        /// Whose offer.
+        nick: Option<String>,
+        /// Which file.
+        file: Option<String>,
+    },
+    /// Carry on with a file received in part.
+    Resume {
+        /// Whose offer.
+        nick: Option<String>,
+        /// Which file.
+        file: Option<String>,
+    },
+    /// Offer a file.
+    Send {
+        /// To whom.
+        nick: String,
+        /// The file.
+        path: String,
+        /// Passive: they listen.
+        passive: bool,
+    },
+    /// Accept a chat offer, or offer a chat.
+    Chat {
+        /// With whom.
+        nick: String,
+        /// Passive: they listen.
+        passive: bool,
+    },
+    /// Stop a transfer or chat, or decline an offer.
+    Close(String),
+}
+
 /// `/script` subcommands.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ScriptCommand {
@@ -471,6 +516,8 @@ pub enum Command {
     Reload,
     /// `/script`.
     Script(ScriptCommand),
+    /// `/dcc`.
+    Dcc(DccCommand),
     /// `/search`.
     Search {
         /// What to look for.
@@ -677,6 +724,33 @@ pub fn canonical(name: &str) -> Option<&'static str> {
         .map(|s| s.name)
 }
 
+/// `/dcc` arguments; `None` if malformed.
+fn parse_dcc(sub: &str, rest: &str) -> Option<DccCommand> {
+    let (passive, rest) = match rest.trim().strip_prefix("-passive") {
+        Some(after) if after.is_empty() || after.starts_with(' ') => (true, after.trim()),
+        _ => (false, rest.trim()),
+    };
+    let (nick, tail) = word(rest);
+    let nick = (!nick.is_empty()).then(|| nick.to_owned());
+    let tail = (!tail.trim().is_empty()).then(|| tail.trim().to_owned());
+    Some(match sub.to_lowercase().as_str() {
+        "" | "list" => DccCommand::List,
+        "get" if !passive => DccCommand::Get { nick, file: tail },
+        "resume" if !passive => DccCommand::Resume { nick, file: tail },
+        "send" => DccCommand::Send {
+            nick: nick?,
+            path: tail?,
+            passive,
+        },
+        "chat" if tail.is_none() => DccCommand::Chat {
+            nick: nick?,
+            passive,
+        },
+        "close" if tail.is_none() && !passive => DccCommand::Close(nick?),
+        _ => return None,
+    })
+}
+
 /// `/search [-all] [-from <nick>] [-limit <n>] <words>`; `None` if malformed.
 fn parse_search(rest: &str) -> Option<Command> {
     let (mut all, mut from, mut limit) = (false, None, None);
@@ -867,6 +941,7 @@ pub fn parse(input: &str) -> Result<Command, ParseError> {
             n => Window::Number(n.parse().map_err(|_| usage(name))?),
         }),
         "reload" => Command::Reload,
+        "dcc" => Command::Dcc(parse_dcc(first, tail).ok_or_else(|| usage(name))?),
         "script" => Command::Script(match first.to_lowercase().as_str() {
             "" | "list" => ScriptCommand::List,
             "load" => {
@@ -1292,6 +1367,38 @@ mod tests {
         );
         assert!(parse("/script load x -allow everything").is_err());
         assert!(parse("/script unload").is_err());
+        assert_eq!(
+            parse("/dcc send -passive bob ~/My Files/a b.txt"),
+            Ok(Command::Dcc(DccCommand::Send {
+                nick: "bob".into(),
+                path: "~/My Files/a b.txt".into(),
+                passive: true
+            }))
+        );
+        assert_eq!(
+            parse("/dcc get bob holiday photo.jpg"),
+            Ok(Command::Dcc(DccCommand::Get {
+                nick: Some("bob".into()),
+                file: Some("holiday photo.jpg".into())
+            }))
+        );
+        assert_eq!(parse("/dcc"), Ok(Command::Dcc(DccCommand::List)));
+        assert_eq!(
+            parse("/dcc get"),
+            Ok(Command::Dcc(DccCommand::Get {
+                nick: None,
+                file: None
+            }))
+        );
+        for bad in [
+            "/dcc send bob",
+            "/dcc chat",
+            "/dcc close",
+            "/dcc dance",
+            "/dcc chat bob extra",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

@@ -206,7 +206,19 @@ pub async fn run(mut client: Client, config: Config, file: Option<ConfigFile>) -
     let mut input = BufReader::new(tokio::io::stdin()).lines();
     let mut client_running = true;
     let reason = loop {
-        let lines = plain_out.output(client.state(), &ui);
+        let mut lines = plain_out.output(client.state(), &ui);
+        // Notifications are announced as lines. Mentions and private
+        // messages already are; what is left (DCC offers, in a server
+        // buffer) is said unless that buffer is the current one.
+        for n in client.take_notifications() {
+            let server = client
+                .state()
+                .buffer(n.buffer)
+                .is_some_and(|b| b.kind == BufferKind::Server);
+            if server && ui.active != Some(n.buffer) {
+                lines.push(plain(&format!("{}: {}", n.network, n.text)));
+            }
+        }
         if !lines.is_empty() {
             let mut stdout = io::stdout().lock();
             for line in lines {

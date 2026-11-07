@@ -228,9 +228,15 @@ pub async fn run(
         let end = match open(&settings, server).await {
             Ok(stream) => {
                 explained.clear();
+                let local = if settings.proxy.is_some() {
+                    None
+                } else {
+                    local_ip(&stream)
+                };
                 let connected = NetEvent::Connected {
                     server: server.config.to_string(),
                     insecure: server.config.tls && !server.config.tls_verify,
+                    local,
                 };
                 if emit(connected).await.is_err() {
                     return;
@@ -334,6 +340,15 @@ async fn wait_to_reconnect(
             },
         }
     }
+}
+
+/// The address of our end of the connection.
+fn local_ip(stream: &Stream) -> Option<std::net::IpAddr> {
+    let tcp = match stream {
+        tokio_util::either::Either::Left(tcp) => tcp,
+        tokio_util::either::Either::Right(tls) => tls.get_ref().0,
+    };
+    tcp.local_addr().ok().map(|a| a.ip())
 }
 
 async fn open(settings: &Settings, server: &Server) -> Result<Stream, transport::ConnectError> {

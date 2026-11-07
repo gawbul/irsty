@@ -21,6 +21,21 @@ A test checks this file against the command table in `crates/irsty-tui/src/comma
 | `/nick` | `/nick <newnick>` | Change your nick on the current network. |
 | `/away` | `/away [message]` | Mark yourself away on the current network, or back if no message is given. |
 
+## Files and direct chats (DCC)
+
+DCC connects you directly to someone, for a file or a chat, without the IRC server in between. Nothing is ever accepted on its own: an offer is listed (and a notification raised) until you take it, and it lapses after five minutes. Offers and progress appear in the network's server buffer.
+
+| Command | Usage | What it does |
+|---|---|---|
+| `/dcc` | `/dcc [list]` | List transfers, chats and offers, with their numbers, progress and speed, and where files go. |
+| | `/dcc get [nick [file]]` | Accept a file someone offered: the newest offer, or theirs, or that file. It is saved in the download directory (`dcc.dir`) under a safe version of its name (no folders, no hidden files, nothing a file system would choke on), as `name.part` until complete, and then as `name`, or `name.1` and so on if that is taken: an existing file is never replaced. The size they offered is a limit; a sender that sends more is cut off. |
+| | `/dcc resume [nick [file]]` | Carry on with a file that stopped part-way: when they offer it again, this asks them to send only the rest, after what is in `name.part`. |
+| | `/dcc send [-passive] <nick> <file>` | Offer a file (a path, with `~/` for your home). With `-passive` they listen and you connect, for when you can't accept connections (behind NAT). Resuming works as above, from their side. |
+| | `/dcc chat [-passive] <nick>` | Accept their chat offer, or offer one. A chat opens as the buffer `=nick` (as in irssi): type there, or `/msg =nick`, and it goes straight to them; `/me` works too. |
+| | `/dcc close <number\|nick>` | Stop a transfer or chat, or decline an offer: by its number in `/dcc list`, or everything with a nick. |
+
+An offer tells the other person your IP address; Irsty says so the first time. Behind NAT, offer with `-passive`, or set `dcc.ip` and forward `dcc.ports` ([CONFIG.md](CONFIG.md#dcc)). On a network you reach through a proxy (such as Tor), DCC is off unless you set `dcc.ip`, since a direct connection would bypass the proxy and reveal where you are. Irsty never connects to an offer pointing at a system port (below 1024), or at an address that isn't one host.
+
 ## Finding out about people and channels
 
 Replies appear in the buffer where you typed the command, as one readable block.
@@ -122,7 +137,7 @@ In an alias, `$*` is everything typed after it, `$1` to `$9` single words, and `
 
 ### Settings
 
-`/set` changes `scrollback`, `logging.enabled`, `logging.dir`, `logging.rotate`, `ui.mouse`, `ui.nicklist`, `ui.timestamp_format`, `ui.keymap`, `ui.nick_colours`, `notifications.method`, `notifications.when_focused`, `notifications.show_text`, `ctcp.replies`, `ctcp.version`, `ctcp.time`, `history.lines`, `typing.send`, `typing.show`, `search.enabled`, `ui.layout`, `ui.accessible`, `theme.preset` and `theme.colours` (see [CONFIG.md](CONFIG.md)). `/set` with no arguments lists them with their values. Booleans accept `on`/`off`, `true`/`false` and `yes`/`no`. Logging, mouse and search changes take effect when Irsty restarts; the rest apply at once.
+`/set` changes `scrollback`, `logging.enabled`, `logging.dir`, `logging.rotate`, `ui.mouse`, `ui.nicklist`, `ui.timestamp_format`, `ui.keymap`, `ui.nick_colours`, `notifications.method`, `notifications.when_focused`, `notifications.show_text`, `ctcp.replies`, `ctcp.version`, `ctcp.time`, `history.lines`, `typing.send`, `typing.show`, `search.enabled`, `ui.layout`, `ui.accessible`, `theme.preset`, `theme.colours`, `dcc.dir`, `dcc.ports` and `dcc.ip` (see [CONFIG.md](CONFIG.md)). `/set` with no arguments lists them with their values. Booleans accept `on`/`off`, `true`/`false` and `yes`/`no`. Logging, mouse and search changes take effect when Irsty restarts; the rest apply at once.
 
 ## Leaving
 

@@ -60,7 +60,7 @@ The dependencies chosen before any code was written. Most are in use; the "Not u
 
 | Crate | Version | Why |
 |---|---|---|
-| tokio | 1.54.1 | Runtime. `irsty-core` enables only `rt`, `net`, `time`, `sync`, `macros`, `io-util` and `process`; the binary adds `rt-multi-thread` and `signal`. |
+| tokio | 1.54.1 | Runtime. `irsty-core` enables only `rt`, `net`, `time`, `sync`, `macros`, `io-util`, `process` and (from M16, for DCC) `fs`; the binary adds `rt-multi-thread` and `signal`. |
 | tokio-util | 0.7.20 | `Framed` codec and `Either` for plain-or-TLS streams. |
 | tokio-rustls | 0.26.6 | TLS. rustls is used through its re-export so the versions can't drift. |
 | rustls-platform-verifier | 0.7.1 | OS trust store via `BuilderVerifierExt::with_platform_verifier`. |

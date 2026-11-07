@@ -15,7 +15,9 @@ use irsty_core::state::{Awaiting, BufferId, BufferKind, LineKind};
 use irsty_proto::{Message, ctcp};
 use ratatui::layout::Position;
 
-use crate::command::{self, Command, LayoutCommand, ScriptCommand, ServerCommand, Window};
+use crate::command::{
+    self, Command, DccCommand, LayoutCommand, ScriptCommand, ServerCommand, Window,
+};
 use crate::complete;
 use crate::keymap::{Action, Chord, Format};
 use crate::panes::{Direction, MAX_PANES};
@@ -923,6 +925,7 @@ fn run(cmd: Command, client: &mut Client, ui: &mut Ui) -> Outcome {
         }
         Command::Reload => reload(client, ui)?,
         Command::Script(cmd) => return run_script_command(cmd, client, ui),
+        Command::Dcc(cmd) => run_dcc(cmd, client, ui)?,
         Command::Layout(layout) => match layout {
             LayoutCommand::Show => {
                 let now = ui.layout_spec(client.state());
@@ -1672,6 +1675,106 @@ fn run_script_command(cmd: ScriptCommand, client: &mut Client, ui: &mut Ui) -> O
     Ok(Flow::Continue)
 }
 
+/// `/dcc`.
+fn run_dcc(cmd: DccCommand, client: &mut Client, ui: &mut Ui) -> Result<(), String> {
+    use irsty_core::dcc::{Kind, Status, human_size};
+    let network = || {
+        ui.network(client.state())
+            .ok_or_else(|| "No network here; switch to a network's buffer first".to_owned())
+    };
+    match cmd {
+        DccCommand::List => {
+            let lines: Vec<String> = client
+                .dcc()
+                .iter()
+                .map(|t| {
+                    let what = match (t.kind, &t.name) {
+                        (Kind::Chat, _) => format!("chat with {}", t.nick),
+                        (Kind::Get, Some(name)) => format!("{name} from {}", t.nick),
+                        (Kind::Send, Some(name)) => format!("{name} to {}", t.nick),
+                        (_, None) => format!("file with {}", t.nick),
+                    };
+                    let progress = match t.size {
+                        Some(size) if size > 0 && t.kind != Kind::Chat => {
+                            let percent = t.bytes.saturating_mul(100) / size;
+                            format!(", {percent}% of {}", human_size(size))
+                        }
+                        _ => String::new(),
+                    };
+                    let rate = match (&t.status, t.rate()) {
+                        (Status::Active, Some(rate)) => {
+                            #[allow(
+                                clippy::cast_possible_truncation,
+                                clippy::cast_sign_loss,
+                                reason = "a display figure"
+                            )]
+                            let rate = rate as u64;
+                            format!(" at {}/s", human_size(rate))
+                        }
+                        _ => String::new(),
+                    };
+                    let status = match &t.status {
+                        Status::Offered => "offered: /dcc get or /dcc chat to accept".to_owned(),
+                        Status::Resuming => "asked to resume".to_owned(),
+                        Status::Waiting => "waiting for them".to_owned(),
+                        Status::Connecting => "connecting".to_owned(),
+                        Status::Active => "under way".to_owned(),
+                        Status::Done => "done".to_owned(),
+                        Status::Failed(reason) => format!("failed: {reason}"),
+                    };
+                    format!("{:>3}. {what}{progress}{rate} ({status})", t.id)
+                })
+                .collect();
+            if lines.is_empty() {
+                feedback(
+                    client,
+                    ui,
+                    LineKind::Info,
+                    "No DCC transfers, chats or offers",
+                );
+            } else {
+                let header = format!("DCC (files go to {}):", client.dcc_dir().display());
+                feedback(client, ui, LineKind::Info, &header);
+            }
+            for line in lines {
+                feedback(client, ui, LineKind::Info, &line);
+            }
+        }
+        DccCommand::Get { nick, file } => {
+            let id = network()?;
+            client.dcc_get(id, nick.as_deref(), file.as_deref())?;
+        }
+        DccCommand::Resume { nick, file } => {
+            let id = network()?;
+            client.dcc_resume(id, nick.as_deref(), file.as_deref())?;
+        }
+        DccCommand::Send {
+            nick,
+            path,
+            passive,
+        } => {
+            let id = network()?;
+            // `~/` is home; otherwise as a shell takes it, from where
+            // Irsty was started.
+            let given = std::path::PathBuf::from(&path);
+            let path = match (given.strip_prefix("~"), std::env::var_os("HOME")) {
+                (Ok(rest), Some(home)) => std::path::PathBuf::from(home).join(rest),
+                _ if given.is_relative() => {
+                    std::env::current_dir().map_or(given.clone(), |d| d.join(&given))
+                }
+                _ => given,
+            };
+            client.dcc_send(id, &nick, &path, passive)?;
+        }
+        DccCommand::Chat { nick, passive } => {
+            let id = network()?;
+            client.dcc_chat(id, &nick, passive)?;
+        }
+        DccCommand::Close(selector) => client.dcc_close(&selector)?,
+    }
+    Ok(())
+}
+
 /// `/reload`: reads the config file again and applies it. A file that
 /// doesn't parse changes nothing. Networks are matched by name: new ones are
 /// added (and connect if they autoconnect), changed ones reconnect with their
@@ -1783,6 +1886,15 @@ fn setting_value(config: &Config, key: &str) -> Option<String> {
         "typing.send" => config.typing.send.to_string(),
         "typing.show" => config.typing.show.to_string(),
         "search.enabled" => config.search.enabled.to_string(),
+        "dcc.dir" => config.dcc.dir.as_ref().map_or_else(
+            || "(your downloads directory)".into(),
+            |d| d.display().to_string(),
+        ),
+        "dcc.ports" => config.dcc.ports.clone().unwrap_or_else(|| "(any)".into()),
+        "dcc.ip" => config
+            .dcc
+            .ip
+            .map_or_else(|| "(the connection's address)".into(), |ip| ip.to_string()),
         "theme.preset" => config
             .theme
             .preset

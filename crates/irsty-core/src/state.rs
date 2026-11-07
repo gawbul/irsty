@@ -329,6 +329,8 @@ pub struct Network {
     pub account: Option<String>,
     /// Certificate verification is off for the current server.
     pub insecure: bool,
+    /// Our end of the connection's address, for DCC; `None` through a proxy.
+    pub local_addr: Option<std::net::IpAddr>,
     /// The server buffer.
     pub server_buffer: BufferId,
     /// Channels to join on every registration.
@@ -454,6 +456,19 @@ pub enum Effect {
     Notify(Box<Notification>),
     /// A soju bouncer reported one of its networks (`soju.im/bouncer-networks`).
     Bouncer(Box<BouncerNetwork>),
+    /// Someone sent a DCC request: an offer, or an answer to ours.
+    Dcc(Box<DccRequest>),
+}
+
+/// A DCC request from someone, for the client to act on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DccRequest {
+    /// The network it came over.
+    pub network: NetworkId,
+    /// Who sent it.
+    pub nick: String,
+    /// What they asked for.
+    pub dcc: irsty_proto::dcc::Dcc,
 }
 
 /// A network on a soju bouncer, from `BOUNCER NETWORK`.
@@ -616,6 +631,7 @@ impl State {
                 lag: None,
                 account: None,
                 insecure: false,
+                local_addr: None,
                 server_buffer,
                 autojoin,
                 perform: Vec::new(),
@@ -843,6 +859,59 @@ impl State {
             Some(buffer) => self.note_buffer(buffer, kind, text),
             None => Vec::new(),
         }
+    }
+
+    /// The buffer for a DCC chat with `nick`: `=nick`, as irssi names it (no
+    /// nick can start with `=`, so it can't clash with a query).
+    pub fn dcc_buffer(&mut self, id: NetworkId, nick: &str) -> Option<BufferId> {
+        self.query_buffer(id, &format!("={nick}"))
+    }
+
+    /// A line of a DCC chat with `nick`: from them, or ours (`own`). A line
+    /// starting with CTCP `ACTION` is an action. The text is sanitised like
+    /// anything else from the network.
+    pub fn dcc_line(&mut self, id: NetworkId, nick: &str, text: &str, own: bool) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        let Some(buffer) = self.dcc_buffer(id, nick) else {
+            return effects;
+        };
+        // irssi sends CTCPs over a DCC chat as "CTCP_MESSAGE <ctcp>" (and
+        // answers as "CTCP_REPLY"); others send the CTCP bare.
+        let ctcp = text
+            .strip_prefix("CTCP_MESSAGE ")
+            .or_else(|| text.strip_prefix("CTCP_REPLY "))
+            .unwrap_or(text);
+        let (kind, body) = match Ctcp::parse(ctcp) {
+            Some(c) if c.is_action() => (LineKind::Action, c.params.unwrap_or_default()),
+            // Other CTCPs over a chat (VERSION and so on) aren't for reading.
+            Some(_) => return effects,
+            None if ctcp.len() != text.len() => return effects,
+            None => (LineKind::Message, text),
+        };
+        let sender = if own {
+            self.networks.get(&id).map(|n| n.nick.clone())
+        } else {
+            Some(nick.to_owned())
+        };
+        let line = Line {
+            time: (self.clock)(),
+            kind,
+            sender: sender.map(|s| format::sanitise_identifier(&s)),
+            text: StyledText::parse(body),
+            raw: body.to_owned(),
+            delivery: Delivery::Delivered,
+            highlight: false,
+            msgid: None,
+            reply: None,
+            reactions: Vec::new(),
+            continued: false,
+            history: false,
+        };
+        self.push_line(buffer, line, &mut effects);
+        if own {
+            self.mark_read(buffer);
+        }
+        effects
     }
 
     /// Adds a client-generated line to any buffer.
@@ -1458,10 +1527,15 @@ impl State {
                 let text = StyledText::plain(&format!("Connecting to {server}"));
                 self.push_line(server_buffer, info(LineKind::Info, text), &mut effects);
             }
-            NetEvent::Connected { server, insecure } => {
+            NetEvent::Connected {
+                server,
+                insecure,
+                local,
+            } => {
                 self.set_status(id, Status::Registering);
                 if let Some(net) = self.networks.get_mut(&id) {
                     net.insecure = insecure;
+                    net.local_addr = local;
                 }
                 let text = StyledText::plain(&format!("Connected to {server}"));
                 self.push_line(server_buffer, info(LineKind::Info, text), &mut effects);
@@ -3153,6 +3227,27 @@ impl State {
         effects: &mut Vec<Effect>,
     ) {
         let mut answer = "";
+        // DCC: handed to the client, which says what it is. Never from
+        // history, and never acted on without the user.
+        if ctcp.command.eq_ignore_ascii_case("DCC") && !notice {
+            if !matches!(self.replay, Replay::Live) {
+                return;
+            }
+            if let Some(dcc) = ctcp.params.and_then(irsty_proto::dcc::Dcc::parse) {
+                effects.push(Effect::Dcc(Box::new(DccRequest {
+                    network: id,
+                    nick: nick.to_owned(),
+                    dcc,
+                })));
+            } else {
+                let text = format!(
+                    "Ignored a DCC request from {} that Irsty doesn't understand",
+                    format::sanitise_identifier(nick)
+                );
+                effects.extend(self.note(id, LineKind::Info, &text));
+            }
+            return;
+        }
         if answer_it && matches!(self.replay, Replay::Live) {
             let command = ctcp.command.to_ascii_uppercase();
             answer = match self.ctcp_reply(id, &command, ctcp.params) {
@@ -3950,6 +4045,7 @@ mod tests {
             NetEvent::Connected {
                 server: "h:6697 (TLS)".into(),
                 insecure: true,
+                local: None,
             },
         );
         assert!(

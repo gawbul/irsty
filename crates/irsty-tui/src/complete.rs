@@ -112,6 +112,8 @@ fn argument_pool(
         (Some("window"), 2) if words.get(1) == Some(&"merge") => owned(&["all"]),
         (Some("window"), 2) if words.get(1) == Some(&"pane") => owned(&["next", "prev"]),
         (Some("layout"), 1) => owned(&["save", "apply", "reset"]),
+        (Some("dcc"), 1) => owned(&["list", "get", "resume", "send", "chat", "close"]),
+        (Some("script"), 1) => owned(&["list", "load", "unload", "reload"]),
         (Some("search"), _) if word.starts_with('-') => owned(&["-all", "-from", "-limit"]),
         (Some("bind"), 2) => Action::names()
             .filter(|n| *n != "buffer_N")

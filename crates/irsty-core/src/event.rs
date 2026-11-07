@@ -22,6 +22,9 @@ pub enum NetEvent {
         server: String,
         /// Certificate verification is off for this server.
         insecure: bool,
+        /// Our end's address, which DCC offers advertise; `None` through a
+        /// proxy, where it must not be revealed.
+        local: Option<std::net::IpAddr>,
     },
     /// The server accepted registration (`RPL_WELCOME`).
     Registered {

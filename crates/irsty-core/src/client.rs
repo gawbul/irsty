@@ -70,6 +70,9 @@ pub enum SendError {
     /// The server doesn't support what this needs.
     #[error("the server doesn't support {0}")]
     Unsupported(&'static str),
+    /// A DCC chat couldn't take the line.
+    #[error("{0}")]
+    Dcc(String),
 }
 
 /// Lets tests and alternative frontends tweak connection settings.
@@ -113,6 +116,11 @@ pub struct Client {
     /// Searches waiting for answers: where to show them, and what was asked.
     searches: std::collections::HashMap<u64, (BufferId, Query)>,
     next_search: u64,
+    /// DCC transfers and chats.
+    dcc: crate::dcc::Dcc,
+    dcc_config: crate::config::DccConfig,
+    /// Where received files go.
+    dcc_dir: std::path::PathBuf,
 }
 
 impl std::fmt::Debug for Client {
@@ -156,6 +164,14 @@ impl Client {
             answers_tx,
             searches: std::collections::HashMap::new(),
             next_search: 0,
+            dcc: crate::dcc::Dcc::default(),
+            dcc_config: config.dcc.clone(),
+            dcc_dir: config.dcc.dir.clone().unwrap_or_else(|| {
+                paths.map_or_else(
+                    || std::env::temp_dir().join("irsty-downloads"),
+                    Paths::downloads,
+                )
+            }),
         };
         client.state.set_history(config.history.lines);
         client.state.set_ctcp(config.ctcp.clone());
@@ -261,6 +277,10 @@ impl Client {
     /// Applies settings that can change while running: scrollback, ignores
     /// and highlights. (The UI applies its own.)
     pub fn apply_config(&mut self, config: &Config) {
+        self.dcc_config = config.dcc.clone();
+        if let Some(dir) = &config.dcc.dir {
+            self.dcc_dir.clone_from(dir);
+        }
         self.send_typing = config.typing.send;
         self.state.set_history(config.history.lines);
         self.state.set_ctcp(config.ctcp.clone());
@@ -379,6 +399,17 @@ impl Client {
         action: bool,
         reply: Option<&str>,
     ) -> Result<Option<BufferId>, SendError> {
+        // `=nick` is a DCC chat, which goes straight to them.
+        if let Some(peer) = target.strip_prefix('=') {
+            let text = if action {
+                ctcp::encode("ACTION", Some(text))
+            } else {
+                text.to_owned()
+            };
+            let outs = self.dcc.say(id, peer, &text).map_err(SendError::Dcc)?;
+            self.apply_dcc(outs);
+            return Ok(self.state.find_buffer(id, target));
+        }
         let net = self.state.network(id).ok_or(SendError::UnknownNetwork)?;
         if net.status != crate::state::Status::Registered {
             return Err(SendError::NotConnected);
@@ -747,12 +778,16 @@ impl Client {
     /// Cancel-safe: the only await is the channel receive, so it can be used in
     /// `select!` alongside terminal input.
     pub async fn next(&mut self) -> Option<Vec<BufferId>> {
-        if self.commands.is_empty() && self.searches.is_empty() {
+        if self.commands.is_empty() && self.searches.is_empty() && !self.dcc.busy() {
             return None;
         }
         let first = tokio::select! {
             Some(answer) = self.answers.recv(), if !self.searches.is_empty() => {
                 return Some(self.on_answer(answer));
+            }
+            Some(event) = self.dcc.next_event() => {
+                let outs = self.dcc.on_event(event);
+                return Some(self.apply_dcc(outs));
             }
             first = self.events.recv() => first?,
         };
@@ -803,6 +838,19 @@ impl Client {
                 }
                 Effect::Updated(buffer) => changed.push(buffer),
                 Effect::Bouncer(network) => self.on_bouncer_network(*network),
+                Effect::Dcc(request) => {
+                    let request = *request;
+                    let (dir, ports, advertise) = self.dcc_context(request.network);
+                    let ctx = crate::dcc::Context {
+                        dir: &dir,
+                        ports,
+                        advertise,
+                    };
+                    let outs =
+                        self.dcc
+                            .on_request(request.network, &request.nick, request.dcc, ctx);
+                    changed.extend(self.apply_dcc(outs));
+                }
                 Effect::Notify(notification) => {
                     if self.notifications.len() < MAX_NOTIFICATIONS {
                         self.notifications.push(*notification);
@@ -854,6 +902,176 @@ impl Client {
                 tracing::debug!("search index queue full; line not indexed");
             }
         }
+    }
+
+    /// DCC transfers and chats, oldest first.
+    pub fn dcc(&self) -> &[crate::dcc::Transfer] {
+        self.dcc.list()
+    }
+
+    /// Where received DCC files go.
+    pub fn dcc_dir(&self) -> &std::path::Path {
+        &self.dcc_dir
+    }
+
+    /// What DCC needs for a network: the download directory, the port
+    /// range, and the address to advertise (none through a proxy, unless
+    /// `dcc.ip` says otherwise).
+    fn dcc_context(
+        &self,
+        network: NetworkId,
+    ) -> (
+        std::path::PathBuf,
+        Option<(u16, u16)>,
+        Option<std::net::IpAddr>,
+    ) {
+        let proxied = self
+            .configs
+            .get(&network)
+            .is_some_and(|c| c.proxy.is_some());
+        let advertise = self.dcc_config.ip.or_else(|| {
+            (!proxied)
+                .then(|| self.state.network(network).and_then(|n| n.local_addr))
+                .flatten()
+        });
+        let ports = self.dcc_config.port_range().unwrap_or(None);
+        (self.dcc_dir.clone(), ports, advertise)
+    }
+
+    /// Runs a DCC command with this network's context.
+    fn with_dcc(
+        &mut self,
+        network: NetworkId,
+        f: impl FnOnce(
+            &mut crate::dcc::Dcc,
+            crate::dcc::Context<'_>,
+        ) -> Result<Vec<crate::dcc::Out>, String>,
+    ) -> Result<(), String> {
+        let (dir, ports, advertise) = self.dcc_context(network);
+        let ctx = crate::dcc::Context {
+            dir: &dir,
+            ports,
+            advertise,
+        };
+        let outs = f(&mut self.dcc, ctx)?;
+        self.apply_dcc(outs);
+        Ok(())
+    }
+
+    /// `/dcc get`: accept a file someone offered.
+    pub fn dcc_get(
+        &mut self,
+        network: NetworkId,
+        nick: Option<&str>,
+        name: Option<&str>,
+    ) -> Result<(), String> {
+        self.with_dcc(network, |dcc, ctx| dcc.get(network, nick, name, ctx))
+    }
+
+    /// `/dcc resume`: carry on with a file received in part.
+    pub fn dcc_resume(
+        &mut self,
+        network: NetworkId,
+        nick: Option<&str>,
+        name: Option<&str>,
+    ) -> Result<(), String> {
+        self.with_dcc(network, |dcc, ctx| dcc.resume(network, nick, name, ctx))
+    }
+
+    /// `/dcc send`: offer a file.
+    pub fn dcc_send(
+        &mut self,
+        network: NetworkId,
+        nick: &str,
+        path: &std::path::Path,
+        passive: bool,
+    ) -> Result<(), String> {
+        self.with_dcc(network, |dcc, ctx| {
+            dcc.send(network, nick, path, passive, ctx)
+        })
+    }
+
+    /// `/dcc chat`: accept their chat offer, or offer one.
+    pub fn dcc_chat(
+        &mut self,
+        network: NetworkId,
+        nick: &str,
+        passive: bool,
+    ) -> Result<(), String> {
+        self.with_dcc(network, |dcc, ctx| dcc.chat(network, nick, passive, ctx))
+    }
+
+    /// `/dcc close`: stop a transfer or chat, or decline an offer.
+    pub fn dcc_close(&mut self, selector: &str) -> Result<(), String> {
+        let outs = self.dcc.close(selector)?;
+        self.apply_dcc(outs);
+        Ok(())
+    }
+
+    /// Carries out what the DCC manager asked for. Returns the buffers
+    /// that changed.
+    fn apply_dcc(&mut self, outs: Vec<crate::dcc::Out>) -> Vec<BufferId> {
+        use crate::dcc::Out;
+        let mut changed = Vec::new();
+        for out in outs {
+            match out {
+                Out::Ctcp {
+                    network,
+                    nick,
+                    params,
+                } => {
+                    let msg = Message::new("PRIVMSG")
+                        .param(&nick)
+                        .param(ctcp::encode("DCC", Some(&params)));
+                    if let Err(error) = self.send(network, msg) {
+                        let text = format!("Cannot send the DCC request to {nick}: {error}");
+                        let effects = self.state.note(network, LineKind::Error, &text);
+                        changed.extend(self.run_effects(effects));
+                    }
+                }
+                Out::Note {
+                    network,
+                    kind,
+                    text,
+                } => {
+                    let effects = self.state.note(network, kind, &text);
+                    changed.extend(self.run_effects(effects));
+                }
+                Out::Notify {
+                    network,
+                    nick,
+                    text,
+                } => {
+                    let Some(net) = self.state.network(network) else {
+                        continue;
+                    };
+                    let notification = Notification {
+                        buffer: net.server_buffer,
+                        network: net.name.clone(),
+                        place: sanitise(&nick),
+                        sender: sanitise(&nick),
+                        text: sanitise(&text),
+                        private: true,
+                    };
+                    if self.notifications.len() < MAX_NOTIFICATIONS {
+                        self.notifications.push(notification);
+                    }
+                }
+                Out::Open { network, nick } => {
+                    changed.extend(self.state.dcc_buffer(network, &nick));
+                }
+                Out::Chat {
+                    network,
+                    nick,
+                    text,
+                    own,
+                } => {
+                    let effects = self.state.dcc_line(network, &nick, &text, own);
+                    changed.extend(self.run_effects(effects));
+                }
+            }
+        }
+        changed
     }
 
     /// Whether the search index is on.
