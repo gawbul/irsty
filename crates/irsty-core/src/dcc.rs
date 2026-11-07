@@ -491,7 +491,13 @@ impl Dcc {
                 if let Some(token) = &token
                     && port != 0
                 {
-                    return self.passive_answer(network, nick, Kind::Send, addr, port, token);
+                    return self.passive_answer(
+                        network,
+                        nick,
+                        Kind::Send,
+                        (addr, port, token),
+                        ctx,
+                    );
                 }
                 self.offer(
                     network,
@@ -508,7 +514,13 @@ impl Dcc {
                 if let Some(token) = &token
                     && port != 0
                 {
-                    return self.passive_answer(network, nick, Kind::Chat, addr, port, token);
+                    return self.passive_answer(
+                        network,
+                        nick,
+                        Kind::Chat,
+                        (addr, port, token),
+                        ctx,
+                    );
                 }
                 self.offer(network, nick, Kind::Chat, None, addr, port, None, token)
             }
@@ -617,10 +629,12 @@ impl Dcc {
         network: NetworkId,
         nick: &str,
         kind: Kind,
-        addr: IpAddr,
-        port: u16,
-        token: &str,
+        (addr, port, token): (IpAddr, u16, &str),
+        ctx: Context<'_>,
     ) -> Vec<Out> {
+        if ctx.advertise.is_none() {
+            return vec![Dcc::note(network, LineKind::Error, no_advertise())];
+        }
         let Some(index) = self.transfers.iter().position(|t| {
             t.network == network
                 && t.kind == kind
@@ -754,6 +768,11 @@ impl Dcc {
         };
         let network = transfer.network;
         let nick = transfer.nick.clone();
+        // Connecting out is as revealing as listening: not through a proxy.
+        if ctx.advertise.is_none() {
+            transfer.status = Status::Failed(no_advertise());
+            return vec![Dcc::note(network, LineKind::Error, no_advertise())];
+        }
         if !transfer.passive {
             let (Some(addr), port) = (transfer.addr, transfer.port) else {
                 return Vec::new();
@@ -835,6 +854,8 @@ impl Dcc {
         ctx: Context<'_>,
     ) -> Result<Vec<Out>, String> {
         self.tidy();
+        // Any DCC connection, in or out, would bypass a proxy.
+        ctx.advertise.ok_or_else(no_advertise)?;
         let id = self
             .find_offer(network, Kind::Get, nick, name, &[Status::Offered])
             .ok_or("No file is offered like that; /dcc list shows what is")?;
@@ -864,6 +885,7 @@ impl Dcc {
         ctx: Context<'_>,
     ) -> Result<Vec<Out>, String> {
         self.tidy();
+        ctx.advertise.ok_or_else(no_advertise)?;
         let id = self
             .find_offer(network, Kind::Get, nick, name, &[Status::Offered])
             .ok_or("No file is offered like that; ask them to offer it again, then /dcc resume")?;
@@ -1003,6 +1025,8 @@ impl Dcc {
         ctx: Context<'_>,
     ) -> Result<Vec<Out>, String> {
         self.tidy();
+        // Accepting connects out, offering listens: either bypasses a proxy.
+        ctx.advertise.ok_or_else(no_advertise)?;
         if let Some(id) = self.find_offer(network, Kind::Chat, Some(nick), None, &[Status::Offered])
         {
             let transfer = self.get_mut(id).ok_or("gone")?;
@@ -1639,6 +1663,67 @@ mod tests {
                 .contains("proxy")
         );
         assert!(dcc.list().is_empty());
+
+        // Accepting someone's offer connects out directly, which would
+        // bypass a proxy just as much: refused too, before any file is made.
+        let offered = |dcc: &mut Dcc, request| {
+            dcc.on_request(NetworkId(1), "bob", request, ctx);
+        };
+        offered(
+            &mut dcc,
+            Request::Send {
+                file: "f.txt".into(),
+                addr: IpAddr::V4(Ipv4Addr::LOCALHOST),
+                port: 5000,
+                size: Some(1),
+                token: None,
+            },
+        );
+        offered(
+            &mut dcc,
+            Request::Chat {
+                addr: IpAddr::V4(Ipv4Addr::LOCALHOST),
+                port: 5001,
+                token: None,
+            },
+        );
+        assert_eq!(dcc.list().len(), 2, "offers are still listed");
+        for error in [
+            dcc.get(NetworkId(1), Some("bob"), None, ctx).unwrap_err(),
+            dcc.resume(NetworkId(1), Some("bob"), None, ctx)
+                .unwrap_err(),
+            dcc.chat(NetworkId(1), "bob", false, ctx).unwrap_err(),
+        ] {
+            assert!(error.contains("proxy"), "{error}");
+        }
+        assert!(
+            dcc.list()
+                .iter()
+                .all(|t| t.status == Status::Offered && t.task.is_none())
+        );
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "no .part made"
+        );
+        // A forged answer to a passive offer connects nowhere either.
+        let out = dcc.on_request(
+            NetworkId(1),
+            "bob",
+            Request::Send {
+                file: "f.txt".into(),
+                addr: IpAddr::V4(Ipv4Addr::LOCALHOST),
+                port: 5002,
+                size: Some(1),
+                token: Some("7".into()),
+            },
+            ctx,
+        );
+        assert!(
+            matches!(&out[..], [Out::Note { text, .. }] if text.contains("proxy")),
+            "{out:?}"
+        );
+
         // A port range is honoured.
         let ctx = Context {
             dir: dir.path(),

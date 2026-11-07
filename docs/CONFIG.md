@@ -260,7 +260,7 @@ Direct file transfers and chats ([COMMANDS.md](COMMANDS.md#files-and-direct-chat
 |---|---|---|---|
 | `dir` | path | your downloads directory (or `downloads` in the data directory) | Where received files go. |
 | `ports` | string | any free port | Ports to listen on for offers, as `"50000"` or `"50000-50010"` (from 1024 up), so a router can forward them. |
-| `ip` | IP address | the address of the connection to the server | The address offers advertise, for when others can't reach the one Irsty sees (behind NAT, it is private). Setting it also allows DCC on networks reached through a proxy. |
+| `ip` | IP address | the address of the connection to the server | The address offers advertise, for when others can't reach the one Irsty sees (behind NAT, it is private). Setting it also allows DCC on networks reached through a proxy, where DCC is otherwise off entirely (offering and accepting alike), as every DCC connection goes directly to the other person, outside the proxy. |
 
 ```toml
 [dcc]
