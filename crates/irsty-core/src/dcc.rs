@@ -1664,8 +1664,50 @@ mod tests {
         );
         assert!(dcc.list().is_empty());
 
-        // Accepting someone's offer connects out directly, which would
-        // bypass a proxy just as much: refused too, before any file is made.
+        // A port range is honoured.
+        let ctx = Context {
+            dir: dir.path(),
+            ports: Some((47_100, 47_110)),
+            advertise: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+        };
+        let out = dcc.send(NetworkId(1), "bob", &file, false, ctx).unwrap();
+        let Some(Out::Ctcp { params, .. }) = out.first() else {
+            panic!("{out:?}")
+        };
+        let Some(Request::Send { port, .. }) = Request::parse(params) else {
+            panic!("{params}")
+        };
+        assert!((47_100..=47_110).contains(&port));
+        assert!(
+            out.iter()
+                .any(|o| matches!(o, Out::Note { text, .. } if text.contains("your IP address"))),
+            "the first offer warns"
+        );
+        let again = dcc.send(NetworkId(1), "bob", &file, true, ctx).unwrap();
+        assert!(
+            !again
+                .iter()
+                .any(|o| matches!(o, Out::Note { text, .. } if text.contains("your IP address"))),
+            "once"
+        );
+        assert!(
+            dcc.send(NetworkId(1), "bob", dir.path(), false, ctx)
+                .is_err(),
+            "not a file"
+        );
+    }
+
+    /// Accepting someone's offer connects out directly, which would bypass
+    /// a proxy just as much as offering: refused, before any file is made.
+    #[tokio::test]
+    async fn no_connections_out_without_an_address_to_advertise() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut dcc = Dcc::default();
+        let ctx = Context {
+            dir: dir.path(),
+            ports: None,
+            advertise: None,
+        };
         let offered = |dcc: &mut Dcc, request| {
             dcc.on_request(NetworkId(1), "bob", request, ctx);
         };
@@ -1703,7 +1745,7 @@ mod tests {
         );
         assert_eq!(
             std::fs::read_dir(dir.path()).unwrap().count(),
-            1,
+            0,
             "no .part made"
         );
         // A forged answer to a passive offer connects nowhere either.
@@ -1722,38 +1764,6 @@ mod tests {
         assert!(
             matches!(&out[..], [Out::Note { text, .. }] if text.contains("proxy")),
             "{out:?}"
-        );
-
-        // A port range is honoured.
-        let ctx = Context {
-            dir: dir.path(),
-            ports: Some((47_100, 47_110)),
-            advertise: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
-        };
-        let out = dcc.send(NetworkId(1), "bob", &file, false, ctx).unwrap();
-        let Some(Out::Ctcp { params, .. }) = out.first() else {
-            panic!("{out:?}")
-        };
-        let Some(Request::Send { port, .. }) = Request::parse(params) else {
-            panic!("{params}")
-        };
-        assert!((47_100..=47_110).contains(&port));
-        assert!(
-            out.iter()
-                .any(|o| matches!(o, Out::Note { text, .. } if text.contains("your IP address"))),
-            "the first offer warns"
-        );
-        let again = dcc.send(NetworkId(1), "bob", &file, true, ctx).unwrap();
-        assert!(
-            !again
-                .iter()
-                .any(|o| matches!(o, Out::Note { text, .. } if text.contains("your IP address"))),
-            "once"
-        );
-        assert!(
-            dcc.send(NetworkId(1), "bob", dir.path(), false, ctx)
-                .is_err(),
-            "not a file"
         );
     }
 }
