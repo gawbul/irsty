@@ -12,7 +12,7 @@ irsty  ──►  irsty-tui  ──►  irsty-core  ──►  irsty-proto
 - **irsty-proto:** parses and serialises IRC messages, handles tags, `RPL_ISUPPORT` and casemapping, parses and sanitises mIRC formatting, and implements CAP and SASL as state machines. It has no I/O, so everything is deterministic and fuzzable ([ADR 0001](adr/0001-own-protocol-crate.md)).
 - **irsty-core:** runs connection tasks (TCP, TLS, SOCKS5, the rate-limited send queue, reconnect) and holds client state (networks, buffers, channels, users). `State::apply` turns each network event into state changes and `Effect`s; logging, the config model and editing the config file live here too. It has no UI dependencies.
 - **irsty-tui:** renders from `&State` and turns keys and commands into calls on the `Client`. It includes our own scrollback and input widgets ([ADR 0003](adr/0003-bespoke-scrollback-and-input.md)), the keymap, completion, notifications, the theme, and the terminal guard (panic hook, signals, suspend and resume).
-- **irsty:** the CLI, tracing setup (writes to a file only), wiring, and headless mode.
+- **irsty:** the CLI, tracing setup (writes to a file only), wiring, headless mode, and `assets.rs`, which renders the man page (clap_mangen, plus hand-written FILES, ENVIRONMENT and EXIT STATUS sections) and shell completions (clap_complete) from the same `Cli` definition. Releases are built by dist ([PACKAGING.md](PACKAGING.md)).
 
 ## Event flow
 
