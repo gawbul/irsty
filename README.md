@@ -4,7 +4,7 @@
 
 A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](https://ratatui.rs). It is a spiritual successor to irssi and WeeChat: fast, readable out of the box, scriptable, with first-class IRCv3 support and good support for bouncers (soju, ZNC).
 
-> **Status:** early development, but usable day to day. Milestones M0 to M13 are done: several networks at once, the core and modern IRCv3 extensions (history, typing, replies, reactions, multi-line messages), bouncer support, the full command set, search, split windows, themes and Luau scripting. Still to come: an accessibility mode and high-contrast theme (M14), packaged releases with a man page and shell completions (M15), and DCC (M16). See [`PLAN.md`](PLAN.md) for the roadmap.
+> **Status:** early development, but usable day to day. Milestones M0 to M14 are done: several networks at once, the core and modern IRCv3 extensions (history, typing, replies, reactions, multi-line messages), bouncer support, the full command set, search, split windows, themes, Luau scripting, and accessibility (a plain mode for screen readers, an accessible mode and a high-contrast theme). Still to come: packaged releases with a man page and shell completions (M15), and DCC (M16). See [`PLAN.md`](PLAN.md) for the roadmap.
 
 ## Goals
 
@@ -29,13 +29,14 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **Commands** ([docs/COMMANDS.md](docs/COMMANDS.md)): talking (`/msg /query /me /reply /react /notice /ctcp /away`), finding out (`/whois /whowas /who /names /topic /list`, with replies gathered where you typed them), running channels (`/mode /op /voice /kick /ban /invite`), buffers and panes (`/window /close /clear /layout /search /url`), and setting things up from inside Irsty: `/server add|del|update|list`, `/set`, `/alias`, `/ignore`, `/highlight` and `/bind`, all saved to your config with its comments intact, `/reload` after you edit it by hand, and `/script` to load and manage scripts. Passwords sent with `/raw` or to NickServ are hidden on screen and in logs.
 - **First run:** no config file needed; add a network with `/server add` and Irsty writes one.
 - **Ignores and highlights:** hide people by mask, per network or channel; highlight words and regexes besides your nick. Highlighted lines stand out, and highlights and private messages raise desktop notifications through the terminal (OSC 777, OSC 9 or the bell, tmux-aware).
-- **Looks:** themes (`dark` and `light` presets, and every element restylable in `[theme]`), colours fitted to what the terminal shows (truecolor, 256, 16, or none, honouring `NO_COLOR`), nick colours (with overrides), underlined links with `/url` to open them, and mIRC formatting typed with irssi's or WeeChat's keys.
+- **Looks:** themes (`dark`, `light` and `high-contrast` presets, and every element restylable in `[theme]`), colours fitted to what the terminal shows (truecolor, 256, 16, or none, honouring `NO_COLOR`), nick colours (with overrides), underlined links with `/url` to open them, and mIRC formatting typed with irssi's or WeeChat's keys.
 - **Scripting:** Luau scripts react to events, add commands, print and set timers, each in a sandbox of its own (no files, network or programs, and time and memory limits); acting for you on the network needs `allow = ["send"]`. See [docs/SCRIPTING.md](docs/SCRIPTING.md) and [examples/scripts](examples/scripts).
+- **Accessibility:** `irsty --plain` is a line-by-line interface for screen readers and braille displays: nothing is drawn, new lines are printed as they arrive (mentions and private messages from other buffers too), and you type commands on an ordinary line. `[ui] accessible` makes the full-screen UI one column of ASCII text with words beside anything shown only by colour, and the `high-contrast` theme needs no colours at all. See [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md).
 - **Config tools:** `/reload` reads the file again after you edit it (networks included), `irsty --check-config` checks a file without starting, and `irsty --print-default-config` prints one with every setting at its default.
 - **CTCP:** answers `VERSION`, `PING`, `TIME`, `CLIENTINFO` and `SOURCE`, rate-limited.
 - **Headless mode:** `--headless` prints every buffer's new lines to stdout.
 
-Not yet: an accessibility mode and high-contrast theme (M14), releases, a man page and shell completions (M15), and DCC (M16). See [`PLAN.md`](PLAN.md).
+Not yet: releases, a man page and shell completions (M15), and DCC (M16). See [`PLAN.md`](PLAN.md).
 
 ## Quick start
 
@@ -77,7 +78,7 @@ security add-generic-password -s irsty -a libera -w
 secret-tool store --label "irsty libera" service irsty username libera
 ```
 
-Type `/help` for commands and `/quit` to exit. Alt+1, Alt+2 and so on switch buffers. Use `--headless` to print everything to stdout instead of running the UI (Ctrl-C quits). Every option is described in [docs/CONFIG.md](docs/CONFIG.md). Diagnostics go to `irsty.log` in the platform data directory, never to the terminal; set `IRSTY_LOG=irsty_core=debug` for more detail.
+Type `/help` for commands and `/quit` to exit. Alt+1, Alt+2 and so on switch buffers. Use `--plain` for a line-by-line interface that works with screen readers ([docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)), or `--headless` to print everything to stdout without any input (Ctrl-C quits). Every option is described in [docs/CONFIG.md](docs/CONFIG.md). Diagnostics go to `irsty.log` in the platform data directory, never to the terminal; set `IRSTY_LOG=irsty_core=debug` for more detail.
 
 ## Development
 
@@ -107,6 +108,7 @@ The tasks wrap plain `cargo` commands and `scripts/`, so everything works withou
 - [Keybindings](docs/KEYBINDINGS.md)
 - [Commands](docs/COMMANDS.md)
 - [Scripting](docs/SCRIPTING.md)
+- [Accessibility](docs/ACCESSIBILITY.md)
 - [Decision records](docs/adr/)
 - [Dependency versions](docs/VERSIONS.md)
 - [Contributing](CONTRIBUTING.md)

@@ -158,6 +158,7 @@ Irsty keeps the messages it logs (messages, actions and notices, not joins and t
 | `timestamp_format` | string | `"%H:%M"` | [`strftime`](https://docs.rs/jiff/latest/jiff/fmt/strftime/index.html) format for timestamps, in your local time zone. |
 | `keymap` | `"irssi"` or `"weechat"` | `"irssi"` | Key binding preset. They differ in buffer switching and formatting keys; see [KEYBINDINGS.md](KEYBINDINGS.md). |
 | `nick_colours` | boolean | `true` | Give each nick a colour from a hash of its name, so the same person always has the same colour. `[nick_colours]` overrides particular nicks either way. |
+| `accessible` | boolean | `false` | Accessible mode: no side panels, ASCII instead of box drawing, words beside anything shown only by colour, and the high-contrast theme unless another preset is set. See [ACCESSIBILITY.md](ACCESSIBILITY.md). |
 | `layout` | string | none | Split windows to restore at startup, as `/layout save` writes them, such as `"v(libera/#rust,h(libera/#irsty,libera))"`; see [KEYBINDINGS.md](KEYBINDINGS.md#split-windows). Unset, Irsty starts with one pane. |
 
 Lines that mention your nick or a highlight word show the sender's nick dark on yellow, and links in messages are underlined; `/url` lists and opens them.
@@ -179,7 +180,7 @@ Colours and styles. Start from a preset, then restyle any element.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `preset` | `"dark"` or `"light"` | `"dark"` | `light` avoids light colours that vanish on a white background. |
+| `preset` | `"dark"`, `"light"` or `"high-contrast"` | `"dark"`, or `"high-contrast"` with `[ui] accessible` | `light` avoids light colours that vanish on a white background. `high-contrast` uses no colours of its own, only bold, italic, underline and reverse video in the terminal's own colours, so it suits any background ([ACCESSIBILITY.md](ACCESSIBILITY.md#the-high-contrast-theme)). |
 | `colours` | `"auto"`, `"truecolor"`, `"256"`, `"16"` or `"none"` | `"auto"` | How many colours the terminal shows. Every colour on screen (IRC colours included) is fitted to it: 24-bit colours become the nearest of the 256-colour palette or of the 16 basic colours. With `none`, colours are dropped and anything that had a background (bars, the selected buffer, highlights) is shown in reverse video. `auto` uses `none` if `NO_COLOR` is set (and not empty), truecolor if `COLORTERM` is `truecolor` or `24bit`, 256 colours if `TERM` mentions `256color`, and 16 otherwise (`none` for `TERM=dumb`). Any other value overrides `NO_COLOR`, as the [convention](https://no-color.org) allows. |
 
 A style is words: modifiers (`bold`, `dim`, `italic`, `underline`, `reversed`, `crossed`), a colour, and `on` a background colour, for example `"bold white on blue"` or `"#ff8000 on colour236"`. Colours are written as in `[nick_colours]`; `default` is the terminal's own.
@@ -188,6 +189,7 @@ A style is words: modifiers (`bold`, `dim`, `italic`, `underline`, `reversed`, `
 |---|---|---|
 | `bar` | The topic and status bars, and the focused pane's title | `white on blue` |
 | `dim` | Timestamps, separators, and joins, parts and other events | `dark_gray` |
+| `pending` | Your messages until the server confirms them | `dark_gray` |
 | `error` | Errors | `light_red` |
 | `highlight` | The nick on a line that mentions you | `black on yellow` |
 | `selected` | The current buffer in the buffer list | `black on cyan` |

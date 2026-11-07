@@ -1,6 +1,6 @@
 # Irsty plan
 
-Status (2026-11-06): M0 to M13 are done. Phases 1 and 2 are complete, Phase 3 is complete apart from DCC (M16), and Phase 4 has M14 (accessibility) and M15 (releases) left. This plan was written before the code (2026-10-30) and has been updated where the code went another way; [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes what exists. Versions and the evidence for them are in [`docs/VERSIONS.md`](docs/VERSIONS.md).
+Status (2026-11-07): M0 to M14 are done. Phases 1 and 2 are complete, Phase 3 is complete apart from DCC (M16), and Phase 4 has M15 (releases) left. This plan was written before the code (2026-10-30) and has been updated where the code went another way; [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes what exists. Versions and the evidence for them are in [`docs/VERSIONS.md`](docs/VERSIONS.md).
 
 ## 1. Stack, in brief
 
@@ -127,7 +127,7 @@ Every milestone ends with the full gate passing locally and in CI: `fmt --check`
 ### Phase 4: extensibility and polish
 
 - **M13.** Scripting API (events, commands, buffers, timers), sandboxed by default. *(Done 2026-11-06. Luau through mlua 0.12.2. There is no file or network API at all, so the one capability is `send`, for acting on the network; time, memory, error and send-rate limits keep a bad script from hurting. Events are lines (live only, never history); scripts don't yet filter or rewrite what you type or receive, which can come later if it's wanted.)*
-- **M14.** Accessibility mode, high-contrast theme.
+- **M14.** Accessibility mode, high-contrast theme. *(Done 2026-11-07. Two parts, as agreed: `irsty --plain`, a line-by-line interface for screen readers and braille displays, and `[ui] accessible` for the full-screen UI (no panels, ASCII, words beside colour-only signals). One `high-contrast` preset that uses only the terminal's own colours, so it suits any background. Plain mode was checked against Ergo with a second client talking to it.)*
 - **M15.** Man page, completions, cargo-dist releases, Homebrew, AUR and Nix notes.
 
 ## 5. Things I'd push back on or do differently from the brief
