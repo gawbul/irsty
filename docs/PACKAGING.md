@@ -64,13 +64,38 @@ dist builds a Homebrew formula with each release and pushes it to the tap [`gawb
 
 The formula installs only the binary in `bin`; the man page and completions from the archive go in `$(brew --prefix)/share/irsty` (Homebrew's `pkgshare`), where `man` and the shells don't look. `man "$(brew --prefix)/share/irsty/irsty.1"` reads the man page, and `irsty --completions <shell>` prints completions to load from a shell's startup file. dist's tap commits are authored by "axo bot", which dist doesn't let us change. dist can't run the job in an environment, so `HOMEBREW_TAP_TOKEN` is a repository secret; the tag ruleset (see [The crates](#the-crates)) is what stops anyone else starting a release, and the token can write only to the tap.
 
-## Distribution packages
+## Scoop (Windows)
 
-`packaging/` has starting points for two more package managers. Each builds from a release's source tarball, installs the binary, the man page and the bash, zsh and fish completions, and needs a release tag to point at. Building needs Rust and a C and C++ compiler (for the bundled SQLite and Luau); there are no other system libraries to link.
+`scoop bucket add gawbul https://github.com/gawbul/scoop-bucket`, then `scoop install gawbul/irsty`, installs the Windows archive. dist has no Scoop installer, so the `Publish Scoop manifest` workflow (`.github/workflows/publish-scoop.yml`) does it: after a successful `Release` run it makes the same checks as `Publish crates` (`scripts/check-release-tag.sh`), writes `irsty.json` with `scripts/scoop-manifest.sh` from the archive's published SHA-256, and pushes it to the bucket as `bucket/irsty.json`. It pushes with the `SCOOP_BUCKET_TOKEN` repository secret: a fine-grained token with read and write access to the bucket's contents and nothing else. The manifest has no `checkver` or `autoupdate`, because the workflow is what updates it. Its notes say where the man page and completions are, and how to load PowerShell completions. The binary isn't code-signed, so SmartScreen may warn the first time it runs.
 
-| Package manager | Template | Status |
-|---|---|---|
-| AUR (Arch Linux) | `packaging/aur/PKGBUILD` | Untested (no Arch machine here). Set `pkgver`, run `updpkgsums`, check with `namcap`, and publish to the AUR as `irsty`. It runs the `irsty-proto` tests, which need no network. |
-| Nix | `packaging/nix/package.nix` | Untested (no Nix here). Use with `callPackage`; build once with the fake hashes and copy the real ones from the error. |
+## Nix
 
-The full test suite starts mock servers on localhost, which some build sandboxes forbid, so the templates run the protocol tests only.
+`flake.nix` makes the repository a Nix flake, for Linux and macOS on x86_64 and ARM:
+
+```sh
+nix run github:gawbul/irsty            # run the latest main
+nix run github:gawbul/irsty/v0.1.0     # or a release
+nix profile install github:gawbul/irsty
+```
+
+It builds `packaging/nix/package.nix` from the checkout and its `Cargo.lock`, so it has no hashes to update; the only thing to maintain is `flake.lock`, which pins nixpkgs (`nix flake update`, then check it builds). There is no binary cache, so Nix compiles Irsty, which takes a few minutes. The build runs the protocol tests and checks `irsty --version`, and installs the man page and the bash, zsh and fish completions.
+
+`packaging/nix/package.nix` is written as a nixpkgs package (`pkgs/by-name/ir/irsty/package.nix`), with the hashes for the current release, ready to submit to nixpkgs. That means a pull request to NixOS/nixpkgs, adding the package and, in a separate commit, its maintainer to `maintainers/maintainer-list.nix`; after that, nixpkgs' update bot proposes each new release. For a new release, set `version`, set both hashes to `lib.fakeHash`, build, and copy the hashes Nix reports.
+
+## AUR (Arch Linux)
+
+`packaging/aur/` holds a `PKGBUILD` and its `.SRCINFO`, ready to publish as `irsty`. It builds the release named by `pkgver` from its source tarball (checked by SHA-256), runs the protocol tests, and installs the binary, the man page, the bash, zsh and fish completions, and the licence. Building needs Rust and a C and C++ compiler (for the bundled SQLite and Luau); there are no other system libraries to link.
+
+It isn't on the AUR yet: AUR account registration is paused. Once you have an account with an SSH key, publishing is: clone `ssh://aur@aur.archlinux.org/irsty.git`, copy in `PKGBUILD` and `.SRCINFO`, commit and push. For a new release, set `pkgver` (and `pkgrel=1`), run `updpkgsums`, and `makepkg --printsrcinfo > .SRCINFO`.
+
+`scripts/aur.sh` checks it inside Arch Linux: that `.SRCINFO` is current, `namcap` on the `PKGBUILD` and the package, and `makepkg` itself. `mise run packaging:aur` runs it in Docker (emulated on ARM Macs, so slowly).
+
+## Testing the packages
+
+The `Packaging` workflow (`.github/workflows/packaging.yml`) runs when `packaging/`, the flake, `Cargo.lock` or the packaging scripts change:
+
+- the AUR package in an `archlinux` container (`scripts/aur.sh`);
+- `nix flake check` and `nix run . -- --version` on Linux x86_64, Linux ARM and macOS;
+- on Windows, the Scoop manifest for the latest release, installed with Scoop and run.
+
+`mise run packaging:aur` and `mise run packaging:nix` run the first two locally in Docker. The full test suite starts mock servers on localhost, which build sandboxes forbid, so the packages run the protocol tests only.
