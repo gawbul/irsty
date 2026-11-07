@@ -139,6 +139,11 @@ mise run soju       # a local soju bouncer in front of Ergo (build it once with 
 mise run test:soju  # integration tests against it
 mise run fuzz       # all fuzz targets for 10 minutes (needs nightly)
 mise run assets     # regenerate the man page and completions after changing a flag
+mise run site       # regenerate the site's terminal screens and build the site into target/site
+mise run site:serve # build the site and serve it on http://127.0.0.1:8000/
+mise run book       # serve the docs alone while editing them
+mise run packaging:aur  # build and check the AUR package in Docker
+mise run packaging:nix  # check and build the Nix flake in Docker
 ```
 
 The tasks wrap plain `cargo` commands and `scripts/`, so everything works without mise too. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.

@@ -1,6 +1,6 @@
 # Irsty plan
 
-Status (2026-11-07): M0 to M16 are done, so every phase is complete, and the first release, v0.1.0, is out (see "Then: the first release" below). This plan was written before the code (2026-10-30) and has been updated where the code went another way; [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes what exists. Versions and the evidence for them are in [`docs/VERSIONS.md`](docs/VERSIONS.md).
+Status (2026-11-07): M0 to M16 are done, so every phase is complete, and the first release, v0.1.0, is out (see "Then: the first release" below). What could come next is in [`ROADMAP.md`](ROADMAP.md); the suggested next milestone, M17, is its "Next" list (STS, WHOX, bot mode, event playback, SASL 3.2). This plan was written before the code (2026-10-30) and has been updated where the code went another way; [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes what exists. Versions and the evidence for them are in [`docs/VERSIONS.md`](docs/VERSIONS.md).
 
 ## 1. Stack, in brief
 
