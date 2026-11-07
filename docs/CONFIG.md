@@ -202,6 +202,7 @@ A style is words: modifiers (`bold`, `dim`, `italic`, `underline`, `reversed`, `
 | `warning` | The `INSECURE TLS` warning | `bold white on red` |
 | `question` | Questions such as the paste prompt | `black on yellow` |
 | `activity_none`, `activity_events`, `activity_messages`, `activity_highlight` | Buffers in the list by what is new in them | `gray`, `white`, `light_yellow`, `bold light_magenta` |
+| `act_messages`, `act_highlight` | Buffer numbers in the status bar's `[Act: ...]` list, with new messages or a highlight; drawn on the bar's background unless they set their own | `light_yellow`, `bold light_magenta` (the light preset: `bold white`, `bold black on yellow`) |
 | `nicks` | The colours nicks are given, space-separated | `cyan magenta green yellow light_blue light_red light_cyan light_magenta light_green light_yellow blue red` |
 
 ```toml

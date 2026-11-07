@@ -179,6 +179,12 @@ pub struct Theme {
     pub activity_events: Style,
     pub activity_messages: Style,
     pub activity_highlight: Style,
+    /// The status bar's activity list (`[Act: ...]`): buffers with new
+    /// messages, and with a highlight. Drawn on the bar, so they need to read
+    /// against the bar's background rather than the page's.
+    pub act_messages: Style,
+    /// See [`Theme::act_messages`].
+    pub act_highlight: Style,
     /// Colours for nicks, by a hash of the nick.
     pub nicks: Vec<Color>,
     /// `[ui] accessible`: draw in ASCII, and put text beside anything shown
@@ -220,6 +226,8 @@ impl Theme {
             activity_events: fg(Color::White),
             activity_messages: fg(Color::LightYellow),
             activity_highlight: fg(Color::LightMagenta).add_modifier(Modifier::BOLD),
+            act_messages: fg(Color::LightYellow),
+            act_highlight: fg(Color::LightMagenta).add_modifier(Modifier::BOLD),
             nicks: DARK_NICKS.to_vec(),
             accessible: false,
         }
@@ -241,6 +249,12 @@ impl Theme {
             activity_events: Style::default(),
             activity_messages: fg(Color::Blue).add_modifier(Modifier::BOLD),
             activity_highlight: fg(Color::Magenta).add_modifier(Modifier::BOLD),
+            // The bar keeps its white on blue, and a light terminal's bright
+            // yellow and magenta can be too dark for it.
+            act_messages: fg(Color::White).add_modifier(Modifier::BOLD),
+            act_highlight: fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
             nicks: LIGHT_NICKS.to_vec(),
             ..Self::dark()
         }
@@ -275,6 +289,8 @@ impl Theme {
             activity_events: plain,
             activity_messages: bold,
             activity_highlight: loud,
+            act_messages: bold,
+            act_highlight: loud,
             nicks: vec![Color::Reset],
             accessible: false,
         }
@@ -348,6 +364,8 @@ impl Theme {
             "activity_events" => &mut self.activity_events,
             "activity_messages" => &mut self.activity_messages,
             "activity_highlight" => &mut self.activity_highlight,
+            "act_messages" => &mut self.act_messages,
+            "act_highlight" => &mut self.act_highlight,
             _ => return None,
         })
     }
@@ -360,6 +378,15 @@ impl Theme {
             }
             LineKind::Error => self.error,
             _ => self.dim,
+        }
+    }
+
+    /// The status bar's activity list, which shows only buffers with
+    /// messages or a highlight.
+    pub fn bar_activity(&self, level: Activity) -> Style {
+        match level {
+            Activity::Highlight => self.act_highlight,
+            _ => self.act_messages,
         }
     }
 
@@ -916,5 +943,19 @@ mod tests {
             "a background becomes reverse video"
         );
         assert!(!cells[(1, 0)].modifier.contains(Modifier::REVERSED));
+    }
+
+    /// The activity list is drawn on the status bar, so no preset may draw it
+    /// in the bar's own colour (the light preset once drew blue on blue).
+    #[test]
+    fn bar_activity_reads_on_the_bar() {
+        for theme in [Theme::dark(), Theme::light()] {
+            let bar = theme.bar.bg.unwrap();
+            for level in [Activity::Messages, Activity::Highlight] {
+                let style = theme.bar_activity(level);
+                assert_ne!(style.fg, Some(bar), "{level:?}");
+                assert_ne!(style.fg, style.bg.or(Some(bar)), "{level:?}");
+            }
+        }
     }
 }

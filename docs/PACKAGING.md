@@ -1,6 +1,6 @@
 # Packaging and releases
 
-Irsty is released as archives on GitHub, built by [dist](https://opensource.axo.dev/cargo-dist/), and as crates on [crates.io](https://crates.io/crates/irsty), so `cargo install irsty` works. The project site is built from these docs by mdBook and deployed to GitHub Pages.
+Irsty is released as archives on GitHub, built by [dist](https://opensource.axo.dev/cargo-dist/), and as crates on [crates.io](https://crates.io/crates/irsty), so `cargo install irsty` works. The project site, a front page with the docs beneath it, is deployed to GitHub Pages.
 
 ## What a release contains
 
@@ -56,7 +56,14 @@ If a run fails part-way, the crates already published stay published, and rerunn
 
 ## The project site
 
-`book.toml` builds the site from `docs/`, with `docs/SUMMARY.md` as its table of contents and `docs/introduction.md` as its front page; a page in the summary that doesn't exist fails the build. `mise run book` serves it locally. The `Pages` workflow (`.github/workflows/pages.yml`) builds it on every pull request, as a check, and deploys it on every push to `main`. Pages must be set to deploy from "GitHub Actions" in the repository settings (once). Links from the docs to files outside `docs/` must be full GitHub URLs, as only `docs/` is in the site.
+The site has two halves, put together by `scripts/site.sh` into `target/site`:
+
+- **The front page**, hand-written in `site/` (`index.html`, `style.css`, `site.js`, the icon and the self-hosted fonts). No framework and no build step; it works without JavaScript, which only switches the windows, copies commands and plays the arrival once (not at all with reduced motion).
+- **The docs**, under `docs/`: mdBook builds them from `docs/` (`book.toml`), with `docs/SUMMARY.md` as the table of contents and `docs/introduction.md` as their front page; a page in the summary that doesn't exist fails the build. `site/docs.css` gives them the site's fonts and palette, and `site/docs.js` links their title back to the front page.
+
+Every terminal screen on the front page is a real render. `crates/irsty-tui/tests/site.rs` builds each scene from IRC lines (and the DCC manager), draws it with Irsty's view as the snapshot tests do, turns the cells into HTML, and writes it into `site/index.html` between `<!-- irsty:frame NAME -->` markers; it also embeds `examples/scripts/slap.luau`. The test fails if the page is out of date, so a change to the UI means `mise run site` and a look at the diff. Colours stay terminal colours (classes for the sixteen, inline values for the rest), so the page's CSS decides what a theme looks like, as a terminal's palette would.
+
+`mise run site:serve` builds it and serves it on port 8000; `mise run book` serves the docs alone while you edit them. The `Pages` workflow (`.github/workflows/pages.yml`) builds the site on every pull request, as a check, and deploys it on every push to `main`. Pages must be set to deploy from "GitHub Actions" in the repository settings (once). Links from the docs to files outside `docs/` must be full GitHub URLs, as only `docs/` is in the book; links from the front page to the docs go to `docs/<PAGE>.html`.
 
 ## Homebrew
 

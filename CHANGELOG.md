@@ -16,6 +16,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - `Publish crates` and `Publish Scoop manifest` share their release checks, in `scripts/check-release-tag.sh`.
+- The project site has a front page of its own: a tour of Irsty's windows, the move from irssi and WeeChat, scripting, accessibility and every way to install. Each terminal screen on it is a real render, kept current by a test. The docs moved to `/irsty/docs/` and now share the site's fonts and colours.
+
+### Fixed
+
+- The light theme's status bar showed the `[Act: ...]` list in blue and magenta on the blue bar, so buffer numbers could vanish. The bar now has its own theme elements, `act_messages` and `act_highlight` (bold white, and bold black on yellow, in the light theme; the dark theme looks as before).
 
 ## [0.1.0] - 2026-11-07
 

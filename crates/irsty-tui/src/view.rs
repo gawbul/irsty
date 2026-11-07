@@ -481,12 +481,10 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, state: &State, ui: &Ui) {
         .filter_map(|(i, &id)| state.buffer(id).map(|b| (i + 1, b.activity)))
         .filter(|(_, a)| *a > irsty_core::state::Activity::Events)
         .map(|(i, a)| {
-            (
-                i,
-                ui.theme
-                    .activity(a)
-                    .bg(ui.theme.bar.bg.unwrap_or(Color::Reset)),
-            )
+            let style = ui.theme.bar_activity(a);
+            // On the bar's background, unless the style brings its own.
+            let bg = style.bg.or(ui.theme.bar.bg).unwrap_or(Color::Reset);
+            (i, style.bg(bg))
         })
         .collect();
     if !active.is_empty() {

@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Irsty, a modern IRC client for the terminal</title>
+<meta name="description" content="Irsty is a terminal IRC client: chat history, replies, reactions and typing, bouncers and SASL, irssi's and WeeChat's keys, and Luau scripting. One binary for Linux, macOS and Windows.">
+<meta name="color-scheme" content="dark light">
+<meta property="og:title" content="Irsty, a modern IRC client for the terminal">
+<meta property="og:description" content="Today's IRC, with the keys you know from irssi and WeeChat.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://gawbul.github.io/irsty/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/AtkinsonHyperlegibleNext-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/MonaspaceNeon-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+<script src="site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+
+<header class="bar">
+  <nav aria-label="Site">
+    <a href="./" class="home" aria-label="Irsty home">[irsty]</a>
+    <a href="#tour">[/tour]</a>
+    <a href="#migrate">[/migrate]</a>
+    <a href="#script">[/script]</a>
+    <a href="#a11y">[/a11y]</a>
+    <a href="#install">[/install]</a>
+    <span class="bar-gap" aria-hidden="true"></span>
+    <a href="docs/">[docs]</a>
+    <a href="https://github.com/gawbul/irsty">[GitHub]</a>
+  </nav>
+</header>
+
+<main id="main">
+
+<section class="hero" aria-labelledby="title">
+  <h1 id="title">A modern IRC client for your terminal.</h1>
+  <p class="lede">Irsty speaks today's IRC: chat history, replies, reactions and typing, bouncers and SASL. It keeps the keys you know from irssi and WeeChat, and it's one small binary for Linux, macOS and Windows.</p>
+  <div class="get">
+    <div class="cmd"><code>brew install gawbul/tap/irsty</code><button class="copy" type="button" data-copy="brew install gawbul/tap/irsty">Copy</button></div>
+    <a class="more" href="#install">Other ways to install</a>
+  </div>
+</section>
+
+<section id="tour" class="tour" aria-label="A tour of Irsty">
+  <div class="windows" role="tablist" aria-label="Windows">
+    <button role="tab" id="tab-overview" aria-controls="win-overview" aria-selected="true"><kbd>1</kbd> #irsty</button>
+    <button role="tab" id="tab-modern" aria-controls="win-modern" aria-selected="false" tabindex="-1"><kbd>2</kbd> IRCv3</button>
+    <button role="tab" id="tab-splits" aria-controls="win-splits" aria-selected="false" tabindex="-1"><kbd>3</kbd> splits</button>
+    <button role="tab" id="tab-switcher" aria-controls="win-switcher" aria-selected="false" tabindex="-1"><kbd>4</kbd> switcher</button>
+    <button role="tab" id="tab-light" aria-controls="win-light" aria-selected="false" tabindex="-1"><kbd>5</kbd> light</button>
+    <button role="tab" id="tab-dcc" aria-controls="win-dcc" aria-selected="false" tabindex="-1"><kbd>6</kbd> DCC</button>
+  </div>
+  <div class="screens">
+    <figure class="screen" id="win-overview" data-window="1" role="tabpanel" aria-labelledby="tab-overview">
+      <div class="term arrive">
+<pre class="step" data-step="3" hidden><!-- irsty:frame overview-3 --><span class="f15 b4">Irsty, a modern IRC client for the terminal | v0.1.0 is out: https://gawbul.github.io/irsty/                  </span>
+<span class="f15 B"> 1.libera        </span><span class="f8">│</span>                                                                             <span class="f10">@</span><span class="f11">gawbul</span>
+<span class="f7"> 2.  #rust       </span><span class="f8">│</span>                                                                             <span class="f10">+</span><span class="f1">alice</span>
+<span class="f13 B"> 3.  ferris      </span><span class="f8">│</span>                                                                             <span class="f10"> bob</span>
+<span class="f0 b6"> 4.  #irsty      </span><span class="f8">│</span>                                                                             <span class="f10"> </span><span class="f2">carol</span>
+<span class="f15 B"> 5.oftc          </span><span class="f8">│</span>                                                                             <span class="f10"> </span><span class="f13">dave</span>
+<span class="f11"> 6.  #ratatui    </span><span class="f8">│</span>                                                                             <span class="f10"> </span><span class="f11">eve</span>
+                 <span class="f8">│</span>
+                 <span class="f8">│</span>
+                 <span class="f8">│09:01</span> <span class="f10">       --&gt;</span><span class="f8"> │ </span><span class="f8 B">gawbul</span><span class="f8"> (~g@user/gawbul) has joined </span><span class="f8 B">#irsty</span>
+                 <span class="f8">│09:01</span> <span class="f8">        -- │ </span>Topic for <span class="B">#irsty</span>: Irsty, a modern IRC client for the
+                 <span class="f8">│</span>                <span class="f8"> │ </span>terminal | v0.1.0 is out: <span class="U">https://gawbul.github.io/irsty/</span>
+                 <span class="f8">│09:01</span> <span class="f8">        -- │ #irsty: 6 users</span>
+                 <span class="f8">│09:30</span> <span class="f1">     alice</span><span class="f8"> │ </span>morning all
+                 <span class="f8">│09:31</span> <span class="f10">       bob</span><span class="f8"> │ </span>installed it with brew last night, and history just works
+                 <span class="f8">│</span>                <span class="f8"> │ </span>through soju
+                 <span class="f8">│09:32</span> <span class="B">         *</span><span class="f8"> │ </span><span class="f2">carol</span> puts the kettle on
+                 <span class="f8">│09:33</span> <span class="f13">      dave</span><span class="f8"> │ </span>does it do SASL?
+                 <span class="f8">│09:34</span> <span class="f11">       eve</span><span class="f8"> │ </span>dave: PLAIN, SCRAM and EXTERNAL, and the password can
+                 <span class="f8">│</span>                <span class="f8"> │ </span>live in your keyring
+<span class="f15 b4">[09:40] [gawbul] [4:libera/#irsty] [Act: </span><span class="f13 b4 B">3</span><span class="f15 b4">,</span><span class="f11 b4">6</span><span class="f15 b4">]                                                                 </span>
+<span class="f6">[#irsty] </span><!-- /irsty:frame --></pre>
+<pre class="step" data-step="2" hidden><!-- irsty:frame overview-2 --><span class="f15 b4">Irsty, a modern IRC client for the terminal | v0.1.0 is out: https://gawbul.github.io/irsty/                  </span>
+<span class="f15 B"> 1.libera        </span><span class="f8">│</span>                                                                             <span class="f10">@</span><span class="f11">gawbul</span>
+<span class="f7"> 2.  #rust       </span><span class="f8">│</span>                                                                             <span class="f10">+</span><span class="f1">alice</span>
+<span class="f13 B"> 3.  ferris      </span><span class="f8">│</span>                                                                             <span class="f10"> bob</span>
+<span class="f0 b6"> 4.  #irsty      </span><span class="f8">│</span>                                                                             <span class="f10"> </span><span class="f2">carol</span>
+<span class="f15 B"> 5.oftc          </span><span class="f8">│</span>                                                                             <span class="f10"> </span><span class="f13">dave</span>
+<span class="f11"> 6.  #ratatui    </span><span class="f8">│</span>                                                                             <span class="f10"> </span><span class="f11">eve</span>
+                 <span class="f8">│</span>
+                 <span class="f8">│09:01</span> <span class="f10">       --&gt;</span><span class="f8"> │ </span><span class="f8 B">gawbul</span><span class="f8"> (~g@user/gawbul) has joined </span><span class="f8 B">#irsty</span>
+                 <span class="f8">│09:01</span> <span class="f8">        -- │ </span>Topic for <span class="B">#irsty</span>: Irsty, a modern IRC client for the
+                 <span class="f8">│</span>                <span class="f8"> │ </span>terminal | v0.1.0 is out: <span class="U">https://gawbul.github.io/irsty/</span>
+                 <span class="f8">│09:01</span> <span class="f8">        -- │ #irsty: 6 users</span>
+                 <span class="f8">│09:30</span> <span class="f1">     alice</span><span class="f8"> │ </span>morning all
+                 <span class="f8">│09:31</span> <span class="f10">       bob</span><span class="f8"> │ </span>installed it with brew last night, and history just works
+                 <span class="f8">│</span>                <span class="f8"> │ </span>through soju
+                 <span class="f8">│09:32</span> <span class="B">         *</span><span class="f8"> │ </span><span class="f2">carol</span> puts the kettle on
+                 <span class="f8">│09:33</span> <span class="f13">      dave</span><span class="f8"> │ </span>does it do SASL?
+                 <span class="f8">│09:34</span> <span class="f11">       eve</span><span class="f8"> │ </span>dave: PLAIN, SCRAM and EXTERNAL, and the password can
+                 <span class="f8">│</span>                <span class="f8"> │ </span>live in your keyring
+                 <span class="f8">│09:35</span> <span class="f13">      dave</span><span class="f8"> │ </span><span class="B">nice</span>, that was the last thing keeping me on weechat
+<span class="f15 b4">[09:40] [gawbul] [4:libera/#irsty] [Act: </span><span class="f13 b4 B">3</span><span class="f15 b4">,</span><span class="f11 b4">6</span><span class="f15 b4">]                                                                 </span>
+<span class="f6">[#irsty] </span><!-- /irsty:frame --></pre>
+<pre class="step" data-step="1" hidden><!-- irsty:frame overview-1 --><span class="f15 b4">Irsty, a modern IRC client for the terminal | v0.1.0 is out: https://gawbul.github.io/irsty/                  </span>
+<span class="f15 B"> 1.libera        </span><span class="f8">│</span>                                                                             <span class="f10">@</span><span class="f11">gawbul</span>
+<span class="f7"> 2.  #rust       </span><span class="f8">│</span>                                                                             <span class="f10">+</span><span class="f1">alice</span>
+<span class="f13 B"> 3.  ferris      </span><span class="f8">│</span>                                                                             <span class="f10"> bob</span>
+<span class="f0 b6"> 4.  #irsty      </span><span class="f8">│</span>                                                                             <span class="f10"> </span><span class="f2">carol</span>
+<span class="f15 B"> 5.oftc          </span><span class="f8">│</span>                                                                             <span class="f10"> </span><span class="f13">dave</span>
+<span class="f11"> 6.  #ratatui    </span><span class="f8">│</span>                                                                             <span class="f10"> </span><span class="f11">eve</span>
+                 <span class="f8">│09:01</span> <span class="f10">       --&gt;</span><span class="f8"> │ </span><span class="f8 B">gawbul</span><span class="f8"> (~g@user/gawbul) has joined </span><span class="f8 B">#irsty</span>                 <span class="f10"> </span><span class="f1">frank</span>
+                 <span class="f8">│09:01</span> <span class="f8">        -- │ </span>Topic for <span class="B">#irsty</span>: Irsty, a modern IRC client for the
+                 <span class="f8">│</span>                <span class="f8"> │ </span>terminal | v0.1.0 is out: <span class="U">https://gawbul.github.io/irsty/</span>
+                 <span class="f8">│09:01</span> <span class="f8">        -- │ #irsty: 6 users</span>
+                 <span class="f8">│09:30</span> <span class="f1">     alice</span><span class="f8"> │ </span>morning all
+                 <span class="f8">│09:31</span> <span class="f10">       bob</span><span class="f8"> │ </span>installed it with brew last night, and history just works
+                 <span class="f8">│</span>                <span class="f8"> │ </span>through soju
+                 <span class="f8">│09:32</span> <span class="B">         *</span><span class="f8"> │ </span><span class="f2">carol</span> puts the kettle on
+                 <span class="f8">│09:33</span> <span class="f13">      dave</span><span class="f8"> │ </span>does it do SASL?
+                 <span class="f8">│09:34</span> <span class="f11">       eve</span><span class="f8"> │ </span>dave: PLAIN, SCRAM and EXTERNAL, and the password can
+                 <span class="f8">│</span>                <span class="f8"> │ </span>live in your keyring
+                 <span class="f8">│09:35</span> <span class="f13">      dave</span><span class="f8"> │ </span><span class="B">nice</span>, that was the last thing keeping me on weechat
+                 <span class="f8">│09:36</span> <span class="f10">       --&gt;</span><span class="f8"> │ </span><span class="f8 B">frank</span><span class="f8"> (f@host) has joined </span><span class="f8 B">#irsty</span>
+<span class="f15 b4">[09:40] [gawbul] [4:libera/#irsty] [Act: </span><span class="f13 b4 B">3</span><span class="f15 b4">,</span><span class="f11 b4">6</span><span class="f15 b4">]                                                                 </span>
+<span class="f6">[#irsty] </span><!-- /irsty:frame --></pre>
+<pre class="final"><!-- irsty:frame overview --><span class="f15 b4">Irsty, a modern IRC client for the terminal | v0.1.0 is out: https://gawbul.github.io/irsty/                  </span>
+<span class="f15 B"> 1.libera        </span><span class="f8">│</span>                                                                             <span class="f10">@</span><span class="f11">gawbul</span>
+<span class="f7"> 2.  #rust       </span><span class="f8">│</span>                                                                             <span class="f10">+</span><span class="f1">alice</span>
+<span class="f13 B"> 3.  ferris      </span><span class="f8">│</span>                                                                             <span class="f10"> bob</span>
+<span class="f0 b6"> 4.  #irsty      </span><span class="f8">│</span>                                                                             <span class="f10"> </span><span class="f2">carol</span>
+<span class="f15 B"> 5.oftc          </span><span class="f8">│</span>                                                                             <span class="f10"> </span><span class="f13">dave</span>
+<span class="f11"> 6.  #ratatui    </span><span class="f8">│09:01</span> <span class="f10">       --&gt;</span><span class="f8"> │ </span><span class="f8 B">gawbul</span><span class="f8"> (~g@user/gawbul) has joined </span><span class="f8 B">#irsty</span>                 <span class="f10"> </span><span class="f11">eve</span>
+                 <span class="f8">│09:01</span> <span class="f8">        -- │ </span>Topic for <span class="B">#irsty</span>: Irsty, a modern IRC client for the      <span class="f10"> </span><span class="f1">frank</span>
+                 <span class="f8">│</span>                <span class="f8"> │ </span>terminal | v0.1.0 is out: <span class="U">https://gawbul.github.io/irsty/</span>
+                 <span class="f8">│09:01</span> <span class="f8">        -- │ #irsty: 6 users</span>
+                 <span class="f8">│09:30</span> <span class="f1">     alice</span><span class="f8"> │ </span>morning all
+                 <span class="f8">│09:31</span> <span class="f10">       bob</span><span class="f8"> │ </span>installed it with brew last night, and history just works
+                 <span class="f8">│</span>                <span class="f8"> │ </span>through soju
+                 <span class="f8">│09:32</span> <span class="B">         *</span><span class="f8"> │ </span><span class="f2">carol</span> puts the kettle on
+                 <span class="f8">│09:33</span> <span class="f13">      dave</span><span class="f8"> │ </span>does it do SASL?
+                 <span class="f8">│09:34</span> <span class="f11">       eve</span><span class="f8"> │ </span>dave: PLAIN, SCRAM and EXTERNAL, and the password can
+                 <span class="f8">│</span>                <span class="f8"> │ </span>live in your keyring
+                 <span class="f8">│09:35</span> <span class="f13">      dave</span><span class="f8"> │ </span><span class="B">nice</span>, that was the last thing keeping me on weechat
+                 <span class="f8">│09:36</span> <span class="f10">       --&gt;</span><span class="f8"> │ </span><span class="f8 B">frank</span><span class="f8"> (f@host) has joined </span><span class="f8 B">#irsty</span>
+                 <span class="f8">│09:37</span> <span class="f0 b3">     alice</span><span class="f8"> │ </span>gawbul: the split windows are lovely, thank you
+<span class="f15 b4">[09:40] [gawbul] [4:libera/#irsty] [Act: </span><span class="f13 b4 B">3</span><span class="f15 b4">,</span><span class="f11 b4">6</span><span class="f15 b4">]                                                                 </span>
+<span class="f6">[#irsty] </span><!-- /irsty:frame --></pre>
+      </div>
+      <figcaption>Channels, queries and networks in one place, with the nick list, and an activity list in the status bar that says where you're wanted.</figcaption>
+    </figure>
+    <figure class="screen" id="win-modern" data-window="2" role="tabpanel" aria-labelledby="tab-modern" hidden>
+      <div class="term">
+<pre><!-- irsty:frame modern --><span class="f15 b4">Irsty, a modern IRC client for the terminal | v0.1.0 is out: https://gawbul.github.io/irsty/                  </span>
+<span class="f15 B"> 1.libera        </span><span class="f8">│</span>                <span class="f8"> │ </span>terminal | v0.1.0 is out: <span class="U">https://gawbul.github.io/irsty/</span> <span class="f10">@</span><span class="f11">gawbul</span>
+<span class="f7"> 2.  #rust       </span><span class="f8">│09:01</span> <span class="f8">        -- │ #irsty: 6 users</span>                                           <span class="f10">+</span><span class="f1">alice</span>
+<span class="f13 B"> 3.  ferris      </span><span class="f8">│09:30</span> <span class="f1">     alice</span><span class="f8"> │ </span>morning all                                               <span class="f10"> bob</span>
+<span class="f0 b6"> 4.  #irsty      </span><span class="f8">│09:31</span> <span class="f10">       bob</span><span class="f8"> │ </span>installed it with brew last night, and history just works <span class="f10"> </span><span class="f2">carol</span>
+<span class="f15 B"> 5.oftc          </span><span class="f8">│</span>                <span class="f8"> │ </span>through soju                                              <span class="f10"> </span><span class="f13">dave</span>
+<span class="f11"> 6.  #ratatui    </span><span class="f8">│09:32</span> <span class="B">         *</span><span class="f8"> │ </span><span class="f2">carol</span> puts the kettle on                                  <span class="f10"> </span><span class="f11">eve</span>
+                 <span class="f8">│09:33</span> <span class="f13">      dave</span><span class="f8"> │ </span>does it do SASL?                                          <span class="f10"> </span><span class="f1">frank</span>
+                 <span class="f8">│09:34</span> <span class="f11">       eve</span><span class="f8"> │ </span>dave: PLAIN, SCRAM and EXTERNAL, and the password can
+                 <span class="f8">│</span>                <span class="f8"> │ </span>live in your keyring
+                 <span class="f8">│09:35</span> <span class="f13">      dave</span><span class="f8"> │ </span><span class="B">nice</span>, that was the last thing keeping me on weechat
+                 <span class="f8">│09:36</span> <span class="f10">       --&gt;</span><span class="f8"> │ </span><span class="f8 B">frank</span><span class="f8"> (f@host) has joined </span><span class="f8 B">#irsty</span>
+                 <span class="f8">│09:37</span> <span class="f0 b3">     alice</span><span class="f8"> │ </span>gawbul: the split windows are lovely, thank you
+                 <span class="f8">│09:39</span> <span class="f10">       bob</span><span class="f8"> │ </span>shall we write the scripting guide next, or the migration
+                 <span class="f8">│</span>                <span class="f8"> │ </span>notes?  <span class="w fbg bfg">👍</span><span class="fbg bfg"> 2</span>  <span class="w fbg bfg">🎉</span><span class="fbg bfg"> 1</span>
+                 <span class="f8">│09:40</span> <span class="f2">     carol</span><span class="f8"> │ ↪ </span><span class="f10">bob</span><span class="f8">: </span><span class="f8 I">shall we write the scripting g…</span>  bob: migration
+                 <span class="f8">│</span>                <span class="f8"> │ </span>notes, people keep asking
+                 <span class="f8">│09:40</span> <span class="f11">       eve</span><span class="f8"> │ </span>what I'd want in them:
+                 <span class="f8">│</span>                <span class="f8"> │ </span>- the keymap presets
+                 <span class="f8">│</span>                <span class="f8"> │ </span>- moving my irssi config over
+<span class="f15 b4">[09:40] [gawbul] [4:libera/#irsty] [Act: </span><span class="f13 b4 B">3</span><span class="f15 b4">,</span><span class="f11 b4">6</span><span class="f15 b4">] </span><span class="f15 b4 I"> bob is typing…</span><span class="f15 b4">                                                 </span>
+<span class="f6">[#irsty] </span><!-- /irsty:frame --></pre>
+      </div>
+      <figcaption>Replies, reactions, multi-line messages and typing, where the server supports them, and chat history from servers and bouncers like soju.</figcaption>
+    </figure>
+    <figure class="screen" id="win-splits" data-window="3" role="tabpanel" aria-labelledby="tab-splits" hidden>
+      <div class="term">
+<pre><!-- irsty:frame splits --><span class="f15 b4">Irsty, a modern IRC client for the terminal | v0.1.0 is out: https://gawbul.github.io/irsty/                  </span>
+<span class="f15 B"> 1.libera        </span><span class="f8">│</span><span class="f15 b4 B"> 4:libera/#irsty                              </span><span class="f8">│</span><span class="fbg b8"> 3:libera/ferris                             </span>
+<span class="f7"> 2.  #rust       </span><span class="f8">│</span>                <span class="f8"> │ </span><span class="U">https://gawbul.github.io/ir</span><span class="f8">│</span>
+<span class="f13 B"> 3.  ferris      </span><span class="f8">│</span>                <span class="f8"> │ </span><span class="U">sty/</span>                       <span class="f8">│</span>
+<span class="f0 b6"> 4.  #irsty      </span><span class="f8">│09:01</span> <span class="f8">        -- │ #irsty: 6 users</span>            <span class="f8">│</span>
+<span class="f15 B"> 5.oftc          </span><span class="f8">│09:30</span> <span class="f1">     alice</span><span class="f8"> │ </span>morning all                <span class="f8">│</span>
+<span class="f11"> 6.  #ratatui    </span><span class="f8">│09:31</span> <span class="f10">       bob</span><span class="f8"> │ </span>installed it with brew last<span class="f8">│</span>
+                 <span class="f8">│</span>                <span class="f8"> │ </span>night, and history just    <span class="f8">│</span>
+                 <span class="f8">│</span>                <span class="f8"> │ </span>works through soju         <span class="f8">│</span>
+                 <span class="f8">│09:32</span> <span class="B">         *</span><span class="f8"> │ </span><span class="f2">carol</span> puts the kettle on   <span class="f8">│09:29</span> <span class="f12">    ferris</span><span class="f8"> │ </span>hey, got a minute for a
+                 <span class="f8">│09:33</span> <span class="f13">      dave</span><span class="f8"> │ </span>does it do SASL?           <span class="f8">│</span>                <span class="f8"> │ </span>scripting question?
+                 <span class="f8">│09:34</span> <span class="f11">       eve</span><span class="f8"> │ </span>dave: PLAIN, SCRAM and     <span class="f8">│</span><span class="fbg b8"> 6:oftc/#ratatui                             </span>
+                 <span class="f8">│</span>                <span class="f8"> │ </span>EXTERNAL, and the password <span class="f8">│</span>
+                 <span class="f8">│</span>                <span class="f8"> │ </span>can live in your keyring   <span class="f8">│09:02</span> <span class="f10">       --&gt;</span><span class="f8"> │ </span><span class="f8 B">gawbul</span><span class="f8"> (~g@user/gawbul)</span>
+                 <span class="f8">│09:35</span> <span class="f13">      dave</span><span class="f8"> │ </span><span class="B">nice</span>, that was the last    <span class="f8">│</span>                <span class="f8"> │ has joined </span><span class="f8 B">#ratatui</span>
+                 <span class="f8">│</span>                <span class="f8"> │ </span>thing keeping me on weechat<span class="f8">│09:02</span> <span class="f8">        -- │ </span>Topic for <span class="B">#ratatui</span>:
+                 <span class="f8">│09:36</span> <span class="f10">       --&gt;</span><span class="f8"> │ </span><span class="f8 B">frank</span><span class="f8"> (f@host) has joined</span>  <span class="f8">│</span>                <span class="f8"> │ </span>ratatui: cook up terminal
+                 <span class="f8">│</span>                <span class="f8"> │ </span><span class="f8 B">#irsty</span>                     <span class="f8">│</span>                <span class="f8"> │ </span>user interfaces in Rust
+                 <span class="f8">│09:37</span> <span class="f0 b3">     alice</span><span class="f8"> │ </span>gawbul: the split windows  <span class="f8">│09:02</span> <span class="f8">        -- │ #ratatui: 3 users</span>
+                 <span class="f8">│</span>                <span class="f8"> │ </span>are lovely, thank you      <span class="f8">│09:25</span> <span class="f3">     orhun</span><span class="f8"> │ </span>new release notes are up
+<span class="f15 b4">[09:40] [gawbul] [4:libera/#irsty] [Act: </span><span class="f13 b4 B">3</span><span class="f15 b4">,</span><span class="f11 b4">6</span><span class="f15 b4">]                                                                 </span>
+<span class="f6">[#irsty] </span><!-- /irsty:frame --></pre>
+      </div>
+      <figcaption>Up to eight windows side by side or stacked. Save the layout and Irsty puts it back at startup.</figcaption>
+    </figure>
+    <figure class="screen" id="win-switcher" data-window="4" role="tabpanel" aria-labelledby="tab-switcher" hidden>
+      <div class="term">
+<pre><!-- irsty:frame switcher --><span class="f15 b4">Irsty, a modern IRC client for the terminal | v0.1.0 is out: https://gawbul.github.io/irsty/                  </span>
+<span class="f15 B"> 1.libera        </span><span class="f8">│</span>                                                                             <span class="f10">@</span><span class="f11">gawbul</span>
+<span class="f7"> 2.  #rust       </span><span class="f8">│</span>                                                                             <span class="f10">+</span><span class="f1">alice</span>
+<span class="f13 B"> 3.  ferris      </span><span class="f8">│</span>                                                                             <span class="f10"> bob</span>
+<span class="f0 b6"> 4.  #irsty      </span><span class="f8">│</span>                                                                             <span class="f10"> </span><span class="f2">carol</span>
+<span class="f15 B"> 5.oftc          </span><span class="f8">│</span>                                                                             <span class="f10"> </span><span class="f13">dave</span>
+<span class="f11"> 6.  #ratatui    </span><span class="f8">│09:01</span> <span class="f10"> </span><span class="f6">┌ Go to buffer (Enter, Esc) ───────────────────────────────┐</span>          <span class="f10"> </span><span class="f11">eve</span>
+                 <span class="f8">│09:01</span> <span class="f8"> </span><span class="f6">│&gt; </span>rat                                                     <span class="f6">│</span> the      <span class="f10"> </span><span class="f1">frank</span>
+                 <span class="f8">│</span>       <span class="f6">│</span><span class="f0 b6">  6. #ratatui (oftc)</span>                                      <span class="f6">│</span><span class="U">io/irsty/</span>
+                 <span class="f8">│09:01</span> <span class="f8"> </span><span class="f6">└──────────────────────────────────────────────────────────┘</span>
+                 <span class="f8">│09:30</span> <span class="f1">     alice</span><span class="f8"> │ </span>morning all
+                 <span class="f8">│09:31</span> <span class="f10">       bob</span><span class="f8"> │ </span>installed it with brew last night, and history just works
+                 <span class="f8">│</span>                <span class="f8"> │ </span>through soju
+                 <span class="f8">│09:32</span> <span class="B">         *</span><span class="f8"> │ </span><span class="f2">carol</span> puts the kettle on
+                 <span class="f8">│09:33</span> <span class="f13">      dave</span><span class="f8"> │ </span>does it do SASL?
+                 <span class="f8">│09:34</span> <span class="f11">       eve</span><span class="f8"> │ </span>dave: PLAIN, SCRAM and EXTERNAL, and the password can
+                 <span class="f8">│</span>                <span class="f8"> │ </span>live in your keyring
+                 <span class="f8">│09:35</span> <span class="f13">      dave</span><span class="f8"> │ </span><span class="B">nice</span>, that was the last thing keeping me on weechat
+                 <span class="f8">│09:36</span> <span class="f10">       --&gt;</span><span class="f8"> │ </span><span class="f8 B">frank</span><span class="f8"> (f@host) has joined </span><span class="f8 B">#irsty</span>
+                 <span class="f8">│09:37</span> <span class="f0 b3">     alice</span><span class="f8"> │ </span>gawbul: the split windows are lovely, thank you
+<span class="f15 b4">[09:40] [gawbul] [4:libera/#irsty] [Act: </span><span class="f13 b4 B">3</span><span class="f15 b4">,</span><span class="f11 b4">6</span><span class="f15 b4">]                                                                 </span>
+<span class="f6">[#irsty] </span><!-- /irsty:frame --></pre>
+      </div>
+      <figcaption>Ctrl+G and a few letters take you to any channel or query, on any network.</figcaption>
+    </figure>
+    <figure class="screen" id="win-light" data-window="5" role="tabpanel" aria-labelledby="tab-light" hidden>
+      <div class="term term-light">
+<pre><!-- irsty:frame light --><span class="f15 b4">Irsty, a modern IRC client for the terminal | v0.1.0 is out: https://gawbul.github.io/irsty/                  </span>
+<span class="B"> 1.libera        </span><span class="f8">│</span>                                                                             <span class="f2">@</span><span class="f11">gawbul</span>
+<span class="f8"> 2.  #rust       │</span>                                                                             <span class="f2">+</span><span class="f1">alice</span>
+<span class="f5 B"> 3.  ferris      </span><span class="f8">│</span>                                                                             <span class="f2"> </span><span class="f10">bob</span>
+<span class="f0 b6"> 4.  #irsty      </span><span class="f8">│</span>                                                                             <span class="f2"> carol</span>
+<span class="B"> 5.oftc          </span><span class="f8">│</span>                                                                             <span class="f2"> </span><span class="f13">dave</span>
+<span class="f4 B"> 6.  #ratatui    </span><span class="f8">│09:01</span> <span class="f2">       --&gt;</span><span class="f8"> │ </span><span class="f8 B">gawbul</span><span class="f8"> (~g@user/gawbul) has joined </span><span class="f8 B">#irsty</span>                 <span class="f2"> </span><span class="f11">eve</span>
+                 <span class="f8">│09:01</span> <span class="f8">        -- │ </span>Topic for <span class="B">#irsty</span>: Irsty, a modern IRC client for the      <span class="f2"> </span><span class="f1">frank</span>
+                 <span class="f8">│</span>                <span class="f8"> │ </span>terminal | v0.1.0 is out: <span class="U">https://gawbul.github.io/irsty/</span>
+                 <span class="f8">│09:01</span> <span class="f8">        -- │ #irsty: 6 users</span>
+                 <span class="f8">│09:30</span> <span class="f1">     alice</span><span class="f8"> │ </span>morning all
+                 <span class="f8">│09:31</span> <span class="f10">       bob</span><span class="f8"> │ </span>installed it with brew last night, and history just works
+                 <span class="f8">│</span>                <span class="f8"> │ </span>through soju
+                 <span class="f8">│09:32</span> <span class="B">         *</span><span class="f8"> │ </span><span class="f2">carol</span> puts the kettle on
+                 <span class="f8">│09:33</span> <span class="f13">      dave</span><span class="f8"> │ </span>does it do SASL?
+                 <span class="f8">│09:34</span> <span class="f11">       eve</span><span class="f8"> │ </span>dave: PLAIN, SCRAM and EXTERNAL, and the password can
+                 <span class="f8">│</span>                <span class="f8"> │ </span>live in your keyring
+                 <span class="f8">│09:35</span> <span class="f13">      dave</span><span class="f8"> │ </span><span class="B">nice</span>, that was the last thing keeping me on weechat
+                 <span class="f8">│09:36</span> <span class="f2">       --&gt;</span><span class="f8"> │ </span><span class="f8 B">frank</span><span class="f8"> (f@host) has joined </span><span class="f8 B">#irsty</span>
+                 <span class="f8">│09:37</span> <span class="f0 b3">     alice</span><span class="f8"> │ </span>gawbul: the split windows are lovely, thank you
+<span class="f15 b4">[09:40] [gawbul] [4:libera/#irsty] [Act: </span><span class="f0 b3 B">3</span><span class="f15 b4">,</span><span class="f15 b4 B">6</span><span class="f15 b4">]                                                                 </span>
+<span class="f4">[#irsty] </span><!-- /irsty:frame --></pre>
+      </div>
+      <figcaption>Dark, light and high-contrast themes, any colour restyled in the config, and colours fitted to what your terminal can show.</figcaption>
+    </figure>
+    <figure class="screen" id="win-dcc" data-window="6" role="tabpanel" aria-labelledby="tab-dcc" hidden>
+      <div class="term">
+<pre><!-- irsty:frame dcc --><span class="f15 b4">Private conversation with =ferris                                                                             </span>
+<span class="f15 B"> 1.libera        </span><span class="f8">│</span><span class="f15 b4 B"> 5:libera/=ferris                                                                           </span>
+<span class="f7"> 2.  #rust       </span><span class="f8">│</span>
+<span class="f13 B"> 3.  ferris      </span><span class="f8">│</span>
+<span class="f13 B"> 4.  #irsty      </span><span class="f8">│</span>
+<span class="f0 b6"> 5.  =ferris     </span><span class="f8">│</span>
+<span class="f15 B"> 6.oftc          </span><span class="f8">│</span>
+<span class="f11"> 7.  #ratatui    </span><span class="f8">│</span>
+                 <span class="f8">│09:40</span> <span class="f12">    ferris</span><span class="f8"> │ </span>here are the notes from the meetup
+                 <span class="f8">│09:40</span> <span class="f11">    gawbul</span><span class="f8"> │ </span>thanks! I'll take them once this build finishes
+                 <span class="f8">│09:40</span> <span class="f12">    ferris</span><span class="f8"> │ </span>no rush, the offer waits
+                 <span class="f8">│</span><span class="fbg b8"> 1:libera                                                                                   </span>
+                 <span class="f8">│</span>
+                 <span class="f8">│</span>
+                 <span class="f8">│</span>
+                 <span class="f8">│</span>
+                 <span class="f8">│</span>
+                 <span class="f8">│09:40</span> <span class="f8">        -- │ Connected to irc.libera.chat:6697 (TLS)</span>
+                 <span class="f8">│09:40</span> <span class="f8">        -- │ ferris offers the file notes.pdf (248.3 kB): /dcc get ferris to accept,</span>
+                 <span class="f8">│</span>                <span class="f8"> │ /dcc close 1 to decline</span>
+<span class="f15 b4">[09:40] [gawbul] [5:libera/=ferris] [Act: </span><span class="f13 b4 B">3</span><span class="f15 b4">,</span><span class="f13 b4 B">4</span><span class="f15 b4">,</span><span class="f11 b4">7</span><span class="f15 b4">]                                                              </span>
+<span class="f6">[=ferris] </span><!-- /irsty:frame --></pre>
+      </div>
+      <figcaption>Send files and chat directly, as in irssi. Nothing is accepted without you, and a received file gets a safe name and never replaces another.</figcaption>
+    </figure>
+  </div>
+  <p class="note">Every screen on this page is drawn by Irsty's own code.</p>
+</section>
+
+<section id="migrate" class="prose" aria-labelledby="migrate-title">
+  <h2 id="migrate-title">Coming from irssi or WeeChat</h2>
+  <p>Irsty starts with irssi's keys. Set <code>keymap = "weechat"</code> under <code>[ui]</code> for WeeChat's, and rebind anything with <code>/bind</code>.</p>
+  <table>
+    <thead><tr><th scope="col">You're used to</th><th scope="col">In Irsty</th></tr></thead>
+    <tbody>
+      <tr><td>Alt+1 to Alt+0 for the first ten windows</td><td>The same, in both keymaps</td></tr>
+      <tr><td>irssi's Alt+Q to Alt+P for windows 11 to 20</td><td>The default keymap</td></tr>
+      <tr><td>WeeChat's Alt+J and two digits, and F5 and F6</td><td><code>keymap = "weechat"</code></td></tr>
+      <tr><td>Alt+A for the window that needs you</td><td>The same: highlights first, then messages</td></tr>
+      <tr><td><code>/window split</code> and saved layouts</td><td><code>/window split</code>, <code>vsplit</code> and <code>/layout save</code></td></tr>
+      <tr><td>Aliases with <code>$*</code> and <code>$1</code></td><td><code>/alias</code>, with <code>$nick</code>, <code>$channel</code> and <code>$network</code> too</td></tr>
+      <tr><td>The <code>[time] [nick] [window] [Act:]</code> status bar</td><td>The same, with typing notifications beside it</td></tr>
+      <tr><td>Perl or Python scripts</td><td>Luau scripts, each in a sandbox (below)</td></tr>
+    </tbody>
+  </table>
+  <p>Your settings live in one <code>config.toml</code>. Commands like <code>/server add</code> and <code>/set</code> write it for you and keep your comments, and passwords stay in your keyring or a password manager. <a href="docs/KEYBINDINGS.html">Every key</a> and <a href="docs/COMMANDS.html">every command</a> is in the docs.</p>
+</section>
+
+<section id="script" class="split" aria-labelledby="script-title">
+  <div class="prose">
+    <h2 id="script-title">Scripting with Luau</h2>
+    <p>Scripts react to messages and joins, add commands, print and set timers. Each runs in a sandbox of its own: no files, no network and no programs, with limits on time and memory.</p>
+    <p>A script acts for you on the network only if you allow it. This one, <code>/slap</code>, needs <code>allow = ["send"]</code> in its <code>[[script]]</code> entry.</p>
+    <p><a href="docs/SCRIPTING.html">The scripting guide</a> covers the whole API.</p>
+  </div>
+  <div class="code">
+<pre><code><!-- irsty:file examples/scripts/slap.luau --><span class="c">-- slap.luau: /slap &lt;nick&gt; slaps someone with a large trout, irssi-style.</span>
+<span class="c">-- It acts for you, so it needs the send capability:</span>
+<span class="c">--</span>
+<span class="c">--   [[script]]</span>
+<span class="c">--   path = "scripts/slap.luau"</span>
+<span class="c">--   allow = ["send"]</span>
+
+irsty.command("slap", function(args, here)
+    local nick = args:match("^%s*(%S+)")
+    if not nick then
+        irsty.print("Usage: /slap &lt;nick&gt;")
+        return
+    end
+    if not here or not here.buffer then
+        irsty.print("/slap needs a channel or query")
+        return
+    end
+    irsty.exec("/me slaps " .. nick .. " around a bit with a large trout")
+end)<!-- /irsty:file --></code></pre>
+  </div>
+</section>
+
+<section id="a11y" class="split" aria-labelledby="a11y-title">
+  <div class="prose">
+    <h2 id="a11y-title">Accessible by design</h2>
+    <p><code>irsty --plain</code> is a line-by-line interface for screen readers and braille displays. Nothing is drawn: new lines are printed as they arrive, mentions from other windows too, and you type on an ordinary line.</p>
+    <p>Accessible mode keeps the full-screen interface but makes it one column of plain ASCII, and puts words beside anything shown only by colour. The <code>high-contrast</code> theme needs no colour at all.</p>
+    <p><a href="docs/ACCESSIBILITY.html">Accessibility in the docs</a></p>
+  </div>
+  <figure class="screen small">
+    <div class="term">
+<pre><!-- irsty:frame accessible --><span class="fbg bfg">Irsty, a modern IRC client for the terminal | v0.1.0 is out: https://gawbul.gith</span>
+09:01 <span class="B">       --&gt;</span> | <span class="B">gawbul</span> (~g@user/gawbul) has joined <span class="B">#irsty</span>
+09:01         -- | Topic for <span class="B">#irsty</span>: Irsty, a modern IRC client for the terminal
+                 | | v0.1.0 is out: <span class="U">https://gawbul.github.io/irsty/</span>
+09:01         -- | #irsty: 6 users
+09:30 <span class="f1">     alice</span> | morning all
+09:31 <span class="f10">       bob</span> | installed it with brew last night, and history just works
+                 | through soju
+09:32 <span class="B">         *</span> | <span class="f2">carol</span> puts the kettle on
+09:33 <span class="f13">      dave</span> | does it do SASL?
+09:34 <span class="f11">       eve</span> | dave: PLAIN, SCRAM and EXTERNAL, and the password can live in
+                 | your keyring
+09:35 <span class="f13">      dave</span> | <span class="B">nice</span>, that was the last thing keeping me on weechat
+09:36 <span class="B">       --&gt;</span> | <span class="B">frank</span> (f@host) has joined <span class="B">#irsty</span>
+09:37 <span class="fbg bfg B">    !alice</span> | gawbul: the split windows are lovely, thank you
+09:40 <span class="f11">    gawbul</span> | <span class="I">alice: glad you like them (sending)</span>
+<span class="fbg bfg">[09:40] [gawbul] [4:libera/#irsty] [Act: </span><span class="fbg bfg B">3!</span><span class="fbg bfg">,</span><span class="fbg bfg B">6</span><span class="fbg bfg">] </span><span class="fbg bfg I"> eve is typing...</span><span class="fbg bfg">                </span>
+<span class="B">[#irsty] </span><!-- /irsty:frame --></pre>
+    </div>
+    <figcaption>Accessible mode, at 80 columns.</figcaption>
+  </figure>
+</section>
+
+<section id="install" class="prose" aria-labelledby="install-title">
+  <h2 id="install-title">Install</h2>
+  <dl class="ways">
+    <dt>Homebrew, on macOS and Linux</dt>
+    <dd><div class="cmd"><code>brew install gawbul/tap/irsty</code><button class="copy" type="button" data-copy="brew install gawbul/tap/irsty">Copy</button></div></dd>
+    <dt>Shell installer, on macOS and Linux</dt>
+    <dd><div class="cmd"><code>curl --proto '=https' --tlsv1.2 -LsSf https://github.com/gawbul/irsty/releases/latest/download/irsty-installer.sh | sh</code><button class="copy" type="button" data-copy="curl --proto '=https' --tlsv1.2 -LsSf https://github.com/gawbul/irsty/releases/latest/download/irsty-installer.sh | sh">Copy</button></div></dd>
+    <dt>Scoop, on Windows</dt>
+    <dd><div class="cmd"><code>scoop bucket add gawbul https://github.com/gawbul/scoop-bucket<br>scoop install gawbul/irsty</code><button class="copy" type="button" data-copy="scoop bucket add gawbul https://github.com/gawbul/scoop-bucket&#10;scoop install gawbul/irsty">Copy</button></div></dd>
+    <dt>PowerShell installer, on Windows</dt>
+    <dd><div class="cmd"><code>powershell -ExecutionPolicy Bypass -c "irm https://github.com/gawbul/irsty/releases/latest/download/irsty-installer.ps1 | iex"</code><button class="copy" type="button" data-copy="powershell -ExecutionPolicy Bypass -c &quot;irm https://github.com/gawbul/irsty/releases/latest/download/irsty-installer.ps1 | iex&quot;">Copy</button></div></dd>
+    <dt>Nix, on Linux and macOS</dt>
+    <dd><div class="cmd"><code>nix profile install github:gawbul/irsty</code><button class="copy" type="button" data-copy="nix profile install github:gawbul/irsty">Copy</button></div></dd>
+    <dt>Cargo, anywhere Rust builds</dt>
+    <dd><div class="cmd"><code>cargo install irsty</code><button class="copy" type="button" data-copy="cargo install irsty">Copy</button></div></dd>
+  </dl>
+  <p>Arch Linux: a <code>PKGBUILD</code> is <a href="https://github.com/gawbul/irsty/tree/main/packaging/aur">in the repository</a>, and the AUR package is on its way. The <a href="https://github.com/gawbul/irsty/releases">releases</a> also have archives for each platform, with the man page and shell completions.</p>
+  <p>Then run <code>irsty</code>, and add a network with <code>/server add</code>.</p>
+</section>
+
+<section id="docs" class="prose" aria-labelledby="docs-title">
+  <h2 id="docs-title">Documentation</h2>
+  <ul class="guides">
+    <li><a href="docs/CONFIG.html">Configuration</a>: every setting in <code>config.toml</code></li>
+    <li><a href="docs/COMMANDS.html">Commands</a>: from <code>/join</code> to <code>/dcc</code></li>
+    <li><a href="docs/KEYBINDINGS.html">Keys</a>: both keymaps, and <code>/bind</code></li>
+    <li><a href="docs/SCRIPTING.html">Scripting</a>: the Luau API and its sandbox</li>
+    <li><a href="docs/ACCESSIBILITY.html">Accessibility</a>: plain mode, accessible mode and themes</li>
+    <li><a href="docs/PACKAGING.html">Packaging and releases</a>: for packagers and contributors</li>
+  </ul>
+</section>
+
+</main>
+
+<footer class="foot">
+  <p>Irsty is free software under the Apache License 2.0, written in Rust with <a href="https://ratatui.rs">ratatui</a>.</p>
+  <p><a href="https://github.com/gawbul/irsty">Source</a> <a href="https://crates.io/crates/irsty">crates.io</a> <a href="https://github.com/gawbul/irsty/blob/main/CHANGELOG.md">Changelog</a> <a href="https://github.com/gawbul/irsty/issues">Issues</a></p>
+  <p class="fonts">Set in Atkinson Hyperlegible Next and Monaspace Neon, both under the SIL Open Font License.</p>
+</footer>
+</body>
+</html>
