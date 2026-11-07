@@ -12,6 +12,7 @@ pub mod input;
 pub mod keymap;
 pub mod notify;
 pub mod panes;
+pub mod plain;
 pub mod run;
 pub mod script;
 pub mod scrollback;

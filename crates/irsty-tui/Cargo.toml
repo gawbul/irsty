@@ -18,7 +18,7 @@ irsty-core.workspace = true
 irsty-proto.workspace = true
 jiff = "0.2.38"
 ratatui = "0.30.2"
-tokio = { version = "1.54.1", features = ["rt", "macros", "time", "signal"] }
+tokio = { version = "1.54.1", features = ["rt", "macros", "time", "signal", "io-std", "io-util"] }
 tracing = "0.1.44"
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.3"
