@@ -4,7 +4,7 @@
 
 A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](https://ratatui.rs). It is a spiritual successor to irssi and WeeChat: fast, readable out of the box, scriptable, with first-class IRCv3 support and good support for bouncers (soju, ZNC).
 
-> **Status:** early development, but usable day to day. Milestones M0 to M14 are done: several networks at once, the core and modern IRCv3 extensions (history, typing, replies, reactions, multi-line messages), bouncer support, the full command set, search, split windows, themes, Luau scripting, and accessibility (a plain mode for screen readers, an accessible mode and a high-contrast theme). Still to come: packaged releases with a man page and shell completions (M15), and DCC (M16). See [`PLAN.md`](PLAN.md) for the roadmap.
+> **Status:** early development, but usable day to day. Milestones M0 to M15 are done: several networks at once, the core and modern IRCv3 extensions (history, typing, replies, reactions, multi-line messages), bouncer support, the full command set, search, split windows, themes, Luau scripting, accessibility (a plain mode for screen readers, an accessible mode and a high-contrast theme), and the release tooling (a man page, shell completions, release archives built by dist, and Homebrew, AUR and Nix templates). Still to come: DCC (M16). There are no releases yet, so for now Irsty is built from source. See [`PLAN.md`](PLAN.md) for the roadmap.
 
 ## Goals
 
@@ -35,8 +35,9 @@ A modern, keyboard-driven terminal IRC client written in Rust with [ratatui](htt
 - **Config tools:** `/reload` reads the file again after you edit it (networks included), `irsty --check-config` checks a file without starting, and `irsty --print-default-config` prints one with every setting at its default.
 - **CTCP:** answers `VERSION`, `PING`, `TIME`, `CLIENTINFO` and `SOURCE`, rate-limited.
 - **Headless mode:** `--headless` prints every buffer's new lines to stdout.
+- **Man page and completions:** `irsty --man` and `irsty --completions <bash|zsh|fish|powershell|elvish>`, with copies in `assets/` for packagers ([docs/PACKAGING.md](docs/PACKAGING.md)).
 
-Not yet: releases, a man page and shell completions (M15), and DCC (M16). See [`PLAN.md`](PLAN.md).
+Not yet: DCC (M16), and a first release. See [`PLAN.md`](PLAN.md).
 
 ## Quick start
 
@@ -46,7 +47,7 @@ Build it (rustup installs the toolchain pinned in `rust-toolchain.toml` automati
 cargo build --release
 ```
 
-Then run `./target/release/irsty` and add a network from inside it:
+The man page and shell completions are in `assets/` ([docs/PACKAGING.md](docs/PACKAGING.md#man-page-and-completions) says where each goes). Then run `./target/release/irsty` and add a network from inside it:
 
 ```
 /server add libera irc.libera.chat -nick yournick,yournick_ -autojoin #irsty
@@ -97,6 +98,7 @@ mise run run:ergo   # Irsty itself, connected to it
 mise run soju       # a local soju bouncer in front of Ergo (build it once with mise run soju:install)
 mise run test:soju  # integration tests against it
 mise run fuzz       # all fuzz targets for 10 minutes (needs nightly)
+mise run assets     # regenerate the man page and completions after changing a flag
 ```
 
 The tasks wrap plain `cargo` commands and `scripts/`, so everything works without mise too. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
@@ -109,6 +111,7 @@ The tasks wrap plain `cargo` commands and `scripts/`, so everything works withou
 - [Commands](docs/COMMANDS.md)
 - [Scripting](docs/SCRIPTING.md)
 - [Accessibility](docs/ACCESSIBILITY.md)
+- [Packaging and releases](docs/PACKAGING.md)
 - [Decision records](docs/adr/)
 - [Dependency versions](docs/VERSIONS.md)
 - [Contributing](CONTRIBUTING.md)

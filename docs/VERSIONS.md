@@ -11,7 +11,7 @@ All versions were checked live on **2026-10-30** using `rustup`, `cargo info` an
 | Edition | 2024 | Latest edition this toolchain supports. |
 | MSRV (`rust-version`) | 1.97 | Policy: trail stable by two releases and bump deliberately ([ADR 0006](adr/0006-msrv-policy.md)). The MSRV job in CI and the gate builds with it, so a dependency that needs newer fails there first. |
 | rustup | 1.29.2 | |
-| Developer tools | installed (mise) | See the table below. Still to add: cargo-dist (Phase 4). |
+| Developer tools | installed (mise) | See the table below, dist included. |
 
 ## The original plan
 
@@ -34,8 +34,8 @@ The dependencies chosen before any code was written. Most are in use; the "Not u
 | directories | 6.0.0 | 2025-01-12 | XDG and platform paths. Stable, low churn. |
 | keyring | 4.2.0 | 2026-08-29 | OS secret store. |
 | clap | 4.6.7 | | CLI (derive). |
-| clap_complete | 4.6.11 | | Not yet: shell completions arrive in M15. |
-| clap_mangen | 0.3.3 | | Not yet: the man page arrives in M15. |
+| clap_complete | 4.6.11 | | Used from M15: `irsty --completions`. |
+| clap_mangen | 0.3.3 | | Used from M15: `irsty --man` (its `roff` 1.1.1 re-export writes the extra sections). |
 | thiserror | 2.0.21 | | Errors in library crates. |
 | color-eyre | 0.6.5 | 2025-05-30 | Errors in the binary. Releases are slow but the project is fine. |
 | tracing | 0.1.44 | | Structured logging. |
@@ -124,6 +124,7 @@ Ergo v2.19.1 (2026-08-05) for integration tests: the container `ghcr.io/ergochat
 | cargo-llvm-cov | 0.9.1 | Needs the `llvm-tools` rustup component. |
 | cargo-insta | 1.49.0 | Matches the `insta` crate version. Used by `mise run snap`. |
 | bacon | 3.26.0 | `mise run watch`. AGPL-3.0, which is fine for a tool we run but never link. Chosen over cargo-watch, which is on life support and recommends bacon. |
+| cargo-dist (`dist`) | 0.34.0 (2026-11-01) | Release archives, installers and the release workflow (`dist-workspace.toml`, `.github/workflows/release.yml`). Pinned so `dist generate` in CI and locally agree. MIT OR Apache-2.0. |
 | cargo-fuzz | 0.13.2 | Needs nightly (1.101.0-nightly 2026-10-29 when checked). On networks where nightly cargo stalls fetching the index, set `CARGO_HTTP_MULTIPLEXING=false`. |
 
 ### Test data

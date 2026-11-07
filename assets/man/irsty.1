@@ -1,0 +1,100 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH irsty 1 2026-11-07 "irsty 0.1.0" "Irsty Manual"
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH NAME
+irsty \- A modern, keyboard\-driven terminal IRC client
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH SYNOPSIS
+\fBirsty\fR [\fB\-c\fR|\fB\-\-config\fR] [\fB\-\-headless\fR] [\fB\-\-plain\fR] [\fB\-\-check\-config\fR] [\fB\-\-print\-default\-config\fR] [\fB\-\-man\fR] [\fB\-\-completions\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] 
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH DESCRIPTION
+A modern, keyboard\-driven terminal IRC client, a spiritual successor to irssi and WeeChat: several networks at once, IRCv3 throughout (history, typing, replies, reactions), bouncer support (soju, ZNC), search, split windows, themes, Luau scripting, and an accessible plain mode for screen readers. TLS is verified against the system\*(Aqs certificates, secrets stay in the keyring, and text from the network can never send escape sequences to your terminal.
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH OPTIONS
+.TP
+\fB\-c\fR, \fB\-\-config\fR \fI<PATH>\fR
+Configuration file [default: config.toml in the platform config directory]
+.TP
+\fB\-\-headless\fR
+Run without the terminal UI, printing every buffer\*(Aqs new lines to stdout
+.TP
+\fB\-\-plain\fR
+A line\-by\-line interface for screen readers and braille displays: nothing is drawn, lines are printed as they arrive, and commands are read a line at a time
+.TP
+\fB\-\-check\-config\fR
+Check the configuration file, report any problems, and exit (status 1 if there are any)
+.TP
+\fB\-\-print\-default\-config\fR
+Print a configuration file with every setting at its default, and exit
+.TP
+\fB\-\-man\fR
+Print the man page (roff), and exit
+.TP
+\fB\-\-completions\fR \fI<SHELL>\fR
+Print completions for SHELL, and exit
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+bash
+.IP \(bu 2
+elvish
+.IP \(bu 2
+fish
+.IP \(bu 2
+powershell
+.IP \(bu 2
+zsh
+.RE
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH "GETTING STARTED"
+Irsty starts with a buffer list, the scrollback and an input line. Type messages, or commands starting with /: /server add to add a network, /join, /msg, /window to switch buffers, /help for everything. /quit leaves. Without a config file Irsty starts empty and writes one when you add a network.
+.SH FILES
+.TP
+\fB$XDG_CONFIG_HOME/irsty/config.toml\fR
+The configuration (usually ~/.config/irsty/config.toml on Linux and macOS). irsty \-\-print\-default\-config prints every setting at its default.
+.TP
+\fB~/.local/share/irsty/\fR
+Data on Linux (~/Library/Application Support/irsty/ on macOS): logs/ with a plain\-text log per buffer, search.sqlite for /search, and irsty.log with Irsty\*(Aqs own diagnostics.
+.SH ENVIRONMENT
+.TP
+\fBXDG_CONFIG_HOME\fR
+Where the config directory is; ignored unless absolute.
+.TP
+\fBIRSTY_LOG\fR
+Filter for irsty.log, such as irsty_core=debug. Passwords are never logged.
+.TP
+\fBNO_COLOR\fR
+If set and not empty, no colours (unless [theme] colours says otherwise).
+.TP
+\fBCOLORTERM, TERM\fR
+How many colours the terminal shows, with [theme] colours = "auto".
+.TP
+\fBTMUX\fR
+Inside tmux, notifications are wrapped so tmux passes them on.
+.SH "EXIT STATUS"
+0 on success. 1 if \-\-check\-config finds a problem. Other failures (an unreadable config, a terminal that can\*(Aqt be set up) exit with a non\-zero status and a message.
+.SH "SEE ALSO"
+\fIirssi\fR(1), \fIweechat\fR(1). The full documentation, configuration, commands, key bindings, scripting and accessibility, is at https://github.com/gawbul/irsty/tree/main/docs.
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH VERSION
+v0.1.0
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.SH AUTHORS
+

@@ -1,6 +1,7 @@
 //! Irsty: a modern, keyboard-driven terminal IRC client.
 #![forbid(unsafe_code)]
 
+mod assets;
 mod headless;
 
 use std::fmt::Write as _;
@@ -15,7 +16,17 @@ use tracing_subscriber::EnvFilter;
 
 /// A modern, keyboard-driven terminal IRC client.
 #[derive(Debug, Parser)]
-#[command(version, about, long_about = None)]
+#[command(
+    version,
+    about,
+    long_about = "A modern, keyboard-driven terminal IRC client, a spiritual successor to irssi \
+                  and WeeChat: several networks at once, IRCv3 throughout (history, typing, \
+                  replies, reactions), bouncer support (soju, ZNC), search, split windows, \
+                  themes, Luau scripting, and an accessible plain mode for screen readers. \
+                  TLS is verified against the system's certificates, secrets stay in the \
+                  keyring, and text from the network can never send escape sequences to your \
+                  terminal."
+)]
 #[allow(
     clippy::struct_excessive_bools,
     reason = "command-line flags; clap keeps the modes apart"
@@ -43,11 +54,29 @@ struct Cli {
     /// Print a configuration file with every setting at its default, and exit
     #[arg(long, conflicts_with_all = ["headless", "plain"])]
     print_default_config: bool,
+
+    /// Print the man page (roff), and exit
+    #[arg(long, conflicts_with_all = ["headless", "plain", "check_config", "print_default_config"])]
+    man: bool,
+
+    /// Print completions for SHELL, and exit
+    #[arg(long, value_name = "SHELL", conflicts_with_all = ["headless", "plain", "check_config", "print_default_config", "man"])]
+    completions: Option<clap_complete::Shell>,
 }
 
 fn main() -> Result<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
+    if cli.man {
+        std::io::stdout().lock().write_all(&assets::man()?)?;
+        return Ok(());
+    }
+    if let Some(shell) = cli.completions {
+        std::io::stdout()
+            .lock()
+            .write_all(&assets::completions(shell))?;
+        return Ok(());
+    }
     if cli.print_default_config {
         std::io::stdout()
             .lock()

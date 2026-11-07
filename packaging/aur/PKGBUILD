@@ -1,0 +1,45 @@
+# An Arch Linux package that builds Irsty from a release's source tarball.
+# Template: set pkgver and the checksum for the release (updpkgsums does it),
+# then publish as irsty on the AUR (see docs/PACKAGING.md).
+pkgname=irsty
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Modern, keyboard-driven terminal IRC client'
+arch=('x86_64' 'aarch64')
+url='https://github.com/gawbul/irsty'
+license=('Apache-2.0')
+depends=('gcc-libs' 'glibc')
+makedepends=('cargo')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+options=('!lto')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p irsty
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen -p irsty-proto
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/irsty "$pkgdir/usr/bin/irsty"
+  install -Dm644 assets/man/irsty.1 "$pkgdir/usr/share/man/man1/irsty.1"
+  install -Dm644 assets/completions/irsty.bash "$pkgdir/usr/share/bash-completion/completions/irsty"
+  install -Dm644 assets/completions/_irsty "$pkgdir/usr/share/zsh/site-functions/_irsty"
+  install -Dm644 assets/completions/irsty.fish "$pkgdir/usr/share/fish/vendor_completions.d/irsty.fish"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

@@ -1,0 +1,43 @@
+#compdef irsty
+
+autoload -U is-at-least
+
+_irsty() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" : \
+'-c+[Configuration file \[default\: config.toml in the platform config directory\]]:PATH:_files' \
+'--config=[Configuration file \[default\: config.toml in the platform config directory\]]:PATH:_files' \
+'(--headless --plain --check-config --print-default-config --man)--completions=[Print completions for SHELL, and exit]:SHELL:(bash elvish fish powershell zsh)' \
+'--headless[Run without the terminal UI, printing every buffer'\''s new lines to stdout]' \
+'(--headless)--plain[A line-by-line interface for screen readers and braille displays\: nothing is drawn, lines are printed as they arrive, and commands are read a line at a time]' \
+'(--headless --plain --print-default-config)--check-config[Check the configuration file, report any problems, and exit (status 1 if there are any)]' \
+'(--headless --plain)--print-default-config[Print a configuration file with every setting at its default, and exit]' \
+'(--headless --plain --check-config --print-default-config)--man[Print the man page (roff), and exit]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+'-V[Print version]' \
+'--version[Print version]' \
+&& ret=0
+}
+
+(( $+functions[_irsty_commands] )) ||
+_irsty_commands() {
+    local commands; commands=()
+    _describe -t commands 'irsty commands' commands "$@"
+}
+
+if [ "$funcstack[1]" = "_irsty" ]; then
+    _irsty "$@"
+else
+    compdef _irsty irsty
+fi

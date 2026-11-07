@@ -28,6 +28,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- M15, releases and packaging:
+  - `irsty --man` prints a man page (with files, environment and exit status as well as the options), and `irsty --completions <shell>` prints completions for bash, zsh, fish, PowerShell and Elvish. Copies live in `assets/`; `mise run assets` regenerates them.
+  - Release archives for macOS (arm64 and x86_64), Linux (x86_64 and arm64) and Windows, with the man page and completions inside, checksums, and shell and PowerShell installers, built by dist from a version tag.
+  - Templates for a Homebrew formula, an AUR `PKGBUILD` and a Nix derivation in `packaging/`, and `docs/PACKAGING.md`.
+  - Every crate is `publish = false`.
 - M14, accessibility:
   - `irsty --plain`: a line-by-line interface for screen readers and braille displays. Nothing is drawn; new lines in the current buffer are printed as they arrive, mentions and private messages from other buffers are announced with where they came from, switching buffers reads out what you hadn't seen, and commands are typed on an ordinary line.
   - `[ui] accessible` (`/set ui.accessible on`): no side panels, ASCII instead of box drawing and symbols, and words beside anything shown only by colour (`!nick` for mentions, `(sending)`, `>` on the focused pane, `!` in the activity list).

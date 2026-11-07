@@ -9,6 +9,7 @@
 "cargo:cargo-llvm-cov" = "0.9.1"
 "cargo:cargo-insta" = "1.49.0"
 "cargo:bacon" = "3.26.0"
+"cargo:cargo-dist" = "0.34.0"
 
 # Setup
 
@@ -122,6 +123,10 @@ run = "cargo clippy --workspace --all-targets --all-features --fix --allow-dirty
 [tasks.fix]
 description = "Apply clippy fixes, then format"
 run = [{ task = "lint:fix" }, { task = "fmt" }]
+
+[tasks.assets]
+description = "Regenerate the man page and shell completions in assets/"
+run = "./scripts/assets.sh"
 
 [tasks.gate]
 description = "Run the full quality gate (required before a milestone is done)"
