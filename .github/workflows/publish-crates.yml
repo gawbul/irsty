@@ -21,31 +21,47 @@ permissions: {}
 
 jobs:
   publish:
-    # Only a successful Release run for a pushed tag in this repository, and
-    # not a prerelease (a version with a hyphen, such as v0.2.0-rc.1).
+    # Only a successful run of release.yml (not just any workflow named
+    # Release) for a tag pushed to this repository. The tag itself is checked
+    # in the first step.
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      startsWith(github.event.workflow_run.head_branch, 'v') &&
-      !contains(github.event.workflow_run.head_branch, '-')
+      github.event.workflow_run.path == '.github/workflows/release.yml' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     environment: crates-io
     permissions:
       contents: read
       id-token: write
-    env:
-      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
           persist-credentials: false
+      - name: Check the tag
+        # Fails closed unless the run was for a release version tag (no
+        # prereleases) that points at the commit built, on main.
+        env:
+          TAG: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a release tag: $TAG"; exit 1; }
+          [[ "$(git rev-parse "refs/tags/$TAG^{commit}")" == "$HEAD_SHA" ]] || { echo "::error::$TAG does not point at $HEAD_SHA"; exit 1; }
+          git merge-base --is-ancestor "$HEAD_SHA" origin/main || { echo "::error::$HEAD_SHA is not on main"; exit 1; }
+          [[ "$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "irsty") | .version')" == "${TAG#v}" ]] || { echo "::error::Cargo.toml version does not match $TAG"; exit 1; }
+      - name: Check for a first-release token
+        id: token
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: echo "set=$([[ -n "$CARGO_REGISTRY_TOKEN" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - name: Authenticate with trusted publishing
         id: auth
-        if: env.CARGO_REGISTRY_TOKEN == ''
+        if: steps.token.outputs.set == 'false'
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
       - name: Publish in dependency order
         env:
-          CARGO_REGISTRY_TOKEN: ${{ env.CARGO_REGISTRY_TOKEN || steps.auth.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN || steps.auth.outputs.token }}
         run: cargo publish --workspace --locked
