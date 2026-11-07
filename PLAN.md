@@ -148,6 +148,10 @@ Agreed 2026-11-07, after the release. *(Done 2026-11-07, apart from publishing t
 - All three are built and installed in CI (`packaging.yml`).
 - A project site on GitHub Pages, launched with the release: [mdBook](https://rust-lang.github.io/mdBook/) built from `docs/` (so nothing is written twice), with a front page saying what Irsty is, with screenshots and how to install it, above the guides (configuration, commands, keys, scripting, accessibility, packaging). A GitHub Actions workflow builds it on every push to `main` and deploys it with `actions/deploy-pages`; the user turns Pages on in the repository settings. Links from the README, the crates' `homepage`, and the man page's SEE ALSO then point at it. Check the mdBook version live when this starts.
 
+### After v0.1.0
+
+Candidates for what comes next, IRCv3 and otherwise, are in [`ROADMAP.md`](ROADMAP.md). An item picked up from there becomes a milestone here.
+
 ## 5. Things I'd push back on or do differently from the brief
 
 - **Hot-reload of the config file:** use an explicit `/reload` only. File watchers fire on partial writes from editors, and silently reloading a broken config mid-session is worse than a command.
