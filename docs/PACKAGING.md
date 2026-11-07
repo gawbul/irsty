@@ -37,7 +37,7 @@ Releases are cut by pushing a version tag: the `Release` workflow (`.github/work
 5. `./scripts/gate.sh`, then `mise exec -- dist plan` to check the archives, and `cargo package --workspace` to check the crates build from what would be published (it resolves the unpublished crates locally).
 6. Merge, then tag the merge commit on `main` and push the tag: `git tag v0.2.0 && git push origin v0.2.0`. Wait for the `Release` workflow, then `Publish crates` (`gh run watch`). Published versions can be yanked but never deleted.
 
-dist itself is pinned in `mise.toml`. After changing `dist-workspace.toml` (or upgrading dist), run `mise exec -- dist generate` to regenerate the workflow; never edit `release.yml` by hand, or the check fails.
+dist itself is pinned in `mise.toml`. After changing `dist-workspace.toml` (or upgrading dist), run `mise exec -- dist generate` to regenerate the workflow; never edit `release.yml` by hand, or the check fails. The actions in `release.yml` are pinned to commits by `[dist.github-action-commits]` in `dist-workspace.toml`; when updating the other workflows' pins, update these too ([VERSIONS](VERSIONS.md#github-actions-checked-2026-11-07) lists them). Upgrading dist can change which actions it uses, so check the regenerated workflow for any `@v` left unpinned.
 
 ## The crates
 
